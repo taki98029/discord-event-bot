@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ChoiemuEventBot 管理</title>
+    <style>
+      :root {
+        --bg: #0f1117; --panel: #1a1d27; --border: #2a2e3a; --text: #e6e8ee;
+        --muted: #9aa0ad; --accent: #5865f2; --danger: #ed4245; --ok: #3ba55d;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--bg); color: var(--text);
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 14px; }
+      header { padding: 16px 20px; border-bottom: 1px solid var(--border);
+        display: flex; align-items: center; gap: 16px; }
+      header h1 { font-size: 16px; margin: 0; }
+      .tabs { display: flex; gap: 4px; }
+      .tabs button { background: none; border: none; color: var(--muted);
+        padding: 8px 14px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+      .tabs button.active { background: var(--panel); color: var(--text); }
+      main { padding: 20px; max-width: 900px; margin: 0 auto; }
+      .panel { background: var(--panel); border: 1px solid var(--border);
+        border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+      label { display: block; color: var(--muted); margin: 10px 0 4px; }
+      input, select { width: 100%; padding: 8px 10px; background: var(--bg);
+        border: 1px solid var(--border); border-radius: 8px; color: var(--text); }
+      button.btn { background: var(--accent); color: #fff; border: none;
+        padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+      button.btn.secondary { background: var(--border); }
+      button.btn.danger { background: var(--danger); }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--border); }
+      th { color: var(--muted); font-weight: 600; }
+      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      .toast { position: fixed; bottom: 20px; right: 20px; padding: 12px 16px;
+        border-radius: 8px; background: var(--ok); color: #fff; opacity: 0;
+        transition: opacity .2s; pointer-events: none; }
+      .toast.show { opacity: 1; }
+      .toast.err { background: var(--danger); }
+      .hidden { display: none; }
+      .muted { color: var(--muted); }
+      .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    </style>
+  </head>
+  <body>
+    <!-- トークンゲート -->
+    <div id="gate" class="panel hidden" style="max-width: 420px; margin: 80px auto;">
+      <h1>管理トークン</h1>
+      <p class="muted">ADMIN_TOKEN を入力してください。</p>
+      <input id="tokenInput" type="password" placeholder="ADMIN_TOKEN" />
+      <div style="margin-top: 12px;"><button class="btn" id="tokenSave">ログイン</button></div>
+    </div>
+
+    <div id="app" class="hidden">
+      <header>
+        <h1>🗓 ChoiemuEventBot 管理</h1>
+        <nav class="tabs">
+          <button data-tab="config" class="active">設定</button>
+          <button data-tab="members">メンバーマスタ</button>
+          <button data-tab="events">出欠記録</button>
+        </nav>
+        <span style="flex: 1"></span>
+        <button class="btn secondary" id="logout">ログアウト</button>
+      </header>
+      <main>
+        <section id="tab-config" class="panel"></section>
+        <section id="tab-members" class="panel hidden"></section>
+        <section id="tab-events" class="panel hidden"></section>
+      </main>
+    </div>
+
+    <div id="toast" class="toast"></div>
+
+    <script>
+      const TOKEN_KEY = 'choiemu_admin_token';
+      let token = localStorage.getItem(TOKEN_KEY) || '';
+
+      const CONFIG_FIELDS = [
+        ['Event_DayOfWeek', '開催曜日 (例: WEDNESDAY)'],
+        ['Event_StartTime', '開始時刻 HH:MM (例: 21:00)'],
+        ['Recruit_DaysBefore', '募集開始日（何日前）'],
+        ['Remind_Start_Days', '未回答リマインド開始日'],
+        ['Remind_Undecided_Days', '未定者リマインド日'],
+        ['Quota_Interval_Days', 'ノルマ間隔日数'],
+        ['Recruit_Mention', '募集メンション (@everyone / ロールID)'],
+        ['Notification_Time', '通知時刻（現状未使用）'],
+      ];
+
+      const $ = (s) => document.querySelector(s);
+      function toast(msg, err) {
+        const t = $('#toast');
+        t.textContent = msg;
+        t.className = 'toast show' + (err ? ' err' : '');
+        setTimeout(() => (t.className = 'toast'), 2200);
+      }
+
+      async function api(path, opts = {}) {
+        const res = await fetch('/api/admin' + path, {
+          ...opts,
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer ' + token,
+            ...(opts.headers || {}),
+          },
+        });
+        if (res.status === 401) {
+          showGate();
+          throw new Error('認証に失敗しました');
+        }
+        if (!res.ok) throw new Error('エラー: ' + res.status);
+        return res.status === 204 ? null : res.json();
+      }
+
+      function showGate() {
+        $('#app').classList.add('hidden');
+        $('#gate').classList.remove('hidden');
+      }
+      function showApp() {
+        $('#gate').classList.add('hidden');
+        $('#app').classList.remove('hidden');
+        loadConfig();
+      }
+
+      // --- 設定 ---
+      async function loadConfig() {
+        const cfg = await api('/config');
+        const rows = CONFIG_FIELDS.map(
+          ([k, label]) =>
+            `<label>${label}</label><input data-k="${k}" value="${(cfg[k] ?? '').replace(/"/g, '&quot;')}" />`,
+        ).join('');
+        $('#tab-config').innerHTML =
+          `<h2>設定</h2>${rows}<div style="margin-top:16px"><button class="btn" id="saveConfig">保存</button></div>`;
+        $('#saveConfig').onclick = async () => {
+          const config = {};
+          document.querySelectorAll('#tab-config input[data-k]').forEach((el) => {
+            config[el.dataset.k] = el.value;
+          });
+          try {
+            await api('/config', { method: 'PUT', body: JSON.stringify({ config }) });
+            toast('設定を保存しました');
+          } catch (e) {
+            toast(e.message, true);
+          }
+        };
+      }
+
+      // --- メンバー ---
+      async function loadMembers() {
+        const members = await api('/members');
+        const rows = members
+          .map(
+            (m) => `<tr>
+              <td>${m.display_name || m.user_name || ''}</td>
+              <td class="muted">${m.user_id}</td>
+              <td>${m.status || '🟢 アクティブ'}</td>
+              <td class="actions">
+                <button class="btn secondary" data-edit="${m.user_id}">編集</button>
+                <button class="btn danger" data-del="${m.user_id}">削除</button>
+              </td></tr>`,
+          )
+          .join('');
+        $('#tab-members').innerHTML = `<h2>メンバーマスタ (${members.length}名)</h2>
+          <table><thead><tr><th>表示名</th><th>User ID</th><th>ステータス</th><th></th></tr></thead>
+          <tbody>${rows}</tbody></table>
+          <h3 style="margin-top:24px">追加 / 更新</h3>
+          <div class="row">
+            <div><label>User ID</label><input id="mUserId" /></div>
+            <div><label>表示名</label><input id="mDisplay" /></div>
+            <div><label>ユーザー名</label><input id="mUserName" /></div>
+            <div><label>ステータス（空=アクティブ）</label><input id="mStatus" placeholder="休止中 / スタッフ 等" /></div>
+          </div>
+          <div style="margin-top:12px"><button class="btn" id="saveMember">保存</button></div>`;
+
+        document.querySelectorAll('[data-del]').forEach((b) => {
+          b.onclick = async () => {
+            if (!confirm('削除しますか？')) return;
+            try {
+              await api('/members/' + encodeURIComponent(b.dataset.del), { method: 'DELETE' });
+              toast('削除しました');
+              loadMembers();
+            } catch (e) {
+              toast(e.message, true);
+            }
+          };
+        });
+        document.querySelectorAll('[data-edit]').forEach((b) => {
+          b.onclick = () => {
+            const m = members.find((x) => x.user_id === b.dataset.edit);
+            $('#mUserId').value = m.user_id;
+            $('#mDisplay').value = m.display_name || '';
+            $('#mUserName').value = m.user_name || '';
+            $('#mStatus').value = m.status || '';
+          };
+        });
+        $('#saveMember').onclick = async () => {
+          const body = {
+            user_id: $('#mUserId').value.trim(),
+            display_name: $('#mDisplay').value.trim() || null,
+            user_name: $('#mUserName').value.trim() || null,
+            status: $('#mStatus').value.trim(),
+          };
+          if (!body.user_id) return toast('User ID は必須です', true);
+          try {
+            await api('/members', { method: 'POST', body: JSON.stringify(body) });
+            toast('保存しました');
+            loadMembers();
+          } catch (e) {
+            toast(e.message, true);
+          }
+        };
+      }
+
+      // --- 出欠記録 ---
+      async function loadEvents() {
+        const logs = await api('/event-log?limit=300');
+        const rows = logs
+          .map(
+            (l) => `<tr><td>${l.event_date}</td><td>${l.user_name || l.user_id}</td>
+              <td>${l.status}</td><td class="muted">${(l.updated_at || '').slice(0, 19)}</td></tr>`,
+          )
+          .join('');
+        $('#tab-events').innerHTML = `<h2>出欠記録（直近 ${logs.length} 件）</h2>
+          <table><thead><tr><th>開催日</th><th>メンバー</th><th>回答</th><th>更新</th></tr></thead>
+          <tbody>${rows}</tbody></table>`;
+      }
+
+      // --- タブ切替 ---
+      document.querySelectorAll('.tabs button').forEach((b) => {
+        b.onclick = () => {
+          document.querySelectorAll('.tabs button').forEach((x) => x.classList.remove('active'));
+          b.classList.add('active');
+          const tab = b.dataset.tab;
+          $('#tab-config').classList.toggle('hidden', tab !== 'config');
+          $('#tab-members').classList.toggle('hidden', tab !== 'members');
+          $('#tab-events').classList.toggle('hidden', tab !== 'events');
+          if (tab === 'config') loadConfig();
+          if (tab === 'members') loadMembers();
+          if (tab === 'events') loadEvents();
+        };
+      });
+
+      $('#tokenSave').onclick = () => {
+        token = $('#tokenInput').value.trim();
+        localStorage.setItem(TOKEN_KEY, token);
+        showApp();
+      };
+      $('#logout').onclick = () => {
+        localStorage.removeItem(TOKEN_KEY);
+        token = '';
+        showGate();
+      };
+
+      // 初期表示
+      if (token) showApp();
+      else showGate();
+    </script>
+  </body>
+</html>

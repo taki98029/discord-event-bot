@@ -1,0 +1,27 @@
+name = "choiemu-event-bot"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+# --- D1 データベース ---
+# database_id は `wrangler d1 create choiemu-event-bot-db` 実行後に出力される値を貼り付ける。
+[[d1_databases]]
+binding = "DB"
+database_name = "choiemu-event-bot-db"
+database_id = "PLACEHOLDER_RUN_wrangler_d1_create"
+migrations_dir = "migrations"
+
+# --- 日次 cron（UTC基準。0 12 * * * = JST 21:00）---
+[triggers]
+crons = ["0 12 * * *"]
+
+# --- 管理UI（静的アセット）---
+# ui/ ディレクトリを SPA として配信。env.ASSETS でプログラムからも参照可能。
+[assets]
+directory = "./ui"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+# シークレットは wrangler secret put で設定（コミットしない）:
+#   DISCORD_PUBLIC_KEY / DISCORD_APPLICATION_ID / DISCORD_BOT_TOKEN
+#   DISCORD_CHANNEL_ID / ADMIN_TOKEN

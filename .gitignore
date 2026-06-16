@@ -1,0 +1,25 @@
+node_modules/
+.env
+# Credentials and Secrets
+service-account.json
+credentials.json
+client_secret.json
+*.pem
+*.key
+
+# Logs
+*.log
+npm-debug.log*
+
+# Runtime
+.DS_Store
+Thumbs.db
+
+# Vercel
+.vercel
+
+# Cloudflare / Wrangler
+.wrangler/
+.dev.vars
+dist/
+*.tsbuildinfo

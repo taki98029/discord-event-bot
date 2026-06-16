@@ -1,0 +1,19 @@
+{
+    "version": 2,
+    "rewrites": [
+        {
+            "source": "/api/discord",
+            "destination": "/api/discord.js"
+        },
+        {
+            "source": "/api/cron",
+            "destination": "/api/cron.js"
+        }
+    ],
+    "crons": [
+        {
+            "path": "/api/cron",
+            "schedule": "0 12 * * *"
+        }
+    ]
+}

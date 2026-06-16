@@ -1,0 +1,121 @@
+# 製品要求仕様書 (PRD): Discord Event Master Bot
+# バージョン: 5.0 (Vercel Migration & Feature Enhanced)
+# 作成日: 2026/02/07
+# 更新日: 2026/02/14
+# ファイル形式: txt
+# タイムゾーン: Asia/Tokyo (JST)
+
+## 1. プロジェクト概要
+DiscordとGoogle Sheetsを連携させ、週次イベントの出欠確認・リマインド・参加ノルマ管理を自動化する。
+非エンジニアが運用するため、Googleスプレッドシート上の設定値を変更するだけで運用可能にする。
+**GAS単体運用からVercel + Google Sheets API構成へ移行済み。**
+
+## 2. システム構成
+- **プラットフォーム:** Vercel (Node.js Serverless Functions)
+- **エンドポイント:**
+  - `/api/discord`: Discord Interactions (ボタン/スラッシュコマンド)
+  - `/api/cron`: 日次バッチ処理 (Vercel Cronで定期実行)
+- **データベース:** Google Sheets（3シート構成）。Google Service Accountを使用してアクセス。
+- **Discord連携:** Discord Bot Token (Gateway/API) + Interaction Endpoint。
+- **タイムゾーン:** Asia/Tokyo (JST)
+
+## 3. データベース設計 (Google Sheets)
+
+### 3.1 シート名: `Config` (設定)
+以下をA列(Key)/B列(Value)で管理する。
+- `Event_DayOfWeek`: 開催曜日 (例: `WEDNESDAY`) ※英語大文字表記
+- `Event_StartTime`: 開始時刻 (例: `21:00`) ※HH:MM形式
+- `Recruit_DaysBefore`: 募集開始日 (例: `6`) ※開催6日前に募集
+- `Remind_Start_Days`: 未回答リマインド開始日 (例: `3`) ※3日前から当日まで
+- `Remind_Undecided_Days`: 未定者リマインド日 (例: `1`) ※前日のみ
+- `Quota_Interval_Days`: 必須間隔日数 (例: `30`) ※30日に1回参加必須
+- `Recruit_Mention`: 募集時のメンション (例: `@everyone` / `&123456789`)
+- `Notification_Time`: 通知を行う時刻（時） (例: `21`) ※cron.jsで判定
+
+### 3.2 シート名: `Member_DB` (メンバー台帳)
+- A列: User Name (管理用)
+- B列: Discord User ID (必須: リマインド/メンション用)
+- C列: Status (任意: 値が入っているメンバーは除外対象。例: `休止中`, `スタッフ`, `引退`)
+- D列: Display Name (任意: 状況確認表示用・自動更新)
+
+### 3.3 シート名: `Event_Log` (出欠記録)
+- A列: イベント日付 (YYYY/MM/DD)
+- B列: User ID
+- C列: User Name (Display Name優先)
+- D列: Status (`参加` / `不参加` / `未定`)
+- E列: Timestamp
+
+## 4. 機能・ロジック詳細
+
+### 4.1 ターゲット日付の特定 (`date-utils.js`)
+- 現在日時(JST)を取得。
+- Configの `Event_DayOfWeek` と `Event_StartTime` に基づき、直近の開催日を計算。
+
+### 4.2 日次バッチ処理 (`api/cron.js`)
+Vercel Cronにより定期実行。`Notification_Time` と現在時刻(JST)が一致した場合のみ以下を実行。
+
+1.  **募集 (Recruitment):**
+    - `daysUntilEvent == Recruit_DaysBefore`
+    - Discordチャンネルに募集メッセージとボタンを送信。
+    - `Recruit_Mention` 設定があればメンションを付与。
+
+2.  **未回答リマインド (Unanswered):**
+    - `daysUntilEvent <= Remind_Start_Days`
+    - `Event_Log` に記録がないメンバーを抽出。
+    - **除外条件:** `Member_DB` の Status列に値があるメンバー。
+    - **通知:** 個別DM（ボタン付き）を送信。
+
+3.  **未定者リマインド (Undecided):**
+    - `daysUntilEvent == Remind_Undecided_Days`
+    - `Event_Log` が `未定` のメンバーを抽出。
+    - **除外条件:** `Member_DB` の Status列に値があるメンバー。
+    - **通知:** 個別DM（ボタン付き）を送信。
+
+4.  **ノルマ確認 (Quota Check):**
+    - `daysUntilEvent == Recruit_DaysBefore`
+    - 最終参加日から `Quota_Interval_Days` 以上経過したメンバーを抽出。
+    - **除外条件:** `Member_DB` の Status列に値があるメンバー。
+    - **通知:** チャンネルでメンション通知。
+
+### 4.3 インタラクション処理 (`api/discord.js`)
+
+#### コマンド (Slash Commands)
+管理者権限または指定ロールを持つユーザーのみ実行可能。
+- `/recruit`: 手動で募集メッセージを送信（Cronのリカバリ用）。
+- `/pause @user`: 指定メンバーのStatusを「休止中」に設定。
+- `/resume @user`: 指定メンバーのStatusをクリア（除外解除）。
+- `/members`: 全メンバーのStatus一覧を表示。
+- `/addmember @user`: 指定ユーザーをMember_DBに追加。
+
+#### ボタン操作 (Button Component)
+- **種類:** `参加`, `不参加`, `未定`, `状況確認`
+- **制限:** `Member_DB` の Status列に値があるメンバーは回答不可（エラーメッセージ表示）。状況確認は閲覧可能。
+- **挙動:**
+  - `Event_Log` へUpsert（行があれば更新、なければ追加）。
+  - `Member_DB` の Display Name列をDiscordの表示名で自動更新。
+- **DM対応:** DM内のボタンからも回答可能（`interaction.user` を使用）。
+
+#### 状況確認表示 (`status_{date}`)
+- 対象日の `Event_Log` を集計。
+- `Member_DB` の Display Name を使用してリスト表示。
+- Status列に値があるメンバーは表示から除外。
+- Ephemeralメッセージで返却。
+
+## 5. ディレクトリ構成
+```
+/
+├── api/
+│   ├── discord.js    # Interaction Handler
+│   └── cron.js       # Daily Batch
+├── lib/
+│   ├── sheets.js     # Google Sheets Logic
+│   ├── discord.js    # Discord Messaging Logic
+│   └── date-utils.js # Date Calculation
+├── scripts/
+│   └── register-commands.js # Slash Command Registration
+├── tests/
+│   └── test-all-features.js # Integration Tests
+├── .env              # Environment Variables
+├── vercel.json       # Vercel Config (Cron)
+└── README.md         # Documentation
+```

@@ -1,0 +1,12 @@
+# ローカル開発用シークレット（wrangler dev が読み込む）
+# このファイルを .dev.vars にコピーして実値を設定してください。
+# .dev.vars は .gitignore 済み（コミットされません）。
+
+DISCORD_PUBLIC_KEY=your_public_key_here
+DISCORD_APPLICATION_ID=your_application_id_here
+DISCORD_BOT_TOKEN=your_bot_token_here
+DISCORD_CHANNEL_ID=your_channel_id_here
+
+# 管理UIのアクセストークン（長いランダム文字列を生成して設定）
+# 例: openssl rand -hex 32
+ADMIN_TOKEN=your_long_random_admin_token_here
