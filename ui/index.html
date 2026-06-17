@@ -1,0 +1,824 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>EventBot 管理</title>
+    <style>
+      :root {
+        --bg: #0f1117; --panel: #1a1d27; --panel2: #20242f; --border: #2a2e3a; --text: #e6e8ee;
+        --muted: #9aa0ad; --accent: #5865f2; --danger: #ed4245; --ok: #3ba55d;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--bg); color: var(--text);
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 14px; }
+      h1 { font-size: 18px; } h2 { font-size: 17px; margin-top: 0; } h3 { font-size: 15px; margin-bottom: 8px; }
+      a { color: var(--accent); }
+      label { display: block; color: var(--muted); margin: 10px 0 4px; font-size: 13px; }
+      input, select, textarea { width: 100%; padding: 8px 10px; background: var(--bg);
+        border: 1px solid var(--border); border-radius: 8px; color: var(--text);
+        font-family: inherit; font-size: 14px; }
+      label.inline { display: inline-flex; align-items: center; gap: 8px; margin: 8px 0 0; color: var(--text); }
+      label.inline input { width: auto; }
+      button.btn { background: var(--accent); color: #fff; border: none;
+        padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+      button.btn.secondary { background: var(--border); color: var(--text); }
+      button.btn.danger { background: var(--danger); }
+      button.btn.sm { padding: 4px 10px; font-size: 13px; }
+      button.btn.ghost { background: none; border: 1px solid var(--border); color: var(--muted); }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+      th { color: var(--muted); font-weight: 600; }
+      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+      .toast { position: fixed; bottom: 20px; right: 20px; padding: 12px 16px;
+        border-radius: 8px; background: var(--ok); color: #fff; opacity: 0;
+        transition: opacity .2s; pointer-events: none; max-width: 60vw; z-index: 30; }
+      .toast.show { opacity: 1; } .toast.err { background: var(--danger); }
+      .hidden { display: none; } .muted { color: var(--muted); }
+      .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--border); }
+      .pill.on { background: rgba(59,165,93,.15); color: var(--ok); border-color: var(--ok); }
+      .pill.off { color: var(--muted); }
+      .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+      fieldset { border: 1px solid var(--border); border-radius: 8px; margin: 12px 0; padding: 12px; }
+      legend { color: var(--muted); padding: 0 6px; }
+      .summary { display: flex; align-items: center; gap: 8px; padding: 10px 12px; margin: 12px 0;
+        background: var(--panel2); border-radius: 8px; font-size: 14px; }
+      /* シェル */
+      .shell { display: grid; grid-template-columns: 200px 1fr; min-height: 100vh; }
+      .side { border-right: 1px solid var(--border); padding: 14px 10px; }
+      .side .navitem { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 8px;
+        color: var(--muted); cursor: pointer; margin-bottom: 2px; }
+      .side .navitem.active { background: var(--panel); color: var(--text); }
+      .topbar { display: flex; align-items: center; justify-content: space-between;
+        padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--panel); }
+      .srv { display: flex; align-items: center; gap: 10px; }
+      .ava { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center;
+        justify-content: center; font-weight: 600; background: rgba(88,101,242,.18); color: #aeb6ff; }
+      main { padding: 20px; max-width: 920px; }
+      .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+        padding: 14px 16px; margin-bottom: 10px; cursor: pointer; }
+      .listrow { display: flex; align-items: center; justify-content: space-between;
+        padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; }
+      .grid-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+      .search { position: relative; }
+      .pickrow { display: flex; align-items: center; justify-content: space-between;
+        padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; }
+    </style>
+  </head>
+  <body>
+    <!-- トークンゲート -->
+    <div id="gate" class="hidden" style="max-width: 420px; margin: 80px auto;">
+      <div class="card" style="cursor:default">
+        <h1>管理トークン</h1>
+        <p class="muted">ADMIN_TOKEN を入力してください。</p>
+        <input id="tokenInput" type="password" placeholder="ADMIN_TOKEN" />
+        <div style="margin-top: 12px;"><button class="btn" id="tokenSave">ログイン</button></div>
+      </div>
+    </div>
+
+    <!-- サーバー選択（最上位スコープ） -->
+    <div id="picker" class="hidden">
+      <div class="topbar">
+        <h1 style="margin:0">🗓 EventBot 管理</h1>
+        <button class="btn secondary" id="pickerLogout">ログアウト</button>
+      </div>
+      <main style="max-width:760px; margin:0 auto;">
+        <h2>管理するサーバーを選択</h2>
+        <p class="muted">Bot が参加しているサーバーから選びます（Discord から自動取得）。</p>
+        <div id="guildCards" class="grid-cards"></div>
+      </main>
+    </div>
+
+    <!-- ワークスペース -->
+    <div id="workspace" class="hidden">
+      <div class="topbar">
+        <div class="srv">
+          <div class="ava" id="wsAva">?</div>
+          <div><div id="wsName" style="font-weight:600">—</div><div class="muted" style="font-size:11px">サーバー</div></div>
+        </div>
+        <div class="actions">
+          <button class="btn ghost" id="switchSrv">サーバー切替</button>
+          <button class="btn secondary" id="logout">ログアウト</button>
+        </div>
+      </div>
+      <div class="shell">
+        <nav class="side">
+          <div class="navitem active" data-sec="notifications">🔔 通知</div>
+          <div class="navitem" data-sec="segments">👥 メンバー区分</div>
+          <div class="navitem" data-sec="records">🗒 回答履歴</div>
+          <div class="navitem" data-sec="setup">⚙️ セットアップ</div>
+        </nav>
+        <main>
+          <section id="sec-notifications"></section>
+          <section id="sec-segments" class="hidden"></section>
+          <section id="sec-records" class="hidden"></section>
+          <section id="sec-setup" class="hidden"></section>
+        </main>
+      </div>
+    </div>
+
+    <div id="toast" class="toast"></div>
+
+    <script>
+      const TOKEN_KEY = 'eventbot_admin_token';
+      const GUILD_KEY = 'eventbot_guild';
+      let token = localStorage.getItem(TOKEN_KEY) || '';
+      let guild = null; // { id, name, icon }
+
+      const $ = (s) => document.querySelector(s);
+      function esc(v) {
+        return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      }
+      let toastTimer = null;
+      function toast(msg, err) {
+        const t = $('#toast');
+        t.textContent = msg;
+        t.className = 'toast show' + (err ? ' err' : '');
+        if (toastTimer) clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => (t.className = 'toast'), 2800);
+      }
+      async function api(path, opts = {}) {
+        const res = await fetch('/api/admin' + path, {
+          ...opts,
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, ...(opts.headers || {}) },
+        });
+        if (res.status === 401) { showGate(); throw new Error('認証に失敗しました'); }
+        if (!res.ok) {
+          let detail = res.status;
+          try { const b = await res.json(); if (b && b.error) detail = res.status + ' ' + b.error; } catch (_) {}
+          throw new Error('エラー: ' + detail);
+        }
+        return res.status === 204 ? null : res.json();
+      }
+
+      // ================= 画面遷移 =================
+      function showGate() {
+        $('#gate').classList.remove('hidden');
+        $('#picker').classList.add('hidden');
+        $('#workspace').classList.add('hidden');
+      }
+      async function showPicker() {
+        $('#gate').classList.add('hidden');
+        $('#workspace').classList.add('hidden');
+        $('#picker').classList.remove('hidden');
+        await loadGuilds();
+      }
+      function showWorkspace() {
+        cacheGuildMembers = null; // サーバー跨ぎでピッカーに前サーバーの在籍が残らないようリセット
+        $('#gate').classList.add('hidden');
+        $('#picker').classList.add('hidden');
+        $('#workspace').classList.remove('hidden');
+        $('#wsName').textContent = guild.name;
+        $('#wsAva').textContent = (guild.name || '?').slice(0, 1);
+        switchSection('notifications');
+      }
+
+      // ================= サーバー選択 =================
+      async function loadGuilds() {
+        let guilds = [];
+        try { guilds = await api('/guilds'); } catch (e) { toast(e.message, true); }
+        $('#guildCards').innerHTML = guilds.length
+          ? guilds.map((g) => `<div class="card" data-gid="${esc(g.id)}" data-gname="${esc(g.name)}">
+              <div class="srv"><div class="ava">${esc((g.name || '?').slice(0, 1))}</div>
+              <div><div style="font-weight:600">${esc(g.name)}</div>
+              <div class="muted" style="font-size:12px">ID: ${esc(g.id)}</div></div></div></div>`).join('')
+          : '<p class="muted">参加サーバーが取得できませんでした。bot トークン / 権限を確認してください。</p>';
+        document.querySelectorAll('#guildCards .card').forEach((c) => {
+          c.onclick = () => selectGuild({ id: c.dataset.gid, name: c.dataset.gname });
+        });
+      }
+      function selectGuild(g) {
+        guild = g;
+        localStorage.setItem(GUILD_KEY, JSON.stringify(g));
+        location.hash = g.id;
+        showWorkspace();
+      }
+
+      // ================= ナビ =================
+      const SECTIONS = ['notifications', 'segments', 'records', 'setup'];
+      const LOADERS = { notifications: loadNotifications, segments: loadSegments, records: loadRecords, setup: loadSetup };
+      function switchSection(sec) {
+        document.querySelectorAll('.side .navitem').forEach((x) => x.classList.toggle('active', x.dataset.sec === sec));
+        SECTIONS.forEach((s) => $('#sec-' + s).classList.toggle('hidden', s !== sec));
+        LOADERS[sec]();
+      }
+      document.querySelectorAll('.side .navitem').forEach((n) => { n.onclick = () => switchSection(n.dataset.sec); });
+
+      // ================= 繰り返し（RRULE は隠す） =================
+      const WEEKDAYS = [['SU', '日'], ['MO', '月'], ['TU', '火'], ['WE', '水'], ['TH', '木'], ['FR', '金'], ['SA', '土']];
+      const NTH = [['1', '第1'], ['2', '第2'], ['3', '第3'], ['4', '第4'], ['-1', '最終']];
+      const wdLabel = (c) => (WEEKDAYS.find((w) => w[0] === c) || ['', ''])[1];
+      const nthLabel = (n) => (NTH.find((x) => x[0] === String(n)) || ['', ''])[1];
+
+      function buildRRule() {
+        const mode = $('#nMode').value, byday = $('#nWeekday').value;
+        if (mode === 'weekly') return `FREQ=WEEKLY;BYDAY=${byday}`;
+        if (mode === 'biweekly') return `FREQ=WEEKLY;INTERVAL=2;BYDAY=${byday}`;
+        if (mode === 'monthly') return `FREQ=MONTHLY;BYDAY=${$('#nNth').value}${byday}`;
+        return '';
+      }
+      function parseRRuleToBuilder(rrule) {
+        const out = { mode: 'weekly', byday: 'SA', nth: '2' };
+        if (!rrule) return out;
+        const p = Object.fromEntries(rrule.split(';').map((x) => { const [k, v] = x.split('='); return [k.toUpperCase(), v]; }));
+        const freq = (p.FREQ || '').toUpperCase(), byday = (p.BYDAY || '').toUpperCase();
+        if (freq === 'MONTHLY') { const m = byday.match(/^(-?\d+)([A-Z]{2})$/); if (m) { out.mode = 'monthly'; out.nth = m[1]; out.byday = m[2]; } }
+        else if (freq === 'WEEKLY') { out.mode = p.INTERVAL === '2' ? 'biweekly' : 'weekly'; out.byday = byday.replace(/^-?\d+/, '') || 'SA'; }
+        return out;
+      }
+      function fmtDate(d) {
+        return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+      }
+      // 隔週の起点候補: 指定曜日の直近の日付を count 個（今日以降）
+      function nextWeekdayDates(code, count) {
+        const idx = WEEKDAYS.findIndex((w) => w[0] === code);
+        const out = []; const base = new Date(); base.setHours(0, 0, 0, 0);
+        for (let i = 0; i < 90 && out.length < count; i++) {
+          const t = new Date(base); t.setDate(base.getDate() + i);
+          if (t.getDay() === idx) out.push(fmtDate(t));
+        }
+        return out;
+      }
+      // ----- 単発の複数候補日 -----
+      function oneoffDateRow(value) {
+        const v = (value || '').replace(/\//g, '-');
+        return `<div class="pickrow" style="margin-bottom:6px">
+          <input type="date" value="${esc(v)}" style="max-width:220px" />
+          <button type="button" class="btn sm ghost" data-rmdate>削除</button></div>`;
+      }
+      function bindOneoffDateRows() {
+        const box = $('#nOneoffDates'); if (!box) return;
+        box.querySelectorAll('input[type=date]').forEach((inp) => { inp.onchange = syncNotifUI; });
+        box.querySelectorAll('[data-rmdate]').forEach((b) => {
+          b.onclick = () => {
+            const rows = box.querySelectorAll('.pickrow');
+            if (rows.length <= 1) b.closest('.pickrow').querySelector('input').value = '';
+            else b.closest('.pickrow').remove();
+            syncNotifUI();
+          };
+        });
+      }
+      function renderOneoffDates(dates) {
+        const box = $('#nOneoffDates'); if (!box) return;
+        const list = (dates && dates.length) ? dates : [''];
+        box.innerHTML = list.map((d) => oneoffDateRow(d)).join('');
+        bindOneoffDateRows();
+      }
+      function addOneoffDate() {
+        const box = $('#nOneoffDates'); if (!box) return;
+        box.insertAdjacentHTML('beforeend', oneoffDateRow(''));
+        bindOneoffDateRows();
+        syncNotifUI();
+      }
+      function getOneoffDates() {
+        const box = $('#nOneoffDates'); if (!box) return [];
+        return [...box.querySelectorAll('input[type=date]')]
+          .map((i) => (i.value || '').replace(/-/g, '/').trim())
+          .filter(Boolean);
+      }
+
+      function scheduleSummary() {
+        const t = ($('#nStartTime').value || '21:00');
+        if ($('#nType').value === 'oneoff') {
+          const ds = getOneoffDates();
+          if (!ds.length) return '候補日を1つ以上追加してください';
+          return ds.length === 1
+            ? `${ds[0]} ${t}〜（単発）`
+            : `候補日 ${ds.length}件: ${ds.join('・')} ${t}〜`;
+        }
+        const wd = wdLabel($('#nWeekday').value), mode = $('#nMode').value;
+        if (mode === 'weekly') return `毎週 ${wd}曜日 ${t}〜`;
+        if (mode === 'biweekly') return `隔週 ${wd}曜日 ${t}〜（次回 ${$('#nNext').value || '—'}）`;
+        return `毎月 ${nthLabel($('#nNth').value)} ${wd}曜日 ${t}〜`;
+      }
+
+      // ================= 通知 =================
+      let cacheChannels = [], cacheSegments = [], cacheNotifs = [];
+      async function loadNotifications() {
+        const g = guild.id;
+        let segs = [], notifs = [], channels = [];
+        try {
+          [segs, notifs, channels] = await Promise.all([
+            api('/segments?guild_id=' + encodeURIComponent(g)),
+            api('/notifications?guild_id=' + encodeURIComponent(g)),
+            api('/guilds/' + g + '/channels').catch(() => []),
+          ]);
+        } catch (e) { toast(e.message, true); }
+        cacheSegments = segs; cacheNotifs = notifs; cacheChannels = channels;
+        const segName = (id) => { const s = segs.find((x) => x.id === id); return s ? s.name : '?'; };
+        const chName = (id) => { const c = channels.find((x) => x.id === id); return c ? '#' + c.name : id; };
+
+        const rows = notifs.map((n) => {
+          const sched = n.type === 'oneoff'
+            ? `単発 ${esc(n.one_off_date || '')}`
+            : esc(humanRRule(n.rrule, n.start_time));
+          return `<div class="listrow">
+            <div><div style="font-weight:600">${esc(n.name)}</div>
+              <div class="muted" style="font-size:12px;margin-top:2px">
+                <span class="pill">${esc(segName(n.segment_id))}</span>
+                ${sched} ・ ${esc(chName(n.channel_id))}</div></div>
+            <div class="actions">
+              <span class="pill ${n.active ? 'on' : 'off'}">${n.active ? '有効' : '無効'}</span>
+              <button class="btn sm secondary" data-nedit="${n.id}">編集</button>
+              <button class="btn sm ghost" data-nocc="${n.id}">開催回</button>
+              <button class="btn sm danger" data-ndel="${n.id}">削除</button>
+            </div></div>`;
+        }).join('');
+
+        $('#sec-notifications').innerHTML = `<h2>通知 (${notifs.length})</h2>
+          ${notifs.length ? rows : '<p class="muted">この通知はまだありません。下のフォームから作成してください。</p>'}
+          <div id="occBox"></div>
+          ${segs.length ? notifForm() : '<p class="muted" style="margin-top:16px">※ 先に「メンバー区分」を作成してください（通知の対象になります）。</p>'}`;
+
+        if (segs.length) { bindNotifForm(); }
+        document.querySelectorAll('[data-nedit]').forEach((b) => {
+          b.onclick = () => fillNotifForm(cacheNotifs.find((x) => x.id === Number(b.dataset.nedit)));
+        });
+        document.querySelectorAll('[data-nocc]').forEach((b) => {
+          b.onclick = () => loadOccurrences(Number(b.dataset.nocc));
+        });
+        document.querySelectorAll('[data-ndel]').forEach((b) => {
+          b.onclick = async () => {
+            if (!confirm('配下の開催回・回答ごと削除します。よろしいですか？')) return;
+            try { await api('/notifications/' + b.dataset.ndel, { method: 'DELETE' }); toast('削除しました'); loadNotifications(); }
+            catch (e) { toast(e.message, true); }
+          };
+        });
+      }
+
+      function humanRRule(rrule, time) {
+        const b = parseRRuleToBuilder(rrule);
+        const wd = wdLabel(b.byday), t = time || '';
+        if (b.mode === 'weekly') return `毎週 ${wd}曜日 ${t}〜`;
+        if (b.mode === 'biweekly') return `隔週 ${wd}曜日 ${t}〜`;
+        return `毎月 ${nthLabel(b.nth)} ${wd}曜日 ${t}〜`;
+      }
+
+      function notifForm() {
+        const segOpts = cacheSegments.map((s) => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
+        const chOpts = cacheChannels.length
+          ? cacheChannels.map((c) => `<option value="${esc(c.id)}">#${esc(c.name)}</option>`).join('')
+          : '<option value="">（チャンネルを取得できませんでした）</option>';
+        const wdOpts = WEEKDAYS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+        const nthOpts = NTH.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+        return `<fieldset><legend id="nFormTitle">新規通知</legend>
+          <input type="hidden" id="nId" value="" />
+          <div class="row">
+            <div><label>名前</label><input id="nName" placeholder="例: 土曜定例・キャスト出欠" /></div>
+            <div><label>投稿チャンネル</label><select id="nChannel">${chOpts}</select></div>
+          </div>
+          <div class="row">
+            <div><label>対象区分（メンバー区分）</label><select id="nSegment">${segOpts}</select></div>
+            <div><label>開始時刻</label><input id="nStartTime" type="time" value="21:00" /></div>
+          </div>
+          <label>種別</label>
+          <select id="nType"><option value="recurring">繰り返し</option><option value="oneoff">単発</option></select>
+          <div id="nRecurBox">
+            <div class="row3">
+              <div><label>繰り返し</label><select id="nMode">
+                <option value="weekly">毎週</option><option value="biweekly">隔週</option><option value="monthly">毎月第N曜</option>
+              </select></div>
+              <div><label>曜日</label><select id="nWeekday">${wdOpts}</select></div>
+              <div id="nNthBox"><label>第N</label><select id="nNth">${nthOpts}</select></div>
+            </div>
+            <div id="nNextBox"><label>次にこの通知で開催する日 <span class="muted">（隔週の起点）</span></label>
+              <select id="nNext"></select></div>
+          </div>
+          <div id="nOneoffBox" class="hidden">
+            <label>開催候補日（複数可）</label>
+            <div id="nOneoffDates"></div>
+            <button type="button" class="btn sm secondary" id="nOneoffAdd" style="margin-top:6px">＋ 候補日を追加</button>
+            <p class="muted" style="font-size:12px;margin-top:6px">参加者は候補日ごとに出欠を回答できます。集計後に「開催回」から1日を確定できます。</p>
+          </div>
+          <div class="summary">📅 <span id="nSummary">—</span></div>
+          <div class="row">
+            <div><label>開始 N 日前に募集を投稿</label><input id="nRecruit" type="number" value="7" /></div>
+            <div><label>N 日前から未回答者へリマインド</label><input id="nRemindStart" type="number" value="3" /></div>
+          </div>
+          <div class="actions" style="margin-top:12px">
+            <label class="inline"><input type="checkbox" id="nQuota" /> ノルマ</label>
+            <label class="inline"><input type="checkbox" id="nAssignment" /> 番号割り当て</label>
+            <label class="inline"><input type="checkbox" id="nMention" checked /> メンション</label>
+            <label class="inline"><input type="checkbox" id="nActive" checked /> 有効</label>
+          </div>
+          <div id="nQuotaBox" class="hidden" style="max-width:280px"><label>ノルマ間隔（日数）</label><input id="nQuotaInterval" type="number" placeholder="例: 30" /></div>
+          <div class="actions" style="margin-top:14px">
+            <button class="btn" id="nSave">保存</button>
+            <button class="btn secondary hidden" id="nReset">新規入力に戻す</button>
+          </div></fieldset>`;
+      }
+
+      function refreshNextOptions(keep) {
+        const dates = nextWeekdayDates($('#nWeekday').value, 4);
+        const opts = dates.slice();
+        if (keep && !opts.includes(keep)) opts.unshift(keep);
+        $('#nNext').innerHTML = opts.map((d) => `<option value="${d}">${d}（${wdLabel($('#nWeekday').value)}）</option>`).join('');
+        if (keep) $('#nNext').value = keep;
+      }
+      function syncNotifUI() {
+        const t = $('#nType').value, mode = $('#nMode').value;
+        $('#nRecurBox').classList.toggle('hidden', t !== 'recurring');
+        $('#nOneoffBox').classList.toggle('hidden', t !== 'oneoff');
+        $('#nNthBox').classList.toggle('hidden', !(t === 'recurring' && mode === 'monthly'));
+        $('#nNextBox').classList.toggle('hidden', !(t === 'recurring' && mode === 'biweekly'));
+        $('#nQuotaBox').classList.toggle('hidden', !$('#nQuota').checked);
+        $('#nSummary').textContent = scheduleSummary();
+      }
+      function bindNotifForm() {
+        refreshNextOptions();
+        renderOneoffDates([]);
+        ['nType', 'nMode', 'nNth', 'nStartTime', 'nNext'].forEach((id) => { $('#' + id).onchange = syncNotifUI; });
+        $('#nWeekday').onchange = () => { refreshNextOptions(); syncNotifUI(); };
+        $('#nQuota').onchange = syncNotifUI;
+        $('#nOneoffAdd').onclick = addOneoffDate;
+        $('#nSave').onclick = saveNotif;
+        $('#nReset').onclick = resetNotifForm;
+        syncNotifUI();
+      }
+      function resetNotifForm() {
+        $('#nId').value = ''; $('#nFormTitle').textContent = '新規通知'; $('#nReset').classList.add('hidden');
+        $('#nName').value = ''; $('#nType').value = 'recurring'; $('#nMode').value = 'weekly';
+        $('#nWeekday').value = 'SA'; $('#nNth').value = '2'; renderOneoffDates([]);
+        $('#nStartTime').value = '21:00'; $('#nRecruit').value = '7'; $('#nRemindStart').value = '3';
+        $('#nQuotaInterval').value = '';
+        $('#nQuota').checked = false; $('#nAssignment').checked = false; $('#nMention').checked = true; $('#nActive').checked = true;
+        refreshNextOptions(); syncNotifUI();
+      }
+      async function fillNotifForm(n) {
+        if (!n || !$('#nId')) return;
+        $('#nId').value = n.id; $('#nFormTitle').textContent = '編集 (ID: ' + n.id + ')'; $('#nReset').classList.remove('hidden');
+        $('#nName').value = n.name || '';
+        if (![...$('#nChannel').options].some((o) => o.value === n.channel_id) && n.channel_id) {
+          $('#nChannel').insertAdjacentHTML('afterbegin', `<option value="${esc(n.channel_id)}">ID: ${esc(n.channel_id)}</option>`);
+        }
+        $('#nChannel').value = n.channel_id || '';
+        $('#nSegment').value = String(n.segment_id);
+        $('#nType').value = n.type || 'recurring';
+        const b = parseRRuleToBuilder(n.rrule);
+        $('#nMode').value = b.mode; $('#nWeekday').value = b.byday; $('#nNth').value = String(b.nth);
+        // 単発の候補日は scheduled な occurrences から復元（無ければ one_off_date）
+        if (n.type === 'oneoff') {
+          let dates = [];
+          try {
+            const occs = await api('/notifications/' + n.id + '/occurrences');
+            dates = occs.filter((o) => o.status === 'scheduled').map((o) => o.occurrence_date).sort();
+          } catch (_) {}
+          if (!dates.length && n.one_off_date) dates = [n.one_off_date];
+          renderOneoffDates(dates);
+        } else {
+          renderOneoffDates([]);
+        }
+        $('#nStartTime').value = n.start_time || '21:00';
+        $('#nRecruit').value = n.recruit_days_before; $('#nRemindStart').value = n.remind_start_days;
+        $('#nQuotaInterval').value = n.quota_interval_days == null ? '' : n.quota_interval_days;
+        $('#nQuota').checked = !!n.quota_enabled; $('#nAssignment').checked = !!n.assignment_enabled;
+        $('#nMention').checked = !!n.mention_enabled; $('#nActive').checked = !!n.active;
+        refreshNextOptions(n.anchor_date || null);
+        syncNotifUI();
+        $('#nFormTitle').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      async function saveNotif() {
+        const type = $('#nType').value;
+        const qi = $('#nQuotaInterval').value.trim();
+        const candidateDates = type === 'oneoff' ? getOneoffDates() : [];
+        const body = {
+          guild_id: guild.id,
+          name: $('#nName').value.trim(),
+          channel_id: $('#nChannel').value.trim(),
+          segment_id: Number($('#nSegment').value),
+          type,
+          rrule: type === 'recurring' ? buildRRule() : null,
+          one_off_date: type === 'oneoff' ? (candidateDates[0] || null) : null,
+          candidate_dates: type === 'oneoff' ? candidateDates : undefined,
+          anchor_date: type === 'recurring' && $('#nMode').value === 'biweekly' ? ($('#nNext').value || null) : null,
+          start_time: $('#nStartTime').value.trim() || '21:00',
+          recruit_days_before: Number($('#nRecruit').value),
+          remind_start_days: Number($('#nRemindStart').value),
+          remind_undecided_days: 1,
+          quota_enabled: $('#nQuota').checked ? 1 : 0,
+          quota_interval_days: qi === '' ? null : Number(qi),
+          assignment_enabled: $('#nAssignment').checked ? 1 : 0,
+          mention_enabled: $('#nMention').checked ? 1 : 0,
+          active: $('#nActive').checked ? 1 : 0,
+        };
+        if (!body.name) return toast('名前は必須です', true);
+        if (!body.channel_id) return toast('チャンネルを選択してください', true);
+        if (!body.segment_id) return toast('区分を選択してください', true);
+        if (type === 'oneoff' && candidateDates.length === 0) return toast('候補日を1つ以上追加してください', true);
+        const id = $('#nId').value;
+        try {
+          if (id) { await api('/notifications/' + id, { method: 'PUT', body: JSON.stringify(body) }); toast('更新しました'); }
+          else { await api('/notifications', { method: 'POST', body: JSON.stringify(body) }); toast('作成しました'); }
+          loadNotifications();
+        } catch (e) { toast(e.message, true); }
+      }
+
+      // ----- 開催回・番号割り当て・候補日確定（通知の文脈） -----
+      // cacheNotifs を最新化してから fn を呼ぶ（decide/undecide 後の decided_occurrence_id 反映用）
+      async function refreshNotifsThen(fn) {
+        try { cacheNotifs = await api('/notifications?guild_id=' + encodeURIComponent(guild.id)); } catch (_) {}
+        fn();
+      }
+      async function loadOccTally(occId) {
+        const el = $('#tally-' + occId);
+        if (!el) return;
+        try {
+          const b = await api('/occurrences/' + occId + '/status');
+          el.textContent = `参加 ${b.参加.length}・不参加 ${b.不参加.length}・未定 ${b.未定.length}・未回答 ${b.未回答.length}`;
+        } catch (_) { el.textContent = ''; }
+      }
+      async function loadOccurrences(notifId) {
+        const n = cacheNotifs.find((x) => x.id === notifId);
+        const isOneoff = !!n && n.type === 'oneoff';
+        const decidedId = n ? n.decided_occurrence_id : null;
+        let occs = [];
+        try { occs = await api('/notifications/' + notifId + '/occurrences'); } catch (e) { return toast(e.message, true); }
+        const rows = occs.map((o) => {
+          const decided = decidedId === o.id;
+          const label = o.status === 'cancelled' ? '取下げ' : (decided ? '確定' : (isOneoff ? '候補' : '予定'));
+          const pillCls = o.status === 'cancelled' ? 'off' : 'on';
+          const decideBtn = (isOneoff && decidedId == null && o.status === 'scheduled')
+            ? `<button class="btn sm" data-decide="${o.id}" data-nid="${notifId}">この日に確定</button>` : '';
+          const undecideBtn = decided
+            ? `<button class="btn sm ghost" data-undecide="${notifId}">確定解除</button>` : '';
+          return `<div class="pickrow">
+            <div>${esc(o.occurrence_date)} <span class="pill ${pillCls}">${label}</span>
+              <br><span class="muted" id="tally-${o.id}" style="font-size:12px">集計中…</span></div>
+            <div class="actions">${decideBtn}${undecideBtn}
+              <button class="btn sm secondary" data-occ="${o.id}">番号割り当て</button></div></div>`;
+        }).join('');
+        const recruitBtn = n
+          ? `<div class="actions" style="margin-bottom:8px"><button class="btn sm secondary" id="occRecruit">📣 今すぐ募集を投稿</button></div>` : '';
+        $('#occBox').innerHTML = `<fieldset><legend>開催回: ${esc(n ? n.name : notifId)} (${occs.length})</legend>
+          ${recruitBtn}
+          ${occs.length ? rows : '<p class="muted">開催回はまだありません（単発は保存時に候補日が、繰り返しは募集タイミングで生成されます）。</p>'}
+          <div id="assignBox"></div></fieldset>`;
+        $('#occBox').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        document.querySelectorAll('[data-occ]').forEach((b) => { b.onclick = () => loadAssignments(Number(b.dataset.occ)); });
+        const rb = $('#occRecruit');
+        if (rb) rb.onclick = async () => {
+          if (!confirm('この通知の募集メッセージをチャンネルへ投稿します。よろしいですか？')) return;
+          try { const r = await api('/notifications/' + notifId + '/recruit', { method: 'POST' });
+            toast(r && r.message ? r.message : '募集を送信しました'); } catch (e) { toast(e.message, true); }
+        };
+        document.querySelectorAll('[data-decide]').forEach((b) => {
+          b.onclick = async () => {
+            if (!confirm('この日を開催日として確定し、他の候補日を取り下げます。よろしいですか？')) return;
+            try { await api('/notifications/' + b.dataset.nid + '/decide',
+              { method: 'POST', body: JSON.stringify({ occurrence_id: Number(b.dataset.decide) }) });
+              toast('確定しました'); refreshNotifsThen(() => loadOccurrences(notifId)); } catch (e) { toast(e.message, true); }
+          };
+        });
+        document.querySelectorAll('[data-undecide]').forEach((b) => {
+          b.onclick = async () => {
+            if (!confirm('確定を解除し、候補日を元に戻しますか？')) return;
+            try { await api('/notifications/' + b.dataset.undecide + '/undecide', { method: 'POST' });
+              toast('解除しました'); refreshNotifsThen(() => loadOccurrences(notifId)); } catch (e) { toast(e.message, true); }
+          };
+        });
+        for (const o of occs) loadOccTally(o.id);
+      }
+      function renderAssignments(occId, list) {
+        const rows = (list || []).map((a) => `<tr><td>#${a.number}</td><td>${esc(a.name || a.user_id)}</td><td class="muted">${esc(a.user_id)}</td></tr>`).join('');
+        $('#assignBox').innerHTML = `<h3 style="margin-top:14px">番号割り当て（開催回 ${occId}）</h3>
+          ${list && list.length ? `<table><thead><tr><th>番号</th><th>表示名</th><th>User ID</th></tr></thead><tbody>${rows}</tbody></table>`
+            : '<p class="muted">割り当てはまだありません。</p>'}
+          <div class="actions" style="margin-top:10px"><button class="btn" id="runAssign" data-occ="${occId}">番号割り当てを実行</button></div>`;
+        $('#runAssign').onclick = async () => {
+          if (!confirm('この開催回で番号割り当てを実行しますか？')) return;
+          try { const res = await api('/occurrences/' + occId + '/assign', { method: 'POST' });
+            toast(`割り当て実行: 新規 ${res && res.assigned ? res.assigned.length : 0} 名`);
+            renderAssignments(occId, res && res.all ? res.all : []); } catch (e) { toast(e.message, true); }
+        };
+      }
+      async function loadAssignments(occId) {
+        try { renderAssignments(occId, await api('/occurrences/' + occId + '/assignments')); } catch (e) { toast(e.message, true); }
+      }
+
+      // ================= メンバー区分 =================
+      async function loadSegments() {
+        let segs = [];
+        try { segs = await api('/segments?guild_id=' + encodeURIComponent(guild.id)); } catch (e) { toast(e.message, true); }
+        cacheSegments = segs;
+        const rows = segs.map((s) => `<div class="listrow">
+          <div><div style="font-weight:600">${esc(s.name)}</div>
+            <div class="muted" style="font-size:12px;margin-top:2px">メンション: ${s.mention_role_id ? `<span class="pill">${esc(s.mention_role_id)}</span>` : '<span class="pill off">なし</span>'}</div></div>
+          <div class="actions">
+            <button class="btn sm secondary" data-smembers="${s.id}">メンバー</button>
+            <button class="btn sm ghost" data-sedit="${s.id}">編集</button>
+            <button class="btn sm danger" data-sdel="${s.id}">削除</button>
+          </div></div>`).join('');
+        $('#sec-segments').innerHTML = `<h2>メンバー区分 (${segs.length})</h2>
+          ${segs.length ? rows : '<p class="muted">区分がまだありません。</p>'}
+          <fieldset><legend id="segFormTitle">新規区分</legend>
+            <input type="hidden" id="segId" />
+            <div class="row">
+              <div><label>名前</label><input id="segName" placeholder="例: キャスト" /></div>
+              <div><label>@メンション先（任意・ロールID / @everyone）</label><input id="segRole" placeholder="未設定可" /></div>
+            </div>
+            <div class="actions" style="margin-top:12px">
+              <button class="btn" id="segSave">保存</button>
+              <button class="btn secondary hidden" id="segReset">新規入力に戻す</button>
+            </div></fieldset>
+          <div id="segMembersBox"></div>`;
+        $('#segSave').onclick = saveSegment;
+        $('#segReset').onclick = resetSegForm;
+        document.querySelectorAll('[data-sedit]').forEach((b) => { b.onclick = () => fillSegForm(segs.find((s) => s.id === Number(b.dataset.sedit))); });
+        document.querySelectorAll('[data-smembers]').forEach((b) => { b.onclick = () => loadSegmentMembers(Number(b.dataset.smembers)); });
+        document.querySelectorAll('[data-sdel]').forEach((b) => {
+          b.onclick = async () => {
+            if (!confirm('この区分を削除しますか？')) return;
+            try { await api('/segments/' + b.dataset.sdel, { method: 'DELETE' }); toast('削除しました'); loadSegments(); }
+            catch (e) { toast(e.message, true); }
+          };
+        });
+      }
+      function resetSegForm() {
+        $('#segId').value = ''; $('#segName').value = ''; $('#segRole').value = '';
+        $('#segFormTitle').textContent = '新規区分'; $('#segReset').classList.add('hidden');
+      }
+      function fillSegForm(s) {
+        if (!s) return;
+        $('#segId').value = s.id; $('#segName').value = s.name; $('#segRole').value = s.mention_role_id || '';
+        $('#segFormTitle').textContent = '編集 (ID: ' + s.id + ')'; $('#segReset').classList.remove('hidden');
+      }
+      async function saveSegment() {
+        const name = $('#segName').value.trim();
+        if (!name) return toast('名前は必須です', true);
+        const mention_role_id = $('#segRole').value.trim() || null;
+        const id = $('#segId').value;
+        try {
+          if (id) { await api('/segments/' + id, { method: 'PUT', body: JSON.stringify({ name, mention_role_id }) }); toast('更新しました'); }
+          else { await api('/segments', { method: 'POST', body: JSON.stringify({ guild_id: guild.id, name, mention_role_id }) }); toast('作成しました'); }
+          loadSegments();
+        } catch (e) { toast(e.message, true); }
+      }
+
+      // ----- 区分メンバー（ピッカー） -----
+      let cacheGuildMembers = null;
+      async function loadSegmentMembers(segmentId) {
+        const seg = cacheSegments.find((s) => s.id === segmentId);
+        let list = [];
+        try { list = await api('/segments/' + segmentId + '/members'); } catch (e) { return toast(e.message, true); }
+        const rows = list.map((m) => {
+          const paused = m.status === '休止中';
+          const name = m.display_name || m.user_name || m.user_id;
+          return `<div class="pickrow">
+            <div>${esc(name)} <span class="muted" style="font-size:12px">${esc(m.user_id)}</span>
+              ${paused ? '<span class="pill off">休止中</span>' : '<span class="pill on">アクティブ</span>'}</div>
+            <div class="actions">
+              <button class="btn sm secondary" data-smtoggle="${esc(m.user_id)}" data-status="${paused ? '' : '休止中'}">${paused ? '再開' : '休止'}</button>
+              <button class="btn sm danger" data-smdel="${esc(m.user_id)}">外す</button>
+            </div></div>`;
+        }).join('');
+        $('#segMembersBox').innerHTML = `<fieldset>
+          <legend>区分メンバー: ${esc(seg ? seg.name : segmentId)} (${list.length})</legend>
+          ${list.length ? rows : '<p class="muted">まだ誰も所属していません。</p>'}
+          <h3 style="margin-top:14px">メンバーを追加</h3>
+          <div class="search"><input id="memSearch" placeholder="サーバー参加者を検索（User ID 入力は不要）" /></div>
+          <div id="memPicker" style="margin-top:8px"><p class="muted">読み込み中…</p></div>
+          </fieldset>`;
+        $('#segMembersBox').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        document.querySelectorAll('[data-smtoggle]').forEach((b) => {
+          b.onclick = async () => {
+            try { await api('/segments/' + segmentId + '/members/' + encodeURIComponent(b.dataset.smtoggle),
+              { method: 'PUT', body: JSON.stringify({ status: b.dataset.status }) });
+              toast('更新しました'); loadSegmentMembers(segmentId); } catch (e) { toast(e.message, true); }
+          };
+        });
+        document.querySelectorAll('[data-smdel]').forEach((b) => {
+          b.onclick = async () => {
+            if (!confirm('この区分から外しますか？')) return;
+            try { await api('/segments/' + segmentId + '/members/' + encodeURIComponent(b.dataset.smdel), { method: 'DELETE' });
+              toast('外しました'); loadSegmentMembers(segmentId); } catch (e) { toast(e.message, true); }
+          };
+        });
+
+        // メンバーピッカー（サーバー在籍をライブ取得）
+        const already = new Set(list.map((m) => m.user_id));
+        if (!cacheGuildMembers) {
+          try { cacheGuildMembers = await api('/guilds/' + guild.id + '/members'); }
+          catch (e) { $('#memPicker').innerHTML = `<p class="muted">サーバー参加者を取得できませんでした（${esc(e.message)}）。Server Members Intent の有効化が必要な場合があります。</p>`; return; }
+        }
+        const render = (q) => {
+          const ql = (q || '').toLowerCase();
+          const cand = cacheGuildMembers
+            .filter((m) => !already.has(m.user_id))
+            .filter((m) => !ql || (m.display_name || '').toLowerCase().includes(ql) || (m.user_name || '').toLowerCase().includes(ql))
+            .slice(0, 30);
+          $('#memPicker').innerHTML = cand.length ? cand.map((m) => `<div class="pickrow">
+            <div>${esc(m.display_name || m.user_name || m.user_id)}
+              <span class="muted" style="font-size:12px">${esc(m.user_name || '')}</span></div>
+            <button class="btn sm" data-add="${esc(m.user_id)}">追加</button></div>`).join('')
+            : '<p class="muted">該当する参加者がいません。</p>';
+          document.querySelectorAll('[data-add]').forEach((b) => {
+            b.onclick = async () => {
+              const m = cacheGuildMembers.find((x) => x.user_id === b.dataset.add);
+              try {
+                await api('/segments/' + segmentId + '/members', { method: 'POST',
+                  body: JSON.stringify({ user_id: m.user_id, user_name: m.user_name, display_name: m.display_name }) });
+                toast('追加しました'); loadSegmentMembers(segmentId);
+              } catch (e) { toast(e.message, true); }
+            };
+          });
+        };
+        render('');
+        $('#memSearch').oninput = (e) => render(e.target.value);
+      }
+
+      // ================= 回答履歴 =================
+      async function loadRecords() {
+        let responses = [];
+        try { responses = await api('/responses?limit=200'); } catch (e) { toast(e.message, true); }
+        const rows = responses.map((r) => `<tr>
+          <td>${esc(r.occurrence_date || '')}</td><td>${esc(r.notification_name || '')}</td>
+          <td>${esc(r.user_name || r.user_id)}</td><td>${esc(r.status)}</td>
+          <td class="muted">${esc((r.updated_at || '').slice(0, 19))}</td></tr>`).join('');
+        $('#sec-records').innerHTML = `<h2>回答履歴</h2>
+          <p class="muted">直近 ${responses.length} 件（全サーバー横断の回答ログ）。番号割り当ては「通知 → 開催回」から実行します。</p>
+          <table><thead><tr><th>開催日</th><th>通知</th><th>メンバー</th><th>回答</th><th>更新</th></tr></thead>
+          <tbody>${rows}</tbody></table>`;
+      }
+
+      // ================= セットアップ ウィザード =================
+      async function loadSetup() {
+        let st = null;
+        try { st = await api('/setup/status'); } catch (e) { return toast(e.message, true); }
+        const secretRow = (key, label) => {
+          const ok = st.secrets[key];
+          return `<div class="pickrow"><div>${ok ? '✅' : '⚠️'} <b>${esc(key)}</b><br>
+            <span class="muted" style="font-size:12px">${esc(label)}</span></div>
+            <span class="pill ${ok ? 'on' : 'off'}">${ok ? '設定済み' : '未設定'}</span></div>`;
+        };
+        const endpoint = st.interaction_endpoint_url;
+        $('#sec-setup').innerHTML = `
+          <h2>⚙️ セットアップ</h2>
+          <p class="muted">初期設定をここで完了できます。上から順に進めてください。</p>
+
+          <fieldset><legend>1. シークレットの確認</legend>
+            <p class="muted" style="font-size:13px">Cloudflare の管理画面（Settings → Variables and Secrets）で設定します。未設定があると Bot は動きません。</p>
+            ${secretRow('DISCORD_PUBLIC_KEY', '署名検証用の公開鍵（Discord → General Information）')}
+            ${secretRow('DISCORD_APPLICATION_ID', 'アプリID（Discord → General Information）')}
+            ${secretRow('DISCORD_BOT_TOKEN', 'Bot のトークン（Discord → Bot）')}
+            ${secretRow('ADMIN_TOKEN', 'この管理画面のパスワード（自分で決めた文字列）')}
+            <div class="actions" style="margin-top:8px"><button class="btn sm secondary" id="setupReload">再読み込み</button></div>
+          </fieldset>
+
+          <fieldset><legend>2. スラッシュコマンドを登録</legend>
+            <p class="muted" style="font-size:13px">/recruit などのコマンドを Discord に登録します（このサーバーへ即時反映）。</p>
+            <div class="actions"><button class="btn" id="setupRegister">コマンドを登録</button></div>
+            <div id="setupRegisterResult" class="muted" style="font-size:13px;margin-top:8px"></div>
+          </fieldset>
+
+          <fieldset><legend>3. Interaction Endpoint URL を Discord に設定</legend>
+            <p class="muted" style="font-size:13px">下の URL をコピーし、Discord Developer Portal → General Information の
+              「Interactions Endpoint URL」に貼り付けて保存してください。</p>
+            <div class="pickrow"><code style="word-break:break-all">${esc(endpoint)}</code>
+              <button class="btn sm" id="setupCopy">コピー</button></div>
+            <p class="muted" style="font-size:13px;margin-top:8px">続けて Discord → Bot の
+              <b>Server Members Intent</b> を ON にしてください（メンバー一覧の取得に必要）。</p>
+          </fieldset>
+
+          <fieldset><legend>4. 中身を設定する</legend>
+            <p class="muted" style="font-size:13px">左メニューの「メンバー区分」→「通知」の順に作成し、メンバーを登録すれば完了です。</p>
+          </fieldset>`;
+        $('#setupReload').onclick = loadSetup;
+        $('#setupCopy').onclick = async () => {
+          try { await navigator.clipboard.writeText(endpoint); toast('コピーしました'); }
+          catch (_) { toast('コピーできませんでした。URL を手動で選択してください', true); }
+        };
+        $('#setupRegister').onclick = async () => {
+          const res = $('#setupRegisterResult');
+          res.textContent = '登録中…';
+          try {
+            const r = await api('/setup/register-commands', { method: 'POST', body: JSON.stringify({ guild_id: guild.id }) });
+            if (r && r.ok) { res.textContent = `✅ 登録しました: ${(r.names || []).map((n) => '/' + n).join(' ')}`; toast('コマンドを登録しました'); }
+            else { res.textContent = '⚠️ ' + ((r && r.error) || '登録に失敗しました'); }
+          } catch (e) { res.textContent = '⚠️ ' + e.message; toast(e.message, true); }
+        };
+      }
+
+      // ================= 認証・起動 =================
+      $('#tokenSave').onclick = () => {
+        token = $('#tokenInput').value.trim();
+        localStorage.setItem(TOKEN_KEY, token);
+        boot();
+      };
+      $('#logout').onclick = $('#pickerLogout').onclick = () => {
+        localStorage.removeItem(TOKEN_KEY); token = ''; showGate();
+      };
+      $('#switchSrv').onclick = () => { guild = null; localStorage.removeItem(GUILD_KEY); location.hash = ''; showPicker(); };
+
+      function boot() {
+        if (!token) return showGate();
+        const saved = localStorage.getItem(GUILD_KEY);
+        const hash = (location.hash || '').replace('#', '');
+        if (saved) { try { const g = JSON.parse(saved); if (!hash || hash === g.id) { guild = g; return showWorkspace(); } } catch (_) {} }
+        showPicker();
+      }
+      boot();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,459 @@
+import type { Env } from '../env';
+import type { NotificationType } from '../db/types';
+import { listGuilds, listGuildChannels, listGuildMembers } from '../discord/rest';
+import {
+  listSegments,
+  createSegment,
+  updateSegment,
+  deleteSegment,
+  countNotificationsForSegment,
+  listSegmentMembers,
+  addSegmentMember,
+  setSegmentMemberStatus,
+  removeSegmentMember,
+} from '../db/segments';
+import { getAllMembers, upsertMember, deleteMember } from '../db/members';
+import {
+  listNotifications,
+  listNotificationsByGuild,
+  getNotification,
+  createNotification,
+  updateNotification,
+  deleteNotification,
+  decideOccurrence,
+  undecideNotification,
+  type NotificationInput,
+} from '../db/notifications';
+import {
+  getOccurrence,
+  setOccurrenceStatus,
+  updateOccurrenceDate,
+  listOccurrencesForNotification,
+  syncCandidateOccurrences,
+} from '../db/occurrences';
+import { getResponsesForOccurrence, getStatusBuckets, listRecentResponses } from '../db/responses';
+import { getAssignments, assignNumbers } from '../db/assignments';
+import { sendChannelMessage } from '../discord/rest';
+import { recruitNotificationNow } from '../cron/dailyCheck';
+import { getSetupStatus, registerCommandsForEnv } from './setup';
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+/** クエリの数値（不正・非数値・0以下なら既定値）。不正 limit でD1に NaN を渡し 500 になるのを防ぐ。 */
+function parseLimit(raw: string | null, def: number): number {
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : def;
+}
+
+/** ボディの数値（''・null・非数値なら既定値）。NaN を .bind に渡して 500 になるのを防ぐ。 */
+function num(v: unknown, def: number): number {
+  if (v === '' || v == null) return def;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : def;
+}
+
+/**
+ * 単発(oneoff)の候補日配列を正規化する。
+ * body.candidate_dates（'YYYY-MM-DD' / 'YYYY/MM/DD' の配列）を 'YYYY/MM/DD' に統一し、
+ * 重複除去・昇順ソート。未指定なら後方互換で単一 one_off_date を 1 要素として使う。
+ */
+function candidateDatesOf(b: Record<string, unknown>, fallbackSingle: string | null): string[] {
+  const raw = b.candidate_dates;
+  const arr = Array.isArray(raw)
+    ? raw.filter((x): x is string => typeof x === 'string' && x.trim() !== '')
+    : [];
+  const norm = arr.map((s) => s.replace(/-/g, '/').trim());
+  const uniq = [...new Set(norm)].sort();
+  if (uniq.length) return uniq;
+  return fallbackSingle ? [fallbackSingle] : [];
+}
+
+/** 定数時間比較（トークン照合） */
+function timingSafeEqual(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const ab = enc.encode(a);
+  const bb = enc.encode(b);
+  if (ab.length !== bb.length) return false;
+  let diff = 0;
+  for (let i = 0; i < ab.length; i++) diff |= ab[i] ^ bb[i];
+  return diff === 0;
+}
+
+function authorized(request: Request, env: Env): boolean {
+  const header = request.headers.get('authorization') || '';
+  const prefix = 'Bearer ';
+  if (!header.startsWith(prefix)) return false;
+  const token = header.slice(prefix.length);
+  return !!env.ADMIN_TOKEN && timingSafeEqual(token, env.ADMIN_TOKEN);
+}
+
+/** Notification の入力ボディを正規化（数値フラグは 0/1） */
+function toNotificationInput(b: Record<string, unknown>): NotificationInput | null {
+  const guild_id = typeof b.guild_id === 'string' ? b.guild_id : '';
+  const segment_id = Number(b.segment_id);
+  const name = typeof b.name === 'string' ? b.name : '';
+  const channel_id = typeof b.channel_id === 'string' ? b.channel_id : '';
+  const type = (b.type === 'oneoff' ? 'oneoff' : 'recurring') as NotificationType;
+  if (!guild_id || !segment_id || !name || !channel_id) return null;
+  return {
+    guild_id,
+    segment_id,
+    name,
+    channel_id,
+    type,
+    rrule: b.rrule == null || b.rrule === '' ? null : String(b.rrule),
+    one_off_date: b.one_off_date == null || b.one_off_date === '' ? null : String(b.one_off_date),
+    anchor_date: b.anchor_date == null || b.anchor_date === '' ? null : String(b.anchor_date),
+    start_time: typeof b.start_time === 'string' && b.start_time ? b.start_time : '21:00',
+    recruit_days_before: num(b.recruit_days_before, 7),
+    remind_start_days: num(b.remind_start_days, 3),
+    remind_undecided_days: num(b.remind_undecided_days, 1),
+    quota_enabled: b.quota_enabled ? 1 : 0,
+    quota_interval_days:
+      b.quota_interval_days == null ||
+      b.quota_interval_days === '' ||
+      !Number.isFinite(Number(b.quota_interval_days))
+        ? null
+        : Number(b.quota_interval_days),
+    assignment_enabled: b.assignment_enabled ? 1 : 0,
+    mention_enabled: b.mention_enabled ? 1 : 0,
+    active: b.active === undefined ? 1 : b.active ? 1 : 0,
+  };
+}
+
+/**
+ * 管理 API（/api/admin/*）。すべて ADMIN_TOKEN による Bearer 認証必須。すべて JSON。
+ * - GET        /setup/status                  (シークレット有無・Interaction URL)
+ * - POST       /setup/register-commands       ({guild_id?} スラッシュコマンド登録)
+ * - GET        /guilds, /guilds/:id/channels, /guilds/:id/members  (Discord 由来・読み取り専用)
+ * - GET/POST   /segments[?guild_id=],         PUT/DELETE /segments/:id
+ * - GET        /segments/:id/members,         POST /segments/:id/members ({user_id,display_name?,user_name?})
+ * - PUT/DELETE /segments/:id/members/:userId  ({status} for PUT)
+ * - GET/POST   /members,                      DELETE /members/:userId
+ * - GET/POST   /notifications[?guild_id=],    GET/PUT/DELETE /notifications/:id
+ *              （POST/PUT で type='oneoff' は body.candidate_dates[] を候補回として同期）
+ * - GET        /notifications/:id/occurrences
+ * - POST       /notifications/:id/decide      ({occurrence_id} 最終確定・他候補を cancel)
+ * - POST       /notifications/:id/undecide    (確定解除・落選候補を復活)
+ * - POST       /notifications/:id/recruit     (今すぐ募集を投稿)
+ * - PUT        /occurrences/:id               ({status|date})
+ * - GET        /occurrences/:id/responses,    GET /occurrences/:id/status (集計バケット)
+ * - GET        /occurrences/:id/assignments
+ * - POST       /occurrences/:id/assign        (assignNumbers 実行)
+ * - GET        /responses?limit=
+ */
+export async function handleAdmin(request: Request, env: Env): Promise<Response> {
+  if (!authorized(request, env)) {
+    return json({ error: 'Unauthorized' }, 401);
+  }
+
+  const url = new URL(request.url);
+  const path = url.pathname.replace(/^\/api\/admin/, '') || '/';
+  const method = request.method;
+  const db = env.DB;
+
+  try {
+    // ============ setup ウィザード ============
+    if (path === '/setup/status' && method === 'GET') {
+      return json(getSetupStatus(env, request));
+    }
+    if (path === '/setup/register-commands' && method === 'POST') {
+      let guildId: string | null = null;
+      try {
+        const b = (await request.json()) as { guild_id?: string };
+        guildId = b.guild_id || null;
+      } catch {
+        // ボディ無しは全体（グローバル）登録
+      }
+      try {
+        const r = await registerCommandsForEnv(env, guildId);
+        return json({ ok: true, ...r });
+      } catch (e) {
+        return json({ ok: false, error: (e as Error).message }, 400);
+      }
+    }
+
+    // ============ guilds（Discord API 由来・読み取り専用）============
+    if (path === '/guilds' && method === 'GET') {
+      return json(await listGuilds(env));
+    }
+    const guildChannels = path.match(/^\/guilds\/(\d+)\/channels$/);
+    if (guildChannels && method === 'GET') {
+      return json(await listGuildChannels(env, guildChannels[1]));
+    }
+    const guildMembers = path.match(/^\/guilds\/(\d+)\/members$/);
+    if (guildMembers && method === 'GET') {
+      return json(await listGuildMembers(env, guildMembers[1]));
+    }
+
+    // ============ segments ============
+    if (path === '/segments') {
+      if (method === 'GET') {
+        const guildId = url.searchParams.get('guild_id') ?? undefined;
+        return json(await listSegments(db, guildId));
+      }
+      if (method === 'POST') {
+        const b = (await request.json()) as { guild_id?: string; name?: string; mention_role_id?: string | null };
+        if (!b.guild_id) return json({ error: 'guild_id required' }, 400);
+        if (!b.name) return json({ error: 'name required' }, 400);
+        return json(
+          await createSegment(db, { guild_id: b.guild_id, name: b.name, mention_role_id: b.mention_role_id ?? null }),
+          201,
+        );
+      }
+    }
+    // /segments/:id/members/:userId
+    const segMemberItem = path.match(/^\/segments\/(\d+)\/members\/(.+)$/);
+    if (segMemberItem) {
+      const segmentId = Number(segMemberItem[1]);
+      const userId = decodeURIComponent(segMemberItem[2]);
+      if (method === 'PUT') {
+        const b = (await request.json()) as { status?: string };
+        if (b.status === undefined) return json({ error: 'status required' }, 400);
+        // status は '' / '休止中' の2値固定。不正値は集計母集団からの静かな脱落を招くため弾く。
+        if (b.status !== '' && b.status !== '休止中') {
+          return json({ error: "status must be '' or '休止中'" }, 400);
+        }
+        const ok = await setSegmentMemberStatus(db, segmentId, userId, b.status);
+        return json({ ok }, ok ? 200 : 404);
+      }
+      if (method === 'DELETE') {
+        const ok = await removeSegmentMember(db, segmentId, userId);
+        return json({ ok }, ok ? 200 : 404);
+      }
+    }
+    // /segments/:id/members
+    const segMembers = path.match(/^\/segments\/(\d+)\/members$/);
+    if (segMembers) {
+      const segmentId = Number(segMembers[1]);
+      if (method === 'GET') return json(await listSegmentMembers(db, segmentId));
+      if (method === 'POST') {
+        const b = (await request.json()) as {
+          user_id?: string;
+          user_name?: string | null;
+          display_name?: string | null;
+        };
+        if (!b.user_id) return json({ error: 'user_id required' }, 400);
+        await addSegmentMember(db, segmentId, b.user_id, {
+          user_name: b.user_name ?? null,
+          display_name: b.display_name ?? null,
+        });
+        return json({ ok: true }, 201);
+      }
+    }
+    // /segments/:id
+    const segId = path.match(/^\/segments\/(\d+)$/);
+    if (segId) {
+      const id = Number(segId[1]);
+      if (method === 'PUT') {
+        const b = (await request.json()) as { name?: string; mention_role_id?: string | null };
+        if (!b.name) return json({ error: 'name required' }, 400);
+        const ok = await updateSegment(db, id, {
+          name: b.name,
+          mention_role_id: b.mention_role_id ?? null,
+        });
+        return json({ ok }, ok ? 200 : 404);
+      }
+      if (method === 'DELETE') {
+        // 対象 Notification がある場合は削除させない（409）
+        const count = await countNotificationsForSegment(db, id);
+        if (count > 0) {
+          return json({ error: 'segment has notifications', count }, 409);
+        }
+        const ok = await deleteSegment(db, id);
+        return json({ ok }, ok ? 200 : 404);
+      }
+    }
+
+    // ============ members ============
+    if (path === '/members') {
+      if (method === 'GET') return json(await getAllMembers(db));
+      if (method === 'POST') {
+        const m = (await request.json()) as {
+          user_id?: string;
+          user_name?: string | null;
+          display_name?: string | null;
+        };
+        if (!m.user_id) return json({ error: 'user_id required' }, 400);
+        await upsertMember(db, {
+          user_id: m.user_id,
+          user_name: m.user_name ?? null,
+          display_name: m.display_name ?? null,
+        });
+        return json({ ok: true });
+      }
+    }
+    const memberDelete = path.match(/^\/members\/(.+)$/);
+    if (memberDelete && method === 'DELETE') {
+      const ok = await deleteMember(db, decodeURIComponent(memberDelete[1]));
+      return json({ ok }, ok ? 200 : 404);
+    }
+
+    // ============ notifications ============
+    if (path === '/notifications') {
+      if (method === 'GET') {
+        const guildId = url.searchParams.get('guild_id');
+        return json(guildId ? await listNotificationsByGuild(db, guildId) : await listNotifications(db));
+      }
+      if (method === 'POST') {
+        const body = (await request.json()) as Record<string, unknown>;
+        const input = toNotificationInput(body);
+        if (!input) return json({ error: 'Invalid body' }, 400);
+        if (input.type === 'oneoff') {
+          const dates = candidateDatesOf(body, input.one_off_date);
+          if (dates.length === 0) return json({ error: '単発は候補日が必須です' }, 400);
+          input.one_off_date = dates[0]; // 最早候補日をスケジュール計算の基準に
+          const created = await createNotification(db, input);
+          await syncCandidateOccurrences(db, created.id, dates);
+          return json(created, 201);
+        }
+        return json(await createNotification(db, input), 201);
+      }
+    }
+    // /notifications/:id/occurrences
+    const notifOccs = path.match(/^\/notifications\/(\d+)\/occurrences$/);
+    if (notifOccs && method === 'GET') {
+      const id = Number(notifOccs[1]);
+      const limit = parseLimit(url.searchParams.get('limit'), 100);
+      return json(await listOccurrencesForNotification(db, id, limit));
+    }
+    // /notifications/:id/decide （複数候補日の最終確定）
+    const notifDecide = path.match(/^\/notifications\/(\d+)\/decide$/);
+    if (notifDecide && method === 'POST') {
+      const nid = Number(notifDecide[1]);
+      const b = (await request.json()) as { occurrence_id?: number };
+      const occId = Number(b.occurrence_id);
+      if (!Number.isInteger(occId)) return json({ error: 'occurrence_id required' }, 400);
+      const n = await getNotification(db, nid);
+      if (!n) return json({ error: 'Not found' }, 404);
+      const occ = await getOccurrence(db, occId);
+      if (!occ || occ.notification_id !== nid) {
+        return json({ error: 'occurrence does not belong to notification' }, 400);
+      }
+      await decideOccurrence(db, nid, occId);
+      // 確定アナウンス（投稿失敗は致命的でない）
+      const announced = await sendChannelMessage(
+        env,
+        n.channel_id,
+        `✅ **開催日が確定しました**\n\n**${occ.occurrence_date}** ${n.start_time}~ に開催します！`,
+      );
+      return json({ ok: true, decided_occurrence_id: occId, announced });
+    }
+    // /notifications/:id/undecide （確定解除：落選候補を scheduled に戻す）
+    const notifUndecide = path.match(/^\/notifications\/(\d+)\/undecide$/);
+    if (notifUndecide && method === 'POST') {
+      const nid = Number(notifUndecide[1]);
+      const n = await getNotification(db, nid);
+      if (!n) return json({ error: 'Not found' }, 404);
+      await undecideNotification(db, nid);
+      return json({ ok: true });
+    }
+    // /notifications/:id/recruit （管理画面から今すぐ募集を投稿）
+    const notifRecruit = path.match(/^\/notifications\/(\d+)\/recruit$/);
+    if (notifRecruit && method === 'POST') {
+      const nid = Number(notifRecruit[1]);
+      const n = await getNotification(db, nid);
+      if (!n) return json({ error: 'Not found' }, 404);
+      const r = await recruitNotificationNow(env, n);
+      return json(r, r.ok ? 200 : 400);
+    }
+    // /notifications/:id
+    const notifId = path.match(/^\/notifications\/(\d+)$/);
+    if (notifId) {
+      const id = Number(notifId[1]);
+      if (method === 'GET') {
+        const row = await getNotification(db, id);
+        return row ? json(row) : json({ error: 'Not found' }, 404);
+      }
+      if (method === 'PUT') {
+        const body = (await request.json()) as Record<string, unknown>;
+        const input = toNotificationInput(body);
+        if (!input) return json({ error: 'Invalid body' }, 400);
+        if (input.type === 'oneoff') {
+          const dates = candidateDatesOf(body, input.one_off_date);
+          if (dates.length === 0) return json({ error: '単発は候補日が必須です' }, 400);
+          input.one_off_date = dates[0]; // 最早候補日を基準に
+          const ok = await updateNotification(db, id, input);
+          if (!ok) return json({ ok }, 404);
+          // 確定済み（decided_occurrence_id 設定済み）は候補を再同期しない（落選回の復活を防ぐ）。
+          const current = await getNotification(db, id);
+          if (current && current.decided_occurrence_id == null) {
+            await syncCandidateOccurrences(db, id, dates);
+          }
+          return json({ ok });
+        }
+        const ok = await updateNotification(db, id, input);
+        return json({ ok }, ok ? 200 : 404);
+      }
+      if (method === 'DELETE') {
+        const ok = await deleteNotification(db, id);
+        return json({ ok }, ok ? 200 : 404);
+      }
+    }
+
+    // ============ occurrences ============
+    // /occurrences/:id/assign
+    const occAssign = path.match(/^\/occurrences\/(\d+)\/assign$/);
+    if (occAssign && method === 'POST') {
+      const id = Number(occAssign[1]);
+      return json(await assignNumbers(db, id));
+    }
+    // /occurrences/:id/responses
+    const occResponses = path.match(/^\/occurrences\/(\d+)\/responses$/);
+    if (occResponses && method === 'GET') {
+      const id = Number(occResponses[1]);
+      return json(await getResponsesForOccurrence(db, id));
+    }
+    // /occurrences/:id/status （候補日ごとの出欠集計バケット）
+    const occStatus = path.match(/^\/occurrences\/(\d+)\/status$/);
+    if (occStatus && method === 'GET') {
+      const id = Number(occStatus[1]);
+      const occ = await getOccurrence(db, id);
+      if (!occ) return json({ error: 'Not found' }, 404);
+      const n = await getNotification(db, occ.notification_id);
+      if (!n) return json({ error: 'Not found' }, 404);
+      return json(await getStatusBuckets(db, id, n.segment_id));
+    }
+    // /occurrences/:id/assignments
+    const occAssignments = path.match(/^\/occurrences\/(\d+)\/assignments$/);
+    if (occAssignments && method === 'GET') {
+      const id = Number(occAssignments[1]);
+      return json(await getAssignments(db, id));
+    }
+    // /occurrences/:id ({status|date})
+    const occId = path.match(/^\/occurrences\/(\d+)$/);
+    if (occId && method === 'PUT') {
+      const id = Number(occId[1]);
+      const b = (await request.json()) as { status?: string; date?: string };
+      if (b.status !== undefined) {
+        if (b.status !== 'scheduled' && b.status !== 'cancelled') {
+          return json({ error: 'invalid status' }, 400);
+        }
+        const ok = await setOccurrenceStatus(db, id, b.status);
+        return json({ ok }, ok ? 200 : 404);
+      }
+      if (b.date !== undefined) {
+        if (!b.date) return json({ error: 'date required' }, 400);
+        const ok = await updateOccurrenceDate(db, id, b.date);
+        return json({ ok }, ok ? 200 : 404);
+      }
+      return json({ error: 'status or date required' }, 400);
+    }
+
+    // ============ responses ============
+    if (path === '/responses' && method === 'GET') {
+      const limit = parseLimit(url.searchParams.get('limit'), 200);
+      return json(await listRecentResponses(db, limit));
+    }
+
+    return json({ error: 'Not found' }, 404);
+  } catch (e) {
+    console.error('[Admin] error:', (e as Error).message);
+    return json({ error: 'Internal error' }, 500);
+  }
+}
