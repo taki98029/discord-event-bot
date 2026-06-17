@@ -23,3 +23,6 @@ Thumbs.db
 .dev.vars
 dist/
 *.tsbuildinfo
+
+# 移行で生成される実データ（PII含む・コミット禁止）
+scripts/seed.sql
