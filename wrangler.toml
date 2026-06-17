@@ -8,7 +8,7 @@ compatibility_flags = ["nodejs_compat"]
 [[d1_databases]]
 binding = "DB"
 database_name = "choiemu-event-bot-db"
-database_id = "PLACEHOLDER_RUN_wrangler_d1_create"
+database_id = "f6ff753c-bf29-4eb5-83ec-317631743cfc"
 migrations_dir = "migrations"
 
 # --- 日次 cron（UTC基準。0 12 * * * = JST 21:00）---

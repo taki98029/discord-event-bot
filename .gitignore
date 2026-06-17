@@ -26,3 +26,6 @@ dist/
 
 # 移行で生成される実データ（PII含む・コミット禁止）
 scripts/seed.sql
+
+# シークレット一括投入用ファイル（コミット禁止）
+secrets*.json

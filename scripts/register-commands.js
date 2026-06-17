@@ -4,10 +4,10 @@
  * 使い方:
  *   node scripts/register-commands.js
  *
- * 必要な環境変数（.env）:
+ * 必要な環境変数:
  *   DISCORD_BOT_TOKEN / DISCORD_APPLICATION_ID
- *
- * ※ グローバルコマンドは反映に最大1時間かかる場合があります
+ *   DISCORD_GUILD_ID（任意）… 指定するとそのサーバーへ即時登録（テスト向け）。
+ *                            未指定はグローバル登録（反映に最大1時間）
  */
 import 'dotenv/config';
 
@@ -42,8 +42,15 @@ const commands = [
   },
 ];
 
-const url = `https://discord.com/api/v10/applications/${APP_ID}/commands`;
-console.log(`📡 Registering ${commands.length} command(s)...`);
+const GUILD_ID = process.env.DISCORD_GUILD_ID;
+const url = GUILD_ID
+  ? `https://discord.com/api/v10/applications/${APP_ID}/guilds/${GUILD_ID}/commands`
+  : `https://discord.com/api/v10/applications/${APP_ID}/commands`;
+console.log(
+  GUILD_ID
+    ? `📡 Registering ${commands.length} command(s) to guild ${GUILD_ID} (即時反映)...`
+    : `📡 Registering ${commands.length} command(s) globally (反映に最大1時間)...`,
+);
 
 const response = await fetch(url, {
   method: 'PUT',
