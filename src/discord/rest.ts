@@ -3,7 +3,7 @@ import type { Member, EventStatusBuckets, Segment } from '../db/types';
 import { setDmChannelId } from '../db/members';
 
 const API = 'https://discord.com/api/v10';
-const USER_AGENT = 'DiscordBot (https://github.com/choiemu/event-bot, 6.0.0)';
+const USER_AGENT = 'DiscordBot (https://github.com/discord-event-bot, 7.0.0)'; // バージョンは package.json と同期
 
 type MessagePayload = { content: string; components?: unknown[] };
 
