@@ -35,6 +35,7 @@ import { getResponsesForOccurrence, getStatusBuckets, listRecentResponses } from
 import { getAssignments, assignNumbers } from '../db/assignments';
 import { sendChannelMessage } from '../discord/rest';
 import { recruitNotificationNow } from '../cron/dailyCheck';
+import { getSetupStatus, registerCommandsForEnv } from './setup';
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -127,6 +128,8 @@ function toNotificationInput(b: Record<string, unknown>): NotificationInput | nu
 
 /**
  * 管理 API（/api/admin/*）。すべて ADMIN_TOKEN による Bearer 認証必須。すべて JSON。
+ * - GET        /setup/status                  (シークレット有無・Interaction URL)
+ * - POST       /setup/register-commands       ({guild_id?} スラッシュコマンド登録)
  * - GET        /guilds, /guilds/:id/channels, /guilds/:id/members  (Discord 由来・読み取り専用)
  * - GET/POST   /segments[?guild_id=],         PUT/DELETE /segments/:id
  * - GET        /segments/:id/members,         POST /segments/:id/members ({user_id,display_name?,user_name?})
@@ -155,6 +158,26 @@ export async function handleAdmin(request: Request, env: Env): Promise<Response>
   const db = env.DB;
 
   try {
+    // ============ setup ウィザード ============
+    if (path === '/setup/status' && method === 'GET') {
+      return json(getSetupStatus(env, request));
+    }
+    if (path === '/setup/register-commands' && method === 'POST') {
+      let guildId: string | null = null;
+      try {
+        const b = (await request.json()) as { guild_id?: string };
+        guildId = b.guild_id || null;
+      } catch {
+        // ボディ無しは全体（グローバル）登録
+      }
+      try {
+        const r = await registerCommandsForEnv(env, guildId);
+        return json({ ok: true, ...r });
+      } catch (e) {
+        return json({ ok: false, error: (e as Error).message }, 400);
+      }
+    }
+
     // ============ guilds（Discord API 由来・読み取り専用）============
     if (path === '/guilds' && method === 'GET') {
       return json(await listGuilds(env));

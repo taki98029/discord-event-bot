@@ -107,11 +107,13 @@
           <div class="navitem active" data-sec="notifications">🔔 通知</div>
           <div class="navitem" data-sec="segments">👥 メンバー区分</div>
           <div class="navitem" data-sec="records">🗒 回答履歴</div>
+          <div class="navitem" data-sec="setup">⚙️ セットアップ</div>
         </nav>
         <main>
           <section id="sec-notifications"></section>
           <section id="sec-segments" class="hidden"></section>
           <section id="sec-records" class="hidden"></section>
+          <section id="sec-setup" class="hidden"></section>
         </main>
       </div>
     </div>
@@ -195,8 +197,8 @@
       }
 
       // ================= ナビ =================
-      const SECTIONS = ['notifications', 'segments', 'records'];
-      const LOADERS = { notifications: loadNotifications, segments: loadSegments, records: loadRecords };
+      const SECTIONS = ['notifications', 'segments', 'records', 'setup'];
+      const LOADERS = { notifications: loadNotifications, segments: loadSegments, records: loadRecords, setup: loadSetup };
       function switchSection(sec) {
         document.querySelectorAll('.side .navitem').forEach((x) => x.classList.toggle('active', x.dataset.sec === sec));
         SECTIONS.forEach((s) => $('#sec-' + s).classList.toggle('hidden', s !== sec));
@@ -738,6 +740,64 @@
           <p class="muted">直近 ${responses.length} 件（全サーバー横断の回答ログ）。番号割り当ては「通知 → 開催回」から実行します。</p>
           <table><thead><tr><th>開催日</th><th>通知</th><th>メンバー</th><th>回答</th><th>更新</th></tr></thead>
           <tbody>${rows}</tbody></table>`;
+      }
+
+      // ================= セットアップ ウィザード =================
+      async function loadSetup() {
+        let st = null;
+        try { st = await api('/setup/status'); } catch (e) { return toast(e.message, true); }
+        const secretRow = (key, label) => {
+          const ok = st.secrets[key];
+          return `<div class="pickrow"><div>${ok ? '✅' : '⚠️'} <b>${esc(key)}</b><br>
+            <span class="muted" style="font-size:12px">${esc(label)}</span></div>
+            <span class="pill ${ok ? 'on' : 'off'}">${ok ? '設定済み' : '未設定'}</span></div>`;
+        };
+        const endpoint = st.interaction_endpoint_url;
+        $('#sec-setup').innerHTML = `
+          <h2>⚙️ セットアップ</h2>
+          <p class="muted">初期設定をここで完了できます。上から順に進めてください。</p>
+
+          <fieldset><legend>1. シークレットの確認</legend>
+            <p class="muted" style="font-size:13px">Cloudflare の管理画面（Settings → Variables and Secrets）で設定します。未設定があると Bot は動きません。</p>
+            ${secretRow('DISCORD_PUBLIC_KEY', '署名検証用の公開鍵（Discord → General Information）')}
+            ${secretRow('DISCORD_APPLICATION_ID', 'アプリID（Discord → General Information）')}
+            ${secretRow('DISCORD_BOT_TOKEN', 'Bot のトークン（Discord → Bot）')}
+            ${secretRow('ADMIN_TOKEN', 'この管理画面のパスワード（自分で決めた文字列）')}
+            <div class="actions" style="margin-top:8px"><button class="btn sm secondary" id="setupReload">再読み込み</button></div>
+          </fieldset>
+
+          <fieldset><legend>2. スラッシュコマンドを登録</legend>
+            <p class="muted" style="font-size:13px">/recruit などのコマンドを Discord に登録します（このサーバーへ即時反映）。</p>
+            <div class="actions"><button class="btn" id="setupRegister">コマンドを登録</button></div>
+            <div id="setupRegisterResult" class="muted" style="font-size:13px;margin-top:8px"></div>
+          </fieldset>
+
+          <fieldset><legend>3. Interaction Endpoint URL を Discord に設定</legend>
+            <p class="muted" style="font-size:13px">下の URL をコピーし、Discord Developer Portal → General Information の
+              「Interactions Endpoint URL」に貼り付けて保存してください。</p>
+            <div class="pickrow"><code style="word-break:break-all">${esc(endpoint)}</code>
+              <button class="btn sm" id="setupCopy">コピー</button></div>
+            <p class="muted" style="font-size:13px;margin-top:8px">続けて Discord → Bot の
+              <b>Server Members Intent</b> を ON にしてください（メンバー一覧の取得に必要）。</p>
+          </fieldset>
+
+          <fieldset><legend>4. 中身を設定する</legend>
+            <p class="muted" style="font-size:13px">左メニューの「メンバー区分」→「通知」の順に作成し、メンバーを登録すれば完了です。</p>
+          </fieldset>`;
+        $('#setupReload').onclick = loadSetup;
+        $('#setupCopy').onclick = async () => {
+          try { await navigator.clipboard.writeText(endpoint); toast('コピーしました'); }
+          catch (_) { toast('コピーできませんでした。URL を手動で選択してください', true); }
+        };
+        $('#setupRegister').onclick = async () => {
+          const res = $('#setupRegisterResult');
+          res.textContent = '登録中…';
+          try {
+            const r = await api('/setup/register-commands', { method: 'POST', body: JSON.stringify({ guild_id: guild.id }) });
+            if (r && r.ok) { res.textContent = `✅ 登録しました: ${(r.names || []).map((n) => '/' + n).join(' ')}`; toast('コマンドを登録しました'); }
+            else { res.textContent = '⚠️ ' + ((r && r.error) || '登録に失敗しました'); }
+          } catch (e) { res.textContent = '⚠️ ' + e.message; toast(e.message, true); }
+        };
       }
 
       // ================= 認証・起動 =================
