@@ -30,6 +30,7 @@ import {
   updateOccurrenceDate,
   listOccurrencesForNotification,
   syncCandidateOccurrences,
+  type CandidateSlot,
 } from '../db/occurrences';
 import { getResponsesForOccurrence, getStatusBuckets, listRecentResponses } from '../db/responses';
 import { getAssignments, assignNumbers } from '../db/assignments';
@@ -58,19 +59,33 @@ function num(v: unknown, def: number): number {
 }
 
 /**
- * 単発(oneoff)の候補日配列を正規化する。
- * body.candidate_dates（'YYYY-MM-DD' / 'YYYY/MM/DD' の配列）を 'YYYY/MM/DD' に統一し、
- * 重複除去・昇順ソート。未指定なら後方互換で単一 one_off_date を 1 要素として使う。
+ * 単発(oneoff)の候補スロット（日付＋時刻）を正規化する。
+ * body.candidate_slots（[{date,time}]・date は 'YYYY-MM-DD'/'YYYY/MM/DD'）を
+ * 'YYYY/MM/DD'＋'HH:MM' に統一し、(date,time) で重複除去・昇順ソート。
+ * 未指定なら後方互換で単一 (one_off_date, start_time) を 1 スロットとして使う。
  */
-function candidateDatesOf(b: Record<string, unknown>, fallbackSingle: string | null): string[] {
-  const raw = b.candidate_dates;
-  const arr = Array.isArray(raw)
-    ? raw.filter((x): x is string => typeof x === 'string' && x.trim() !== '')
-    : [];
-  const norm = arr.map((s) => s.replace(/-/g, '/').trim());
-  const uniq = [...new Set(norm)].sort();
-  if (uniq.length) return uniq;
-  return fallbackSingle ? [fallbackSingle] : [];
+function candidateSlotsOf(
+  b: Record<string, unknown>,
+  fallbackDate: string | null,
+  fallbackTime: string,
+): CandidateSlot[] {
+  const raw = Array.isArray(b.candidate_slots) ? (b.candidate_slots as unknown[]) : [];
+  const seen = new Set<string>();
+  const out: CandidateSlot[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const rec = item as Record<string, unknown>;
+    const date = typeof rec.date === 'string' ? rec.date.replace(/-/g, '/').trim() : '';
+    const time = typeof rec.time === 'string' ? rec.time.trim() : '';
+    if (!date || !time) continue;
+    const k = `${date} ${time}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push({ date, time });
+  }
+  out.sort((a, z) => (a.date === z.date ? a.time.localeCompare(z.time) : a.date.localeCompare(z.date)));
+  if (out.length) return out;
+  return fallbackDate ? [{ date: fallbackDate, time: fallbackTime || '21:00' }] : [];
 }
 
 /** 定数時間比較（トークン照合） */
@@ -305,11 +320,12 @@ export async function handleAdmin(request: Request, env: Env): Promise<Response>
         const input = toNotificationInput(body);
         if (!input) return json({ error: 'Invalid body' }, 400);
         if (input.type === 'oneoff') {
-          const dates = candidateDatesOf(body, input.one_off_date);
-          if (dates.length === 0) return json({ error: '単発は候補日が必須です' }, 400);
-          input.one_off_date = dates[0]; // 最早候補日をスケジュール計算の基準に
+          const slots = candidateSlotsOf(body, input.one_off_date, input.start_time);
+          if (slots.length === 0) return json({ error: '単発は候補日時が必須です' }, 400);
+          input.one_off_date = slots[0].date; // 最早スロットをスケジュール計算の基準に
+          input.start_time = slots[0].time;
           const created = await createNotification(db, input);
-          await syncCandidateOccurrences(db, created.id, dates);
+          await syncCandidateOccurrences(db, created.id, slots);
           return json(created, 201);
         }
         return json(await createNotification(db, input), 201);
@@ -340,7 +356,7 @@ export async function handleAdmin(request: Request, env: Env): Promise<Response>
       const announced = await sendChannelMessage(
         env,
         n.channel_id,
-        `✅ **開催日が確定しました**\n\n**${occ.occurrence_date}** ${n.start_time}~ に開催します！`,
+        `✅ **開催日が確定しました**\n\n**${occ.occurrence_date}** ${occ.start_time || n.start_time}~ に開催します！`,
       );
       return json({ ok: true, decided_occurrence_id: occId, announced });
     }
@@ -375,15 +391,16 @@ export async function handleAdmin(request: Request, env: Env): Promise<Response>
         const input = toNotificationInput(body);
         if (!input) return json({ error: 'Invalid body' }, 400);
         if (input.type === 'oneoff') {
-          const dates = candidateDatesOf(body, input.one_off_date);
-          if (dates.length === 0) return json({ error: '単発は候補日が必須です' }, 400);
-          input.one_off_date = dates[0]; // 最早候補日を基準に
+          const slots = candidateSlotsOf(body, input.one_off_date, input.start_time);
+          if (slots.length === 0) return json({ error: '単発は候補日時が必須です' }, 400);
+          input.one_off_date = slots[0].date; // 最早スロットを基準に
+          input.start_time = slots[0].time;
           const ok = await updateNotification(db, id, input);
           if (!ok) return json({ ok }, 404);
           // 確定済み（decided_occurrence_id 設定済み）は候補を再同期しない（落選回の復活を防ぐ）。
           const current = await getNotification(db, id);
           if (current && current.decided_occurrence_id == null) {
-            await syncCandidateOccurrences(db, id, dates);
+            await syncCandidateOccurrences(db, id, slots);
           }
           return json({ ok });
         }

@@ -81,12 +81,14 @@ export interface Notification {
 
 export type OccurrenceStatus = 'scheduled' | 'cancelled';
 
-/** occurrences: Notification の 1 開催回 */
+/** occurrences: Notification の 1 開催回（単発の複数候補では「日付＋時刻」のスロット1つ） */
 export interface Occurrence {
   id: number;
   notification_id: number;
   /** 'YYYY/MM/DD'（JST・ゼロ埋めで辞書順=時系列順） */
   occurrence_date: string;
+  /** 'HH:MM'（JST）。このスロットの開始時刻。空文字は通知の start_time で補完して表示 */
+  start_time: string;
   status: OccurrenceStatus;
   created_at: string;
 }

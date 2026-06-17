@@ -82,10 +82,13 @@ async function insertOccurrence(
   notificationId: number,
   dateStr: string,
   status: 'scheduled' | 'cancelled' = 'scheduled',
+  startTime = '',
 ): Promise<number> {
   const res = await db()
-    .prepare('INSERT INTO occurrences (notification_id, occurrence_date, status) VALUES (?, ?, ?)')
-    .bind(notificationId, dateStr, status)
+    .prepare(
+      'INSERT INTO occurrences (notification_id, occurrence_date, start_time, status) VALUES (?, ?, ?, ?)',
+    )
+    .bind(notificationId, dateStr, startTime, status)
     .run();
   return res.meta.last_row_id as number;
 }

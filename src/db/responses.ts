@@ -132,18 +132,23 @@ export async function checkQuotaForNotification(
 export async function listRecentResponses(
   db: D1Database,
   limit = 200,
-): Promise<Array<Response & { occurrence_date: string; notification_name: string }>> {
+): Promise<
+  Array<Response & { occurrence_date: string; occurrence_time: string; notification_name: string }>
+> {
   const { results } = await db
     .prepare(
       `SELECT r.occurrence_id, r.user_id, r.user_name, r.status, r.updated_at,
-              o.occurrence_date AS occurrence_date, n.name AS notification_name
+              o.occurrence_date AS occurrence_date, o.start_time AS occurrence_time,
+              n.name AS notification_name
          FROM responses r
          JOIN occurrences o ON o.id = r.occurrence_id
          JOIN notifications n ON n.id = o.notification_id
-        ORDER BY o.occurrence_date DESC, r.updated_at DESC
+        ORDER BY o.occurrence_date DESC, o.start_time DESC, r.updated_at DESC
         LIMIT ?`,
     )
     .bind(limit)
-    .all<Response & { occurrence_date: string; notification_name: string }>();
+    .all<
+      Response & { occurrence_date: string; occurrence_time: string; notification_name: string }
+    >();
   return results;
 }

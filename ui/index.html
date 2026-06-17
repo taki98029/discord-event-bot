@@ -6,64 +6,137 @@
     <title>EventBot 管理</title>
     <style>
       :root {
-        --bg: #0f1117; --panel: #1a1d27; --panel2: #20242f; --border: #2a2e3a; --text: #e6e8ee;
-        --muted: #9aa0ad; --accent: #5865f2; --danger: #ed4245; --ok: #3ba55d;
+        --bg: #0e1015; --panel: #171a23; --panel2: #1e222d; --elevated: #232836;
+        --border: #2b303d; --border2: #363c4c; --text: #e8eaf0; --muted: #969cab;
+        --accent: #5865f2; --accent-hover: #6b76f5; --accent-soft: rgba(88,101,242,.16);
+        --danger: #ed4245; --danger-hover: #f25558; --ok: #3ba55d; --warn: #d9a23b;
+        --ring: 0 0 0 3px rgba(88,101,242,.35);
+        --r: 10px; --r-sm: 8px; --shadow: 0 6px 24px rgba(0,0,0,.35);
+        --sp: 12px;
       }
       * { box-sizing: border-box; }
       body { margin: 0; background: var(--bg); color: var(--text);
-        font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 14px; }
-      h1 { font-size: 18px; } h2 { font-size: 17px; margin-top: 0; } h3 { font-size: 15px; margin-bottom: 8px; }
+        font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+        font-size: 14px; line-height: 1.55; -webkit-font-smoothing: antialiased; }
+      h1 { font-size: 19px; } h2 { font-size: 17px; margin: 0 0 4px; } h3 { font-size: 15px; margin: 0 0 8px; }
       a { color: var(--accent); }
-      label { display: block; color: var(--muted); margin: 10px 0 4px; font-size: 13px; }
-      input, select, textarea { width: 100%; padding: 8px 10px; background: var(--bg);
-        border: 1px solid var(--border); border-radius: 8px; color: var(--text);
-        font-family: inherit; font-size: 14px; }
-      label.inline { display: inline-flex; align-items: center; gap: 8px; margin: 8px 0 0; color: var(--text); }
-      label.inline input { width: auto; }
-      button.btn { background: var(--accent); color: #fff; border: none;
-        padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 14px; }
-      button.btn.secondary { background: var(--border); color: var(--text); }
+      label { display: block; color: var(--muted); margin: 12px 0 5px; font-size: 12.5px; font-weight: 600; letter-spacing: .01em; }
+      input, select, textarea { width: 100%; padding: 9px 11px; background: var(--bg);
+        border: 1px solid var(--border2); border-radius: var(--r-sm); color: var(--text);
+        font-family: inherit; font-size: 14px; transition: border-color .12s, box-shadow .12s, background .12s; }
+      input:hover, select:hover, textarea:hover { border-color: #434a5c; }
+      input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: var(--ring); }
+      input.invalid, select.invalid { border-color: var(--danger); box-shadow: 0 0 0 3px rgba(237,66,69,.25); }
+      ::placeholder { color: #6a7180; }
+      .field-error { color: var(--danger); font-size: 12px; margin-top: 4px; min-height: 0; }
+      label.inline { display: inline-flex; align-items: center; gap: 8px; margin: 8px 14px 0 0; color: var(--text); font-weight: 500; cursor: pointer; }
+      label.inline input { width: auto; accent-color: var(--accent); }
+      code { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 2px 6px; font-size: 12.5px; }
+
+      /* ボタン */
+      button.btn { background: var(--accent); color: #fff; border: 1px solid transparent;
+        padding: 9px 16px; border-radius: var(--r-sm); cursor: pointer; font-size: 14px; font-weight: 600;
+        font-family: inherit; line-height: 1.2; transition: background .12s, border-color .12s, transform .04s, opacity .12s;
+        display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+      button.btn:hover { background: var(--accent-hover); }
+      button.btn:active { transform: translateY(1px); }
+      button.btn:focus-visible { outline: none; box-shadow: var(--ring); }
+      button.btn:disabled { opacity: .55; cursor: not-allowed; transform: none; }
+      button.btn.secondary { background: var(--elevated); color: var(--text); border-color: var(--border2); }
+      button.btn.secondary:hover { background: #2a3142; }
       button.btn.danger { background: var(--danger); }
-      button.btn.sm { padding: 4px 10px; font-size: 13px; }
-      button.btn.ghost { background: none; border: 1px solid var(--border); color: var(--muted); }
+      button.btn.danger:hover { background: var(--danger-hover); }
+      button.btn.ghost { background: none; border: 1px solid var(--border2); color: var(--muted); }
+      button.btn.ghost:hover { background: var(--elevated); color: var(--text); }
+      button.btn.sm { padding: 5px 11px; font-size: 13px; }
+      button.btn.xs { padding: 3px 8px; font-size: 12px; border-radius: 6px; }
+      button.btn.busy { position: relative; color: transparent !important; pointer-events: none; }
+      button.btn.busy::after { content: ""; position: absolute; inset: 0; margin: auto; width: 14px; height: 14px;
+        border: 2px solid rgba(255,255,255,.5); border-top-color: #fff; border-radius: 50%; animation: spin .6s linear infinite; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+
       table { width: 100%; border-collapse: collapse; }
-      th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
-      th { color: var(--muted); font-weight: 600; }
-      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-      .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
-      .toast { position: fixed; bottom: 20px; right: 20px; padding: 12px 16px;
-        border-radius: 8px; background: var(--ok); color: #fff; opacity: 0;
-        transition: opacity .2s; pointer-events: none; max-width: 60vw; z-index: 30; }
-      .toast.show { opacity: 1; } .toast.err { background: var(--danger); }
-      .hidden { display: none; } .muted { color: var(--muted); }
-      .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--border); }
-      .pill.on { background: rgba(59,165,93,.15); color: var(--ok); border-color: var(--ok); }
+      th, td { text-align: left; padding: 9px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+      th { color: var(--muted); font-weight: 600; font-size: 12.5px; }
+      tbody tr:hover { background: rgba(255,255,255,.02); }
+      .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--r-sm); }
+      .row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp); }
+      .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--sp); }
+
+      .toast { position: fixed; bottom: 20px; right: 20px; padding: 12px 16px; border-radius: var(--r-sm);
+        background: var(--ok); color: #fff; opacity: 0; transform: translateY(8px);
+        transition: opacity .2s, transform .2s; pointer-events: none; max-width: min(60vw, 420px); z-index: 60; box-shadow: var(--shadow); font-weight: 500; }
+      .toast.show { opacity: 1; transform: translateY(0); } .toast.err { background: var(--danger); }
+      .hidden { display: none !important; } .muted { color: var(--muted); }
+      .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; border: 1px solid var(--border2); color: var(--muted); }
+      .pill.on { background: rgba(59,165,93,.16); color: #5fcf83; border-color: rgba(59,165,93,.5); }
       .pill.off { color: var(--muted); }
-      .actions { display: flex; gap: 8px; flex-wrap: wrap; }
-      fieldset { border: 1px solid var(--border); border-radius: 8px; margin: 12px 0; padding: 12px; }
-      legend { color: var(--muted); padding: 0 6px; }
-      .summary { display: flex; align-items: center; gap: 8px; padding: 10px 12px; margin: 12px 0;
-        background: var(--panel2); border-radius: 8px; font-size: 14px; }
+      .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+      fieldset { border: 1px solid var(--border); border-radius: var(--r); margin: 14px 0; padding: 14px 16px; background: var(--panel); }
+      legend { color: var(--text); padding: 0 8px; font-weight: 600; }
+      .summary { display: flex; align-items: center; gap: 8px; padding: 11px 13px; margin: 14px 0;
+        background: var(--accent-soft); border: 1px solid rgba(88,101,242,.3); border-radius: var(--r-sm); font-size: 14px; font-weight: 500; }
+      .empty { text-align: center; color: var(--muted); padding: 28px 16px; border: 1px dashed var(--border2);
+        border-radius: var(--r); background: var(--panel); }
+
       /* シェル */
-      .shell { display: grid; grid-template-columns: 200px 1fr; min-height: 100vh; }
-      .side { border-right: 1px solid var(--border); padding: 14px 10px; }
-      .side .navitem { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 8px;
-        color: var(--muted); cursor: pointer; margin-bottom: 2px; }
-      .side .navitem.active { background: var(--panel); color: var(--text); }
-      .topbar { display: flex; align-items: center; justify-content: space-between;
-        padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--panel); }
-      .srv { display: flex; align-items: center; gap: 10px; }
-      .ava { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center;
-        justify-content: center; font-weight: 600; background: rgba(88,101,242,.18); color: #aeb6ff; }
-      main { padding: 20px; max-width: 920px; }
-      .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
-        padding: 14px 16px; margin-bottom: 10px; cursor: pointer; }
-      .listrow { display: flex; align-items: center; justify-content: space-between;
-        padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; }
-      .grid-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+      .shell { display: grid; grid-template-columns: 210px 1fr; min-height: calc(100vh - 57px); }
+      .side { border-right: 1px solid var(--border); padding: 14px 10px; background: var(--panel); }
+      .side .navitem { display: flex; align-items: center; gap: 9px; padding: 10px 12px; border-radius: var(--r-sm);
+        color: var(--muted); cursor: pointer; margin-bottom: 3px; font-weight: 600; user-select: none;
+        border: 1px solid transparent; transition: background .12s, color .12s; }
+      .side .navitem:hover { background: var(--elevated); color: var(--text); }
+      .side .navitem.active { background: var(--accent-soft); color: #cfd4ff; border-color: rgba(88,101,242,.4); }
+      .topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+        padding: 11px 18px; border-bottom: 1px solid var(--border); background: var(--panel); position: sticky; top: 0; z-index: 20; }
+      .srv { display: flex; align-items: center; gap: 10px; min-width: 0; }
+      .ava { width: 34px; height: 34px; border-radius: 9px; display: flex; align-items: center; flex: none;
+        justify-content: center; font-weight: 700; background: var(--accent-soft); color: #aeb6ff; }
+      main { padding: 22px; max-width: 940px; }
+      .card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--r);
+        padding: 15px 16px; margin-bottom: 10px; cursor: pointer; transition: border-color .12s, background .12s, transform .04s; }
+      .card:hover { border-color: var(--border2); background: var(--panel2); }
+      .card:active { transform: translateY(1px); }
+      .listrow { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+        padding: 13px 14px; border: 1px solid var(--border); border-radius: var(--r); margin-bottom: 8px; background: var(--panel); }
+      .listrow:hover { border-color: var(--border2); }
+      .grid-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
       .search { position: relative; }
-      .pickrow { display: flex; align-items: center; justify-content: space-between;
-        padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; }
+      .pickrow { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+        padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-sm); margin-bottom: 6px; background: var(--panel2); }
+
+      /* 単発の候補スロット */
+      .slotgroup { border: 1px solid var(--border2); border-radius: var(--r-sm); padding: 12px; margin-bottom: 10px; background: var(--panel2); }
+      .slotgroup-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+      .slotgroup-head .slotDate { max-width: 220px; flex: 1 1 160px; }
+      .timechips { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+      .timechip { display: inline-flex; align-items: center; gap: 4px; background: var(--bg);
+        border: 1px solid var(--border2); border-radius: 999px; padding: 3px 6px 3px 10px; }
+      .timechip input[type=time] { width: auto; border: none; background: none; padding: 2px 0; }
+      .timechip input[type=time]:focus { box-shadow: none; }
+
+      /* モーダル（確認ダイアログ） */
+      .backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center;
+        justify-content: center; z-index: 80; padding: 20px; animation: fade .12s ease; }
+      @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+      .modal { background: var(--elevated); border: 1px solid var(--border2); border-radius: var(--r);
+        box-shadow: var(--shadow); max-width: 420px; width: 100%; padding: 20px; }
+      .modal h3 { margin: 0 0 8px; } .modal p { margin: 0 0 16px; color: var(--text); }
+      .modal .actions { justify-content: flex-end; }
+
+      /* レスポンシブ */
+      @media (max-width: 720px) {
+        .shell { grid-template-columns: 1fr; min-height: 0; }
+        .side { border-right: none; border-bottom: 1px solid var(--border); display: flex; gap: 6px; overflow-x: auto; padding: 10px; }
+        .side .navitem { margin: 0; white-space: nowrap; }
+        main { padding: 16px; }
+      }
+      @media (max-width: 640px) {
+        .row, .row3 { grid-template-columns: 1fr; }
+        .listrow { flex-direction: column; align-items: stretch; }
+        .listrow .actions { justify-content: flex-start; }
+        .toast { left: 16px; right: 16px; max-width: none; }
+      }
     </style>
   </head>
   <body>
@@ -151,6 +224,37 @@
           throw new Error('エラー: ' + detail);
         }
         return res.status === 204 ? null : res.json();
+      }
+
+      // ----- 共通UI: 確認モーダル / ボタンのbusy状態 -----
+      function confirmDialog(message, opts = {}) {
+        return new Promise((resolve) => {
+          const bd = document.createElement('div');
+          bd.className = 'backdrop';
+          bd.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-label="確認">
+            <h3>${esc(opts.title || '確認')}</h3>
+            <p>${esc(message)}</p>
+            <div class="actions">
+              <button class="btn ghost" data-cancel>キャンセル</button>
+              <button class="btn ${opts.danger ? 'danger' : ''}" data-ok>${esc(opts.okLabel || 'OK')}</button>
+            </div></div>`;
+          const prev = document.activeElement;
+          const close = (val) => { document.removeEventListener('keydown', onKey); bd.remove(); if (prev && prev.focus) prev.focus(); resolve(val); };
+          const onKey = (e) => { if (e.key === 'Escape') close(false); else if (e.key === 'Enter') close(true); };
+          bd.addEventListener('click', (e) => { if (e.target === bd) close(false); });
+          document.body.appendChild(bd);
+          bd.querySelector('[data-cancel]').onclick = () => close(false);
+          bd.querySelector('[data-ok]').onclick = () => close(true);
+          document.addEventListener('keydown', onKey);
+          bd.querySelector('[data-ok]').focus();
+        });
+      }
+      async function withBusy(btn, fn) {
+        if (!btn) return fn();
+        const wasDisabled = btn.disabled;
+        btn.classList.add('busy'); btn.disabled = true;
+        try { return await fn(); }
+        finally { btn.classList.remove('busy'); btn.disabled = wasDisabled; }
       }
 
       // ================= 画面遷移 =================
@@ -241,52 +345,82 @@
         }
         return out;
       }
-      // ----- 単発の複数候補日 -----
-      function oneoffDateRow(value) {
-        const v = (value || '').replace(/\//g, '-');
-        return `<div class="pickrow" style="margin-bottom:6px">
-          <input type="date" value="${esc(v)}" style="max-width:220px" />
-          <button type="button" class="btn sm ghost" data-rmdate>削除</button></div>`;
+      // ----- 単発の複数候補（日付ごとに時刻を複数）-----
+      // 1グループ = 1日付 + 複数時刻。内部は {date,time} スロットにフラット化して送る。
+      function timeRowHtml(time) {
+        return `<span class="timechip"><input type="time" class="slotTime" value="${esc(time || '21:00')}" aria-label="時刻" />
+          <button type="button" class="btn xs ghost" data-rmtime aria-label="この時刻を削除">×</button></span>`;
       }
-      function bindOneoffDateRows() {
+      function slotGroupHtml(date, times) {
+        const d = (date || '').replace(/\//g, '-');
+        const ts = (times && times.length) ? times : ['21:00'];
+        return `<div class="slotgroup" data-group>
+          <div class="slotgroup-head">
+            <input type="date" class="slotDate" value="${esc(d)}" aria-label="候補日" />
+            <button type="button" class="btn sm ghost" data-rmdate>この日を削除</button>
+          </div>
+          <div class="timechips" data-times>${ts.map(timeRowHtml).join('')}</div>
+          <button type="button" class="btn xs secondary" data-addtime>＋ 時刻を追加</button>
+        </div>`;
+      }
+      function bindSlotControls() {
         const box = $('#nOneoffDates'); if (!box) return;
-        box.querySelectorAll('input[type=date]').forEach((inp) => { inp.onchange = syncNotifUI; });
+        box.querySelectorAll('.slotDate, .slotTime').forEach((inp) => { inp.onchange = syncNotifUI; });
         box.querySelectorAll('[data-rmdate]').forEach((b) => {
           b.onclick = () => {
-            const rows = box.querySelectorAll('.pickrow');
-            if (rows.length <= 1) b.closest('.pickrow').querySelector('input').value = '';
-            else b.closest('.pickrow').remove();
+            const groups = box.querySelectorAll('[data-group]');
+            if (groups.length <= 1) { b.closest('[data-group]').querySelector('.slotDate').value = ''; }
+            else b.closest('[data-group]').remove();
             syncNotifUI();
           };
         });
+        box.querySelectorAll('[data-addtime]').forEach((b) => {
+          b.onclick = () => {
+            b.closest('[data-group]').querySelector('[data-times]').insertAdjacentHTML('beforeend', timeRowHtml('21:00'));
+            bindSlotControls(); syncNotifUI();
+          };
+        });
+        box.querySelectorAll('[data-rmtime]').forEach((b) => {
+          b.onclick = () => {
+            const wrap = b.closest('[data-times]');
+            if (wrap.querySelectorAll('.timechip').length > 1) { b.closest('.timechip').remove(); syncNotifUI(); }
+            else toast('最後の時刻は削除できません。日付ごと不要なら「この日を削除」を使ってください', true);
+          };
+        });
       }
-      function renderOneoffDates(dates) {
+      function renderOneoffSlots(groups) {
         const box = $('#nOneoffDates'); if (!box) return;
-        const list = (dates && dates.length) ? dates : [''];
-        box.innerHTML = list.map((d) => oneoffDateRow(d)).join('');
-        bindOneoffDateRows();
+        const list = (groups && groups.length) ? groups : [{ date: '', times: ['21:00'] }];
+        box.innerHTML = list.map((g) => slotGroupHtml(g.date, g.times)).join('');
+        bindSlotControls();
       }
-      function addOneoffDate() {
+      function addOneoffGroup() {
         const box = $('#nOneoffDates'); if (!box) return;
-        box.insertAdjacentHTML('beforeend', oneoffDateRow(''));
-        bindOneoffDateRows();
-        syncNotifUI();
+        box.insertAdjacentHTML('beforeend', slotGroupHtml('', ['21:00']));
+        bindSlotControls(); syncNotifUI();
       }
-      function getOneoffDates() {
+      /** 全グループを {date,time} スロットにフラット化（重複/未入力はそのまま、整形はサーバ側）。 */
+      function getOneoffSlots() {
         const box = $('#nOneoffDates'); if (!box) return [];
-        return [...box.querySelectorAll('input[type=date]')]
-          .map((i) => (i.value || '').replace(/-/g, '/').trim())
-          .filter(Boolean);
+        const out = [];
+        box.querySelectorAll('[data-group]').forEach((g) => {
+          const date = (g.querySelector('.slotDate').value || '').replace(/-/g, '/').trim();
+          if (!date) return;
+          g.querySelectorAll('.slotTime').forEach((t) => {
+            const time = (t.value || '').trim();
+            if (time) out.push({ date, time });
+          });
+        });
+        return out;
       }
 
       function scheduleSummary() {
         const t = ($('#nStartTime').value || '21:00');
         if ($('#nType').value === 'oneoff') {
-          const ds = getOneoffDates();
-          if (!ds.length) return '候補日を1つ以上追加してください';
-          return ds.length === 1
-            ? `${ds[0]} ${t}〜（単発）`
-            : `候補日 ${ds.length}件: ${ds.join('・')} ${t}〜`;
+          const slots = getOneoffSlots();
+          if (!slots.length) return '候補（日付＋時刻）を1つ以上追加してください';
+          const days = new Set(slots.map((s) => s.date)).size;
+          return `候補 ${slots.length}枠（${days}日）`;
         }
         const wd = wdLabel($('#nWeekday').value), mode = $('#nMode').value;
         if (mode === 'weekly') return `毎週 ${wd}曜日 ${t}〜`;
@@ -312,7 +446,7 @@
 
         const rows = notifs.map((n) => {
           const sched = n.type === 'oneoff'
-            ? `単発 ${esc(n.one_off_date || '')}`
+            ? `単発 ${esc(n.one_off_date || '')}${n.start_time ? ' ' + esc(n.start_time) + '〜' : ''}`
             : esc(humanRRule(n.rrule, n.start_time));
           return `<div class="listrow">
             <div><div style="font-weight:600">${esc(n.name)}</div>
@@ -328,7 +462,7 @@
         }).join('');
 
         $('#sec-notifications').innerHTML = `<h2>通知 (${notifs.length})</h2>
-          ${notifs.length ? rows : '<p class="muted">この通知はまだありません。下のフォームから作成してください。</p>'}
+          ${notifs.length ? rows : '<div class="empty">まだ通知がありません。<br>下のフォームから最初の通知を作成しましょう。</div>'}
           <div id="occBox"></div>
           ${segs.length ? notifForm() : '<p class="muted" style="margin-top:16px">※ 先に「メンバー区分」を作成してください（通知の対象になります）。</p>'}`;
 
@@ -341,7 +475,7 @@
         });
         document.querySelectorAll('[data-ndel]').forEach((b) => {
           b.onclick = async () => {
-            if (!confirm('配下の開催回・回答ごと削除します。よろしいですか？')) return;
+            if (!(await confirmDialog('この通知を、配下の開催回・回答ごとすべて削除します。元に戻せません。', { danger: true, okLabel: '削除' }))) return;
             try { await api('/notifications/' + b.dataset.ndel, { method: 'DELETE' }); toast('削除しました'); loadNotifications(); }
             catch (e) { toast(e.message, true); }
           };
@@ -387,10 +521,10 @@
               <select id="nNext"></select></div>
           </div>
           <div id="nOneoffBox" class="hidden">
-            <label>開催候補日（複数可）</label>
+            <label>開催候補（日付ごとに時刻を複数）</label>
             <div id="nOneoffDates"></div>
-            <button type="button" class="btn sm secondary" id="nOneoffAdd" style="margin-top:6px">＋ 候補日を追加</button>
-            <p class="muted" style="font-size:12px;margin-top:6px">参加者は候補日ごとに出欠を回答できます。集計後に「開催回」から1日を確定できます。</p>
+            <button type="button" class="btn sm secondary" id="nOneoffAdd" style="margin-top:8px">＋ 候補日を追加</button>
+            <p class="muted" style="font-size:12px;margin-top:8px">参加者は「候補日＋時刻」のスロットごとに出欠を回答できます。集計後に「開催回」から1つを確定できます。</p>
           </div>
           <div class="summary">📅 <span id="nSummary">—</span></div>
           <div class="row">
@@ -428,19 +562,19 @@
       }
       function bindNotifForm() {
         refreshNextOptions();
-        renderOneoffDates([]);
+        renderOneoffSlots([]);
         ['nType', 'nMode', 'nNth', 'nStartTime', 'nNext'].forEach((id) => { $('#' + id).onchange = syncNotifUI; });
         $('#nWeekday').onchange = () => { refreshNextOptions(); syncNotifUI(); };
         $('#nQuota').onchange = syncNotifUI;
-        $('#nOneoffAdd').onclick = addOneoffDate;
-        $('#nSave').onclick = saveNotif;
+        $('#nOneoffAdd').onclick = addOneoffGroup;
+        $('#nSave').onclick = (e) => withBusy(e.currentTarget, saveNotif);
         $('#nReset').onclick = resetNotifForm;
         syncNotifUI();
       }
       function resetNotifForm() {
         $('#nId').value = ''; $('#nFormTitle').textContent = '新規通知'; $('#nReset').classList.add('hidden');
         $('#nName').value = ''; $('#nType').value = 'recurring'; $('#nMode').value = 'weekly';
-        $('#nWeekday').value = 'SA'; $('#nNth').value = '2'; renderOneoffDates([]);
+        $('#nWeekday').value = 'SA'; $('#nNth').value = '2'; renderOneoffSlots([]);
         $('#nStartTime').value = '21:00'; $('#nRecruit').value = '7'; $('#nRemindStart').value = '3';
         $('#nQuotaInterval').value = '';
         $('#nQuota').checked = false; $('#nAssignment').checked = false; $('#nMention').checked = true; $('#nActive').checked = true;
@@ -448,6 +582,28 @@
       }
       async function fillNotifForm(n) {
         if (!n || !$('#nId')) return;
+        // 単発は候補スロットを先に取得する。取得失敗時はトーストして編集を中断
+        // （半端なフォームのまま保存して既存スロットを消すのを防ぐ）。
+        let oneoffGroups = [];
+        if (n.type === 'oneoff') {
+          try {
+            const occs = await api('/notifications/' + n.id + '/occurrences');
+            const byDate = new Map();
+            occs.filter((o) => o.status === 'scheduled')
+              .sort((a, b) => (a.occurrence_date === b.occurrence_date
+                ? (a.start_time || '').localeCompare(b.start_time || '')
+                : a.occurrence_date.localeCompare(b.occurrence_date)))
+              .forEach((o) => {
+                if (!byDate.has(o.occurrence_date)) byDate.set(o.occurrence_date, []);
+                byDate.get(o.occurrence_date).push(o.start_time || n.start_time || '21:00');
+              });
+            oneoffGroups = [...byDate.entries()].map(([date, times]) => ({ date, times }));
+            if (!oneoffGroups.length && n.one_off_date) oneoffGroups = [{ date: n.one_off_date, times: [n.start_time || '21:00'] }];
+          } catch (e) {
+            toast('候補スロットの読み込みに失敗しました。再読み込みしてから編集してください', true);
+            return; // 中断（フォームを開かない＝保存によるスロット消失を防ぐ）
+          }
+        }
         $('#nId').value = n.id; $('#nFormTitle').textContent = '編集 (ID: ' + n.id + ')'; $('#nReset').classList.remove('hidden');
         $('#nName').value = n.name || '';
         if (![...$('#nChannel').options].some((o) => o.value === n.channel_id) && n.channel_id) {
@@ -458,18 +614,7 @@
         $('#nType').value = n.type || 'recurring';
         const b = parseRRuleToBuilder(n.rrule);
         $('#nMode').value = b.mode; $('#nWeekday').value = b.byday; $('#nNth').value = String(b.nth);
-        // 単発の候補日は scheduled な occurrences から復元（無ければ one_off_date）
-        if (n.type === 'oneoff') {
-          let dates = [];
-          try {
-            const occs = await api('/notifications/' + n.id + '/occurrences');
-            dates = occs.filter((o) => o.status === 'scheduled').map((o) => o.occurrence_date).sort();
-          } catch (_) {}
-          if (!dates.length && n.one_off_date) dates = [n.one_off_date];
-          renderOneoffDates(dates);
-        } else {
-          renderOneoffDates([]);
-        }
+        renderOneoffSlots(n.type === 'oneoff' ? oneoffGroups : []);
         $('#nStartTime').value = n.start_time || '21:00';
         $('#nRecruit').value = n.recruit_days_before; $('#nRemindStart').value = n.remind_start_days;
         $('#nQuotaInterval').value = n.quota_interval_days == null ? '' : n.quota_interval_days;
@@ -482,7 +627,7 @@
       async function saveNotif() {
         const type = $('#nType').value;
         const qi = $('#nQuotaInterval').value.trim();
-        const candidateDates = type === 'oneoff' ? getOneoffDates() : [];
+        const slots = type === 'oneoff' ? getOneoffSlots() : [];
         const body = {
           guild_id: guild.id,
           name: $('#nName').value.trim(),
@@ -490,8 +635,8 @@
           segment_id: Number($('#nSegment').value),
           type,
           rrule: type === 'recurring' ? buildRRule() : null,
-          one_off_date: type === 'oneoff' ? (candidateDates[0] || null) : null,
-          candidate_dates: type === 'oneoff' ? candidateDates : undefined,
+          one_off_date: type === 'oneoff' ? (slots[0] ? slots[0].date : null) : null,
+          candidate_slots: type === 'oneoff' ? slots : undefined,
           anchor_date: type === 'recurring' && $('#nMode').value === 'biweekly' ? ($('#nNext').value || null) : null,
           start_time: $('#nStartTime').value.trim() || '21:00',
           recruit_days_before: Number($('#nRecruit').value),
@@ -506,7 +651,7 @@
         if (!body.name) return toast('名前は必須です', true);
         if (!body.channel_id) return toast('チャンネルを選択してください', true);
         if (!body.segment_id) return toast('区分を選択してください', true);
-        if (type === 'oneoff' && candidateDates.length === 0) return toast('候補日を1つ以上追加してください', true);
+        if (type === 'oneoff' && slots.length === 0) return toast('候補（日付＋時刻）を1つ以上追加してください', true);
         const id = $('#nId').value;
         try {
           if (id) { await api('/notifications/' + id, { method: 'PUT', body: JSON.stringify(body) }); toast('更新しました'); }
@@ -529,6 +674,16 @@
           el.textContent = `参加 ${b.参加.length}・不参加 ${b.不参加.length}・未定 ${b.未定.length}・未回答 ${b.未回答.length}`;
         } catch (_) { el.textContent = ''; }
       }
+      const JADOW = ['日', '月', '火', '水', '木', '金', '土'];
+      function jaDow(dateStr) {
+        const [y, m, d] = (dateStr || '').split('/').map(Number);
+        return (y && m && d) ? JADOW[new Date(y, m - 1, d).getDay()] : '';
+      }
+      /** 開催回の表示ラベル '2026/06/18 (木) 21:00' */
+      function occLabel(o) {
+        const w = jaDow(o.occurrence_date);
+        return `${o.occurrence_date}${w ? ` (${w})` : ''}${o.start_time ? ' ' + o.start_time : ''}`;
+      }
       async function loadOccurrences(notifId) {
         const n = cacheNotifs.find((x) => x.id === notifId);
         const isOneoff = !!n && n.type === 'oneoff';
@@ -540,11 +695,11 @@
           const label = o.status === 'cancelled' ? '取下げ' : (decided ? '確定' : (isOneoff ? '候補' : '予定'));
           const pillCls = o.status === 'cancelled' ? 'off' : 'on';
           const decideBtn = (isOneoff && decidedId == null && o.status === 'scheduled')
-            ? `<button class="btn sm" data-decide="${o.id}" data-nid="${notifId}">この日に確定</button>` : '';
+            ? `<button class="btn sm" data-decide="${o.id}" data-nid="${notifId}">この日時に確定</button>` : '';
           const undecideBtn = decided
             ? `<button class="btn sm ghost" data-undecide="${notifId}">確定解除</button>` : '';
           return `<div class="pickrow">
-            <div>${esc(o.occurrence_date)} <span class="pill ${pillCls}">${label}</span>
+            <div>${esc(occLabel(o))} <span class="pill ${pillCls}">${label}</span>
               <br><span class="muted" id="tally-${o.id}" style="font-size:12px">集計中…</span></div>
             <div class="actions">${decideBtn}${undecideBtn}
               <button class="btn sm secondary" data-occ="${o.id}">番号割り当て</button></div></div>`;
@@ -553,19 +708,21 @@
           ? `<div class="actions" style="margin-bottom:8px"><button class="btn sm secondary" id="occRecruit">📣 今すぐ募集を投稿</button></div>` : '';
         $('#occBox').innerHTML = `<fieldset><legend>開催回: ${esc(n ? n.name : notifId)} (${occs.length})</legend>
           ${recruitBtn}
-          ${occs.length ? rows : '<p class="muted">開催回はまだありません（単発は保存時に候補日が、繰り返しは募集タイミングで生成されます）。</p>'}
+          ${occs.length ? rows : '<div class="empty">開催回はまだありません。<br>単発は保存時に候補が、繰り返しは募集タイミングで生成されます。</div>'}
           <div id="assignBox"></div></fieldset>`;
         $('#occBox').scrollIntoView({ behavior: 'smooth', block: 'center' });
         document.querySelectorAll('[data-occ]').forEach((b) => { b.onclick = () => loadAssignments(Number(b.dataset.occ)); });
         const rb = $('#occRecruit');
         if (rb) rb.onclick = async () => {
-          if (!confirm('この通知の募集メッセージをチャンネルへ投稿します。よろしいですか？')) return;
-          try { const r = await api('/notifications/' + notifId + '/recruit', { method: 'POST' });
-            toast(r && r.message ? r.message : '募集を送信しました'); } catch (e) { toast(e.message, true); }
+          if (!(await confirmDialog('この通知の募集メッセージをチャンネルへ投稿します。', { okLabel: '送信する' }))) return;
+          await withBusy(rb, async () => {
+            try { const r = await api('/notifications/' + notifId + '/recruit', { method: 'POST' });
+              toast(r && r.message ? r.message : '募集を送信しました'); } catch (e) { toast(e.message, true); }
+          });
         };
         document.querySelectorAll('[data-decide]').forEach((b) => {
           b.onclick = async () => {
-            if (!confirm('この日を開催日として確定し、他の候補日を取り下げます。よろしいですか？')) return;
+            if (!(await confirmDialog('この日時を開催として確定し、他の候補をすべて取り下げます。', { okLabel: '確定する' }))) return;
             try { await api('/notifications/' + b.dataset.nid + '/decide',
               { method: 'POST', body: JSON.stringify({ occurrence_id: Number(b.dataset.decide) }) });
               toast('確定しました'); refreshNotifsThen(() => loadOccurrences(notifId)); } catch (e) { toast(e.message, true); }
@@ -573,7 +730,7 @@
         });
         document.querySelectorAll('[data-undecide]').forEach((b) => {
           b.onclick = async () => {
-            if (!confirm('確定を解除し、候補日を元に戻しますか？')) return;
+            if (!(await confirmDialog('確定を解除し、取り下げた候補を元に戻します。', { okLabel: '解除する' }))) return;
             try { await api('/notifications/' + b.dataset.undecide + '/undecide', { method: 'POST' });
               toast('解除しました'); refreshNotifsThen(() => loadOccurrences(notifId)); } catch (e) { toast(e.message, true); }
           };
@@ -587,7 +744,7 @@
             : '<p class="muted">割り当てはまだありません。</p>'}
           <div class="actions" style="margin-top:10px"><button class="btn" id="runAssign" data-occ="${occId}">番号割り当てを実行</button></div>`;
         $('#runAssign').onclick = async () => {
-          if (!confirm('この開催回で番号割り当てを実行しますか？')) return;
+          if (!(await confirmDialog('この開催回で番号割り当てを実行します。', { okLabel: '実行する' }))) return;
           try { const res = await api('/occurrences/' + occId + '/assign', { method: 'POST' });
             toast(`割り当て実行: 新規 ${res && res.assigned ? res.assigned.length : 0} 名`);
             renderAssignments(occId, res && res.all ? res.all : []); } catch (e) { toast(e.message, true); }
@@ -611,7 +768,7 @@
             <button class="btn sm danger" data-sdel="${s.id}">削除</button>
           </div></div>`).join('');
         $('#sec-segments').innerHTML = `<h2>メンバー区分 (${segs.length})</h2>
-          ${segs.length ? rows : '<p class="muted">区分がまだありません。</p>'}
+          ${segs.length ? rows : '<div class="empty">メンバー区分がまだありません。<br>例: キャスト / スタッフ などを作成しましょう。</div>'}
           <fieldset><legend id="segFormTitle">新規区分</legend>
             <input type="hidden" id="segId" />
             <div class="row">
@@ -623,13 +780,13 @@
               <button class="btn secondary hidden" id="segReset">新規入力に戻す</button>
             </div></fieldset>
           <div id="segMembersBox"></div>`;
-        $('#segSave').onclick = saveSegment;
+        $('#segSave').onclick = (e) => withBusy(e.currentTarget, saveSegment);
         $('#segReset').onclick = resetSegForm;
         document.querySelectorAll('[data-sedit]').forEach((b) => { b.onclick = () => fillSegForm(segs.find((s) => s.id === Number(b.dataset.sedit))); });
         document.querySelectorAll('[data-smembers]').forEach((b) => { b.onclick = () => loadSegmentMembers(Number(b.dataset.smembers)); });
         document.querySelectorAll('[data-sdel]').forEach((b) => {
           b.onclick = async () => {
-            if (!confirm('この区分を削除しますか？')) return;
+            if (!(await confirmDialog('この区分を削除します。', { danger: true, okLabel: '削除' }))) return;
             try { await api('/segments/' + b.dataset.sdel, { method: 'DELETE' }); toast('削除しました'); loadSegments(); }
             catch (e) { toast(e.message, true); }
           };
@@ -675,7 +832,7 @@
         }).join('');
         $('#segMembersBox').innerHTML = `<fieldset>
           <legend>区分メンバー: ${esc(seg ? seg.name : segmentId)} (${list.length})</legend>
-          ${list.length ? rows : '<p class="muted">まだ誰も所属していません。</p>'}
+          ${list.length ? rows : '<div class="empty">まだ誰も所属していません。下のピッカーから追加できます。</div>'}
           <h3 style="margin-top:14px">メンバーを追加</h3>
           <div class="search"><input id="memSearch" placeholder="サーバー参加者を検索（User ID 入力は不要）" /></div>
           <div id="memPicker" style="margin-top:8px"><p class="muted">読み込み中…</p></div>
@@ -690,7 +847,7 @@
         });
         document.querySelectorAll('[data-smdel]').forEach((b) => {
           b.onclick = async () => {
-            if (!confirm('この区分から外しますか？')) return;
+            if (!(await confirmDialog('このメンバーを区分から外します。', { danger: true, okLabel: '外す' }))) return;
             try { await api('/segments/' + segmentId + '/members/' + encodeURIComponent(b.dataset.smdel), { method: 'DELETE' });
               toast('外しました'); loadSegmentMembers(segmentId); } catch (e) { toast(e.message, true); }
           };
@@ -733,13 +890,15 @@
         let responses = [];
         try { responses = await api('/responses?limit=200'); } catch (e) { toast(e.message, true); }
         const rows = responses.map((r) => `<tr>
-          <td>${esc(r.occurrence_date || '')}</td><td>${esc(r.notification_name || '')}</td>
+          <td>${esc(r.occurrence_date || '')}${r.occurrence_time ? ' ' + esc(r.occurrence_time) : ''}</td>
+          <td>${esc(r.notification_name || '')}</td>
           <td>${esc(r.user_name || r.user_id)}</td><td>${esc(r.status)}</td>
           <td class="muted">${esc((r.updated_at || '').slice(0, 19))}</td></tr>`).join('');
         $('#sec-records').innerHTML = `<h2>回答履歴</h2>
           <p class="muted">直近 ${responses.length} 件（全サーバー横断の回答ログ）。番号割り当ては「通知 → 開催回」から実行します。</p>
-          <table><thead><tr><th>開催日</th><th>通知</th><th>メンバー</th><th>回答</th><th>更新</th></tr></thead>
-          <tbody>${rows}</tbody></table>`;
+          ${responses.length
+            ? `<div class="table-wrap"><table><thead><tr><th>開催日時</th><th>通知</th><th>メンバー</th><th>回答</th><th>更新</th></tr></thead><tbody>${rows}</tbody></table></div>`
+            : '<div class="empty">まだ回答がありません。募集を投稿し、メンバーがボタンで回答すると、ここに表示されます。</div>'}`;
       }
 
       // ================= セットアップ ウィザード =================
@@ -789,7 +948,7 @@
           try { await navigator.clipboard.writeText(endpoint); toast('コピーしました'); }
           catch (_) { toast('コピーできませんでした。URL を手動で選択してください', true); }
         };
-        $('#setupRegister').onclick = async () => {
+        $('#setupRegister').onclick = (ev) => withBusy(ev.currentTarget, async () => {
           const res = $('#setupRegisterResult');
           res.textContent = '登録中…';
           try {
@@ -797,7 +956,7 @@
             if (r && r.ok) { res.textContent = `✅ 登録しました: ${(r.names || []).map((n) => '/' + n).join(' ')}`; toast('コマンドを登録しました'); }
             else { res.textContent = '⚠️ ' + ((r && r.error) || '登録に失敗しました'); }
           } catch (e) { res.textContent = '⚠️ ' + e.message; toast(e.message, true); }
-        };
+        });
       }
 
       // ================= 認証・起動 =================

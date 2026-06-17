@@ -32,6 +32,15 @@ function weekdayLabel(dateStr: string): string {
   return WEEKDAY_LABELS[new Date(y, m - 1, d).getDay()];
 }
 
+/** スロットの表示時刻（occ.start_time 優先・空なら通知の既定 start_time）。 */
+function slotTime(occ: Occurrence, n: Notification): string {
+  return occ.start_time || n.start_time;
+}
+/** 'YYYY/MM/DD (曜) HH:MM~' のスロット表示ラベル。 */
+function slotLabel(occ: Occurrence, n: Notification): string {
+  return `${occ.occurrence_date} (${weekdayLabel(occ.occurrence_date)}) ${slotTime(occ, n)}~`;
+}
+
 /** [PRD 4.2.1] 募集 */
 async function sendRecruitment(
   env: Env,
@@ -40,10 +49,9 @@ async function sendRecruitment(
 ): Promise<void> {
   const segment = await getSegment(env.DB, n.segment_id);
   const prefix = segment ? buildMentionPrefix(segment, !!n.mention_enabled) : '';
-  const dow = weekdayLabel(occ.occurrence_date);
   const message =
     `${prefix}📅 **イベント募集開始!**\n\n` +
-    `日時: **${occ.occurrence_date} (${dow}) ${n.start_time}~**\n\n` +
+    `日時: **${slotLabel(occ, n)}**\n\n` +
     `参加状況を下のボタンで回答してください!`;
   const ok = await sendChannelMessage(
     env,
@@ -68,23 +76,20 @@ export async function sendCandidateRecruitment(
   if (occs.length === 0) return 0;
   const segment = await getSegment(env.DB, n.segment_id);
   const prefix = segment ? buildMentionPrefix(segment, !!n.mention_enabled) : '';
-  const list = occs
-    .map(
-      (o, i) =>
-        `${i + 1}. **${o.occurrence_date} (${weekdayLabel(o.occurrence_date)}) ${n.start_time}~**`,
-    )
-    .join('\n');
+  const list = occs.map((o, i) => `${i + 1}. **${slotLabel(o, n)}**`).join('\n');
   const header =
     `${prefix}📅 **イベント候補日の出欠募集!**\n\n` +
-    `下の各候補日について、ボタンで回答してください（参加できる日は複数選べます）。\n\n${list}`;
+    `下の各候補について、ボタンで回答してください（参加できる候補は複数選べます）。\n\n${list}`;
   await sendChannelMessage(env, n.channel_id, header);
+  await sleep(DM_INTERVAL_MS);
 
   let sent = 0;
   for (const o of occs) {
-    const msg = `🗓️ **${o.occurrence_date} (${weekdayLabel(o.occurrence_date)}) ${n.start_time}~** の出欠`;
+    const msg = `🗓️ **${slotLabel(o, n)}** の出欠`;
     const ok = await sendChannelMessage(env, n.channel_id, msg, createButtonComponents(o.id));
     if (ok) sent++;
     else console.error(`❌ [CandidateRecruitment] failed (n=${n.id}, occ=${o.id})`);
+    await sleep(DM_INTERVAL_MS); // チャンネル連投のレート制限対策
   }
   console.log(`✅ [CandidateRecruitment] sent ${sent}/${occs.length} (n=${n.id})`);
   return sent;
@@ -116,7 +121,7 @@ export async function recruitNotificationNow(
   if (!target) {
     return { ok: false, message: '次回の開催日を特定できませんでした（rrule / 候補日を確認してください）。' };
   }
-  const occ = await getOrCreateOccurrence(db, n.id, target);
+  const occ = await getOrCreateOccurrence(db, n.id, target, n.start_time);
   if (occ.status === 'cancelled') {
     return { ok: false, message: `**${target}** の開催回は中止扱いのため募集できません。` };
   }
@@ -173,7 +178,7 @@ async function sendUnansweredReminder(
   for (const member of unanswered) {
     const message =
       `⏰ **リマインド: ${dayText}のイベント**\n\n` +
-      `日時: **${occ.occurrence_date}**\n\n` +
+      `日時: **${slotLabel(occ, n)}**\n\n` +
       `まだ回答されていません。下のボタンで参加状況を回答してください!`;
     const ok = await sendDirectMessageCached(
       env,
@@ -221,7 +226,7 @@ async function sendUndecidedReminder(
   for (const member of targets) {
     const message =
       `❓ **未定者へのリマインド**\n\n` +
-      `日時: **${occ.occurrence_date}**\n\n` +
+      `日時: **${slotLabel(occ, n)}**\n\n` +
       `現在「未定」で回答されています。下のボタンで参加/不参加を確定してください!`;
     const ok = await sendDirectMessageCached(
       env,
@@ -277,7 +282,7 @@ async function processSingleOccurrence(env: Env, n: Notification): Promise<void>
 
   // 募集 & ノルマ確認（募集開始日に同時実行）
   if (daysUntil === n.recruit_days_before) {
-    const occ = await getOrCreateOccurrence(db, n.id, target);
+    const occ = await getOrCreateOccurrence(db, n.id, target, n.start_time);
     if (occ.status === 'cancelled') {
       console.log(`[n=${n.id}] occurrence cancelled, skip recruitment`);
     } else {
@@ -287,7 +292,7 @@ async function processSingleOccurrence(env: Env, n: Notification): Promise<void>
   }
 
   // リマインド（同じ開催回を再取得）
-  const occ = await getOrCreateOccurrence(db, n.id, target);
+  const occ = await getOrCreateOccurrence(db, n.id, target, n.start_time);
   await remindForOccurrence(env, n, occ, daysUntil);
 }
 
@@ -307,7 +312,7 @@ async function processOneoffCandidates(env: Env, n: Notification): Promise<void>
     candidates = await listScheduledOccurrences(db, n.id);
     // 後方互換: 候補回が未生成なら one_off_date から 1 回だけ生成して扱う
     if (candidates.length === 0 && n.one_off_date) {
-      candidates = [await getOrCreateOccurrence(db, n.id, n.one_off_date)];
+      candidates = [await getOrCreateOccurrence(db, n.id, n.one_off_date, n.start_time)];
     }
   }
   if (candidates.length === 0) {
