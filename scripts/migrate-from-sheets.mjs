@@ -304,10 +304,14 @@ async function main() {
     `INSERT OR REPLACE INTO notifications (` +
       `id, guild_id, segment_id, name, channel_id, type, rrule, one_off_date, anchor_date, start_time, ` +
       `recruit_days_before, remind_start_days, remind_undecided_days, ` +
-      `quota_enabled, quota_interval_days, assignment_enabled, mention_enabled, active, created_at) VALUES (` +
+      `quota_enabled, quota_interval_days, assignment_enabled, mention_enabled, mention_mode, ` +
+      `requires_response, message_title, message_body, active, created_at) VALUES (` +
       `1, ${q(GUILD_ID)}, 1, ${q(NOTIFICATION_NAME)}, ${q(channelId)}, 'recurring', ${q(rrule)}, NULL, NULL, ${q(startTime)}, ` +
       `${recruitDaysBefore}, ${remindStartDays}, ${remindUndecidedDays}, ` +
-      `${quotaEnabled}, ${quotaIntervalRaw}, 0, ${mentionEnabled}, 1, ${q(MIGRATED_AT)});`,
+      // mention_mode は旧 mention_enabled を写像（1→role / 0→none）。回答ありの定例なので requires_response=1。
+      // 見出しは現行文言でバックフィル（ADR 0010・migration 0009 と同値）。
+      `${quotaEnabled}, ${quotaIntervalRaw}, 0, ${mentionEnabled}, ${mentionEnabled ? "'role'" : "'none'"}, ` +
+      `1, ${q('イベント募集開始!')}, NULL, 1, ${q(MIGRATED_AT)});`,
   );
   lines.push('');
 

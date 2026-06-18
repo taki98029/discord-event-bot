@@ -348,9 +348,9 @@
       function monthlyRuleHtml(nth, byday) {
         const nthOpts = NTH.map(([v, l]) => `<option value="${v}"${v === String(nth) ? ' selected' : ''}>${l}</option>`).join('');
         const wdOpts = WEEKDAYS.map(([v, l]) => `<option value="${v}"${v === byday ? ' selected' : ''}>${l}曜</option>`).join('');
-        return `<span class="timechip" data-mrule style="padding:3px 6px 3px 10px">
-          <select class="mNth" style="width:auto;border:none;background:none;padding:2px 0" aria-label="第N">${nthOpts}</select>
-          <select class="mWd" style="width:auto;border:none;background:none;padding:2px 0" aria-label="曜日">${wdOpts}</select>
+        return `<span data-mrule style="display:inline-flex;align-items:center;gap:6px">
+          <select class="mNth" style="width:auto" aria-label="第N">${nthOpts}</select>
+          <select class="mWd" style="width:auto" aria-label="曜日">${wdOpts}</select>
           <button type="button" class="btn xs ghost" data-rmmrule aria-label="このルールを削除">×</button>
         </span>`;
       }
@@ -607,6 +607,10 @@
             <div><label>開催時間（分）<span class="muted">（任意・空欄で開始時刻のみ表示）</span></label>
               <input id="nDuration" type="number" min="0" placeholder="例: 120（2時間）" /></div>
           </div>
+          <label>見出し <span class="muted">（投稿の1行目・必須）</span></label>
+          <input id="nTitle" maxlength="100" placeholder="例: 第1・3・5日曜キャスト 開催のお知らせ" />
+          <label>本文 <span class="muted">（任意・複数行可。日時と回答ボタンは自動で付きます）</span></label>
+          <textarea id="nBody" rows="3" maxlength="1500" placeholder="補足メッセージ（任意）"></textarea>
           <label>種別</label>
           <select id="nType"><option value="recurring">繰り返し</option><option value="oneoff">単発</option></select>
           <div id="nRecurBox">
@@ -634,18 +638,25 @@
           </div>
           <div class="summary">📅 <span id="nSummary">—</span></div>
           <div class="row">
-            <div id="nRecruitBox"><label>開始 N 日前に募集を投稿</label><input id="nRecruit" type="number" value="7" /></div>
-            <div><label>N 日前から未回答者へリマインド <span class="muted">（一度も押していない人・毎日）</span></label><input id="nRemindStart" type="number" value="3" /></div>
+            <div id="nRecruitBox"><label id="nRecruitLabel">開始 N 日前に募集を投稿</label><input id="nRecruit" type="number" value="7" /></div>
+            <div id="nRemindStartBox"><label>N 日前から未回答者へリマインド <span class="muted">（一度も押していない人・毎日）</span></label><input id="nRemindStart" type="number" value="3" /></div>
           </div>
-          <div class="row">
+          <div class="row" id="nRemindUndecidedBox">
             <div><label>N 日前に未定者へリマインド <span class="muted">（「未定」回答者へ確定を促す・1回）</span></label><input id="nRemindUndecided" type="number" value="1" min="0" /></div>
           </div>
           <p id="nOneoffRecruitNote" class="muted hidden" style="font-size:12px;margin-top:6px">
             単発は自動募集しません。各通知の「📣 募集」ボタン（通知一覧／開催回）から好きなタイミングで送信できます。</p>
+          <label>メンション方法</label>
+          <select id="nMention">
+            <option value="role">ロール（区分のロール / @everyone）</option>
+            <option value="members">バイネーム（メンバーを個別に呼ぶ）</option>
+            <option value="none">なし</option>
+          </select>
+          <p id="nMentionWarn" class="muted hidden" style="font-size:12px;color:var(--warn);margin-top:6px">⚠️ @everyone 区分でバイネームは全員への個別メンションになり、人数が多いと「ほかN名」で省略されます。</p>
           <div class="actions" style="margin-top:12px">
+            <label class="inline" id="nResponseLabel"><input type="checkbox" id="nRequireResponse" checked /> 回答を集める（参加/不参加/未定）</label>
             <label class="inline" id="nQuotaLabel"><input type="checkbox" id="nQuota" /> ノルマ</label>
-            <label class="inline"><input type="checkbox" id="nAssignment" /> 番号割り当て</label>
-            <label class="inline"><input type="checkbox" id="nMention" checked /> メンション</label>
+            <label class="inline" id="nAssignmentLabel"><input type="checkbox" id="nAssignment" /> 番号割り当て</label>
             <label class="inline"><input type="checkbox" id="nActive" checked /> 有効</label>
           </div>
           <div id="nQuotaBox" class="hidden" style="max-width:280px"><label>ノルマ間隔（日数）</label><input id="nQuotaInterval" type="number" placeholder="例: 30" /></div>
@@ -671,20 +682,35 @@
         $('#nMonthlyBox').classList.toggle('hidden', !monthly);
         $('#nWeekdayBox').classList.toggle('hidden', monthly);
         $('#nNextBox').classList.toggle('hidden', !(t === 'recurring' && mode === 'biweekly'));
-        // 単発はノルマ非対応（参加間隔の督促は繰り返し向けの概念）。チェックボックスごと隠してオフ固定。
-        if (t === 'oneoff') $('#nQuota').checked = false;
-        $('#nQuotaLabel').classList.toggle('hidden', t === 'oneoff');
-        $('#nQuotaBox').classList.toggle('hidden', t === 'oneoff' || !$('#nQuota').checked);
+        // 回答要否は recurring 専用（単発は常に回答あり）。回答不要=通知のみ（ADR 0010）。
+        const requireResp = $('#nRequireResponse').checked;
+        const announceOnly = t === 'recurring' && !requireResp;
+        $('#nResponseLabel').classList.toggle('hidden', t !== 'recurring');
+        // 単発／回答不要はノルマ非対応（参加間隔の督促は回答前提の概念）。隠してオフ固定。
+        if (t === 'oneoff' || announceOnly) $('#nQuota').checked = false;
+        $('#nQuotaLabel').classList.toggle('hidden', t === 'oneoff' || announceOnly);
+        $('#nQuotaBox').classList.toggle('hidden', t === 'oneoff' || announceOnly || !$('#nQuota').checked);
+        // 回答不要は番号割り当て・未回答/未定リマインドも対象外（回答が無いため）。
+        if (announceOnly) $('#nAssignment').checked = false;
+        $('#nAssignmentLabel').classList.toggle('hidden', announceOnly);
+        $('#nRemindStartBox').classList.toggle('hidden', announceOnly);
+        $('#nRemindUndecidedBox').classList.toggle('hidden', announceOnly);
+        // 募集日数(nRecruit)は投稿タイミングとして残す。回答不要ならラベルを「告知」に。
+        $('#nRecruitLabel').textContent = announceOnly ? '開始 N 日前に告知を投稿' : '開始 N 日前に募集を投稿';
         // 単発は手動募集のため「開始N日前に募集」を隠し、代わりに注記を出す
         $('#nRecruitBox').classList.toggle('hidden', t === 'oneoff');
         $('#nOneoffRecruitNote').classList.toggle('hidden', t !== 'oneoff');
+        // バイネーム × @everyone 区分は全員個別メンションになるため警告を出す。
+        const seg = cacheSegments.find((s) => String(s.id) === $('#nSegment').value);
+        const warn = $('#nMention').value === 'members' && !!seg && seg.mention_role_id === '@everyone';
+        $('#nMentionWarn').classList.toggle('hidden', !warn);
         $('#nSummary').textContent = scheduleSummary();
       }
       function bindNotifForm() {
         refreshNextOptions();
         renderOneoffSlots([]);
         renderMonthlyRules([]);
-        ['nType', 'nMode', 'nStartTime', 'nNext', 'nDuration'].forEach((id) => { $('#' + id).onchange = syncNotifUI; });
+        ['nType', 'nMode', 'nStartTime', 'nNext', 'nDuration', 'nRequireResponse', 'nMention', 'nSegment'].forEach((id) => { $('#' + id).onchange = syncNotifUI; });
         $('#nWeekday').onchange = () => { refreshNextOptions(); syncNotifUI(); };
         $('#nQuota').onchange = syncNotifUI;
         $('#nOneoffAdd').onclick = addOneoffGroup;
@@ -695,12 +721,14 @@
       }
       function resetNotifForm() {
         $('#nId').value = ''; $('#nFormTitle').textContent = '新規通知'; $('#nReset').classList.add('hidden');
-        $('#nName').value = ''; $('#nType').value = 'recurring'; $('#nMode').value = 'weekly';
+        $('#nName').value = ''; $('#nTitle').value = ''; $('#nBody').value = '';
+        $('#nType').value = 'recurring'; $('#nMode').value = 'weekly';
         $('#nWeekday').value = 'SA'; renderMonthlyRules([]); renderOneoffSlots([]);
         $('#nStartTime').value = '21:00'; $('#nDuration').value = ''; $('#nRecruit').value = '7';
         $('#nRemindStart').value = '3'; $('#nRemindUndecided').value = '1';
         $('#nQuotaInterval').value = '';
-        $('#nQuota').checked = false; $('#nAssignment').checked = false; $('#nMention').checked = true; $('#nActive').checked = true;
+        $('#nQuota').checked = false; $('#nAssignment').checked = false;
+        $('#nMention').value = 'role'; $('#nRequireResponse').checked = true; $('#nActive').checked = true;
         refreshNextOptions(); syncNotifUI();
       }
       async function fillNotifForm(n) {
@@ -729,6 +757,8 @@
         }
         $('#nId').value = n.id; $('#nFormTitle').textContent = '編集 (ID: ' + n.id + ')'; $('#nReset').classList.remove('hidden');
         $('#nName').value = n.name || '';
+        $('#nTitle').value = n.message_title || '';
+        $('#nBody').value = n.message_body || '';
         if (![...$('#nChannel').options].some((o) => o.value === n.channel_id) && n.channel_id) {
           $('#nChannel').insertAdjacentHTML('afterbegin', `<option value="${esc(n.channel_id)}">ID: ${esc(n.channel_id)}</option>`);
         }
@@ -745,7 +775,9 @@
         $('#nRemindUndecided').value = n.remind_undecided_days;
         $('#nQuotaInterval').value = n.quota_interval_days == null ? '' : n.quota_interval_days;
         $('#nQuota').checked = !!n.quota_enabled; $('#nAssignment').checked = !!n.assignment_enabled;
-        $('#nMention').checked = !!n.mention_enabled; $('#nActive').checked = !!n.active;
+        $('#nMention').value = n.mention_mode || 'role';
+        $('#nRequireResponse').checked = n.requires_response == null ? true : !!n.requires_response;
+        $('#nActive').checked = !!n.active;
         refreshNextOptions(n.anchor_date || null);
         syncNotifUI();
         $('#nFormTitle').scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -766,16 +798,21 @@
           anchor_date: type === 'recurring' && $('#nMode').value === 'biweekly' ? ($('#nNext').value || null) : null,
           start_time: $('#nStartTime').value.trim() || '21:00',
           duration_minutes: durValue(),
+          message_title: $('#nTitle').value.trim(),
+          message_body: $('#nBody').value.trim() || null,
           recruit_days_before: Number($('#nRecruit').value),
           remind_start_days: Number($('#nRemindStart').value),
           remind_undecided_days: Number($('#nRemindUndecided').value || 1),
           quota_enabled: $('#nQuota').checked ? 1 : 0,
           quota_interval_days: qi === '' ? null : Number(qi),
           assignment_enabled: $('#nAssignment').checked ? 1 : 0,
-          mention_enabled: $('#nMention').checked ? 1 : 0,
+          mention_mode: $('#nMention').value,
+          // 回答要否は recurring 専用。単発は常に回答あり。
+          requires_response: type === 'oneoff' ? 1 : ($('#nRequireResponse').checked ? 1 : 0),
           active: $('#nActive').checked ? 1 : 0,
         };
         if (!body.name) return toast('名前は必須です', true);
+        if (!body.message_title) return toast('見出しは必須です', true);
         if (!body.channel_id) return toast('チャンネルを選択してください', true);
         if (!body.segment_id) return toast('区分を選択してください', true);
         if (type === 'oneoff' && slots.length === 0) return toast('候補（日付＋時刻）を1つ以上追加してください', true);

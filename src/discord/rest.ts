@@ -1,12 +1,15 @@
 import type { Env } from '../env';
-import type { Member, EventStatusBuckets, NotificationType, Segment } from '../db/types';
+import type { Member, EventStatusBuckets, MentionMode, NotificationType, Segment } from '../db/types';
 import { setDmChannelId } from '../db/members';
 
 const API = 'https://discord.com/api/v10';
 /** Discord API への User-Agent（バージョンは package.json と同期）。コマンド登録でも共用。 */
 export const USER_AGENT = 'DiscordBot (https://github.com/discord-event-bot, 7.0.0)';
 
-type MessagePayload = { content: string; components?: unknown[] };
+type MessagePayload = { content: string; components?: unknown[]; allowed_mentions?: unknown };
+
+/** Discord メッセージ content の文字上限。合成後はこれを超えないようにする（ADR 0010）。 */
+export const DISCORD_CONTENT_LIMIT = 2000;
 
 export function mentionUser(userId: string): string {
   return `<@${userId}>`;
@@ -58,15 +61,65 @@ export function createStatusAllButton(notificationId: number): unknown[] {
   ];
 }
 
+/** バイネームメンションの既定文字予算。呼び出し側が本文長に応じて動的に下げる（ADR 0010）。 */
+const MENTION_BUDGET = 1500;
+
 /**
- * 募集メッセージの @メンション接頭辞を組み立てる。
- * enabled かつ Segment に mention_role_id があれば、その指定でメンションを付ける。
- * '@everyone' はそのまま、それ以外はロールメンション `<@&id>` として展開する。
+ * 投稿メッセージの @メンション接頭辞を mention_mode に従って組み立てる（ADR 0010）。
+ * - 'none': 空文字（メンションなし）
+ * - 'role': Segment の mention_role_id をロールメンション。'@everyone' はそのまま、他は `<@&id>`。
+ * - 'members': memberIds を `<@id>` で個別列挙。budget を超える分は「ほかN名」と省略（破綻回避）。
+ *   budget は「接頭辞全体（末尾改行・省略表記込み）の上限字数」。呼び出し側が見出し/本文/日時の
+ *   実長から `2000 −（それら）` を渡すことで、合成後の総量が Discord 上限に収まる。
+ * いずれも末尾は改行2つ（接頭辞が空なら本文が先頭に来る）。
  */
-export function buildMentionPrefix(segment: Segment, enabled: boolean): string {
-  if (!enabled || !segment.mention_role_id) return '';
-  if (segment.mention_role_id === '@everyone') return '@everyone\n\n';
-  return `<@&${segment.mention_role_id}>\n\n`;
+export function buildMentionPrefix(
+  segment: Segment | null,
+  mode: MentionMode,
+  memberIds: string[] = [],
+  budget: number = MENTION_BUDGET,
+): string {
+  if (mode === 'none' || !segment) return '';
+  if (mode === 'role') {
+    if (!segment.mention_role_id) return '';
+    if (segment.mention_role_id === '@everyone') return '@everyone\n\n';
+    return `<@&${segment.mention_role_id}>\n\n`;
+  }
+  // 'members': バイネーム。budget 内に収め、超過は「ほかN名」で省略する。
+  if (memberIds.length === 0) return '';
+  // 「 ほかN名」＋末尾改行(\n\n)ぶんを予約し、接頭辞全体が budget を超えないようにする。
+  const cap = budget - 16;
+  const shown: string[] = [];
+  let used = 0;
+  for (const id of memberIds) {
+    const tok = `<@${id}>`;
+    const add = (shown.length ? 1 : 0) + tok.length; // 区切りスペースぶんも加味
+    if (used + add > cap) break;
+    shown.push(tok);
+    used += add;
+  }
+  // 予算が無く 1 人も入らない場合はメンションを諦め、本文側を優先する（破綻回避）。
+  if (shown.length === 0) return '';
+  const omitted = memberIds.length - shown.length;
+  const tail = omitted > 0 ? ` ほか${omitted}名` : '';
+  return `${shown.join(' ')}${tail}\n\n`;
+}
+
+/**
+ * チャンネル投稿の本文を合成する（ADR 0010）。
+ * `{prefix}**{title}**\n\n{body?}\n\n{tail}` の形。body は空なら省略。
+ * tail は日時行（募集/告知）や候補一覧（複数候補ヘッダ）など、システムが自動付加する後段。
+ */
+export function composePost(
+  prefix: string,
+  title: string,
+  body: string | null,
+  tail: string,
+): string {
+  let msg = `${prefix}**${title}**\n\n`;
+  if (body && body.trim()) msg += `${body.trim()}\n\n`;
+  msg += tail;
+  return msg;
 }
 
 /**
@@ -124,9 +177,19 @@ async function postMessage(
   channelId: string,
   content: string,
   components: unknown[] | null,
+  allowedMentions: unknown | null = null,
 ): Promise<boolean> {
-  const payload: MessagePayload = { content };
+  // 最終防衛: 動的予算で通常は収まるが、想定外経路で上限超過しても 400 で無音失敗しないよう切り詰める。
+  let body = content;
+  if (body.length > DISCORD_CONTENT_LIMIT) {
+    console.warn(
+      `[postMessage] content length ${body.length} > ${DISCORD_CONTENT_LIMIT}; truncating (channel=${channelId})`,
+    );
+    body = body.slice(0, DISCORD_CONTENT_LIMIT - 1) + '…';
+  }
+  const payload: MessagePayload = { content: body };
   if (components) payload.components = components;
+  if (allowedMentions) payload.allowed_mentions = allowedMentions;
 
   try {
     const res = await fetch(`${API}/channels/${channelId}/messages`, {
@@ -149,14 +212,18 @@ async function postMessage(
   }
 }
 
-/** チャンネルへ送信（旧 sendDiscordMessage）。channelId は必須（既定チャンネル廃止） */
+/**
+ * チャンネルへ送信（旧 sendDiscordMessage）。channelId は必須（既定チャンネル廃止）。
+ * allowedMentions を渡すと Discord 側の解析対象を絞れる（本文経由の意図しない一斉メンション抑止・ADR 0010）。
+ */
 export async function sendChannelMessage(
   env: Env,
   channelId: string,
   content: string,
   components: unknown[] | null = null,
+  allowedMentions: unknown | null = null,
 ): Promise<boolean> {
-  return postMessage(env, channelId, content, components);
+  return postMessage(env, channelId, content, components, allowedMentions);
 }
 
 /** DM チャンネルを作成して channelId を返す（旧 createDM） */

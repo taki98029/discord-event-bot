@@ -104,8 +104,8 @@ Event 層は廃止し `events.ts` は削除。Notification は `guild_id` で Se
 1. `target = nextOccurrenceDate(n)`。null ならスキップ。`daysUntil = getDaysUntil(target)`。
 2. **募集 & ノルマ**: `daysUntil === n.recruit_days_before` のとき:
    - `occ = getOrCreateOccurrence(db, n.id, target)`。occ.status==='cancelled' ならスキップ。
-   - 募集メッセージを `n.channel_id` へ送信（mention 接頭辞 + 「📅 イベント募集開始!」＋ 日時 `target (曜日) start_time~` ＋ ボタン `createButtonComponents(occ.id)`）。
-   - `n.quota_enabled` なら `checkQuotaForNotification` → 各対象へ DM。
+   - 募集メッセージを `n.channel_id` へ送信。**※ ADR 0010 で更新**: 文面は `composePost`（mention 接頭辞 + ユーザ指定の見出し `message_title` ＋ 任意本文 `message_body` ＋ 日時行）で合成し、メンションは `mention_mode`（none/role/members）に従う。ボタンは `requires_response=0`（回答不要・recurring）では付けない。
+   - `n.quota_enabled` なら `checkQuotaForNotification` → 各対象へ DM（回答不要では発火しない）。
 3. **未回答リマインド**: `0 <= daysUntil <= n.remind_start_days` のとき、当日は開始時刻前のみ（現挙動踏襲）。対象=segment アクティブメンバー − 既回答。occ が無ければ getOrCreate。各対象へ DM。
 4. **未定リマインド**: `daysUntil === n.remind_undecided_days` のとき、occ の未定者（休止者除く）へ DM。
 - DM 連投は `await sleep(300)` を挟む（DM_INTERVAL_MS）。ログは現行同様 `console.log`。

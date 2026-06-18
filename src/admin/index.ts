@@ -1,5 +1,5 @@
 import type { Env } from '../env';
-import type { NotificationType } from '../db/types';
+import type { MentionMode, NotificationType } from '../db/types';
 import { listGuilds, listGuildChannels, listGuildMembers } from '../discord/rest';
 import {
   listSegments,
@@ -118,6 +118,10 @@ function toNotificationInput(b: Record<string, unknown>): NotificationInput | nu
   const channel_id = typeof b.channel_id === 'string' ? b.channel_id : '';
   const type = (b.type === 'oneoff' ? 'oneoff' : 'recurring') as NotificationType;
   if (!guild_id || !segment_id || !name || !channel_id) return null;
+  // 回答要否は recurring 専用。oneoff は常に回答あり（1）。回答不要(=通知のみ)は回答依存機能を無効化する。
+  const requiresResponse =
+    type === 'oneoff' ? 1 : b.requires_response === undefined ? 1 : b.requires_response ? 1 : 0;
+  const announceOnly = type === 'recurring' && requiresResponse === 0;
   return {
     guild_id,
     segment_id,
@@ -149,8 +153,21 @@ function toNotificationInput(b: Record<string, unknown>): NotificationInput | nu
       !Number.isFinite(Number(b.quota_interval_days))
         ? null
         : Number(b.quota_interval_days),
-    assignment_enabled: b.assignment_enabled ? 1 : 0,
-    mention_enabled: b.mention_enabled ? 1 : 0,
+    // 回答不要は番号割り当ても対象外。UI 表示と永続値を一致させ将来の発火経路追加時の事故も防ぐ。
+    assignment_enabled: announceOnly ? 0 : b.assignment_enabled ? 1 : 0,
+    // メンション方法（ADR 0010）。不正値は 'role' に倒す。
+    mention_mode: ((): MentionMode => {
+      const m = b.mention_mode;
+      return m === 'none' || m === 'role' || m === 'members' ? m : 'role';
+    })(),
+    requires_response: requiresResponse,
+    // 見出し（必須・1行・最大100字）。改行は空白化。空かどうかは呼び出し側で 400 判定する。
+    message_title: String(b.message_title ?? '').replace(/[\r\n]+/g, ' ').trim().slice(0, 100),
+    // 本文（任意・複数行・最大1500字）。空は null。
+    message_body:
+      b.message_body == null || String(b.message_body).trim() === ''
+        ? null
+        : String(b.message_body).trim().slice(0, 1500),
     active: b.active === undefined ? 1 : b.active ? 1 : 0,
   };
 }
@@ -345,6 +362,8 @@ export async function handleAdmin(request: Request, env: Env): Promise<Response>
         const body = (await request.json()) as Record<string, unknown>;
         const input = toNotificationInput(body);
         if (!input) return json({ error: 'Invalid body' }, 400);
+        // 見出しは必須（ADR 0010）。空だと投稿の1行目が欠落する。
+        if (!input.message_title) return json({ error: '見出しは必須です。' }, 400);
         // 繰り返しは曜日/第N曜ルール（rrule）必須。空だと nextOccurrenceDate が常に null で無音通知になる。
         if (input.type === 'recurring' && !input.rrule) {
           return json({ error: '繰り返しは曜日/第N曜ルールが必須です。' }, 400);
@@ -421,6 +440,8 @@ export async function handleAdmin(request: Request, env: Env): Promise<Response>
         const body = (await request.json()) as Record<string, unknown>;
         const input = toNotificationInput(body);
         if (!input) return json({ error: 'Invalid body' }, 400);
+        // 見出しは必須（ADR 0010）。空だと投稿の1行目が欠落する。
+        if (!input.message_title) return json({ error: '見出しは必須です。' }, 400);
         // 繰り返しは曜日/第N曜ルール（rrule）必須。空だと nextOccurrenceDate が常に null で無音通知になる。
         if (input.type === 'recurring' && !input.rrule) {
           return json({ error: '繰り返しは曜日/第N曜ルールが必須です。' }, 400);
