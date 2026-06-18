@@ -1,4 +1,4 @@
-import type { EventStatusBuckets, Notification, QuotaAlert, Response } from './types';
+import type { EventStatusBuckets, Member, Notification, QuotaAlert, Response } from './types';
 import { resolveDisplayName } from './types';
 import { getActiveSegmentMembers } from './segments';
 import { getJSTNow } from '../lib/date';
@@ -62,8 +62,10 @@ export async function getStatusBuckets(
   db: D1Database,
   occurrenceId: number,
   segmentId: number,
+  /** 同一区分で複数回呼ぶ際に区分メンバーの再取得を避けるための事前取得結果（任意）。 */
+  preloadedMembers?: Member[],
 ): Promise<EventStatusBuckets> {
-  const members = await getActiveSegmentMembers(db, segmentId);
+  const members = preloadedMembers ?? (await getActiveSegmentMembers(db, segmentId));
   const responses = await getResponsesForOccurrence(db, occurrenceId);
 
   const result: EventStatusBuckets = { 参加: [], 不参加: [], 未定: [], 未回答: [] };

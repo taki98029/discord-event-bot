@@ -575,7 +575,7 @@
           <p id="nOneoffRecruitNote" class="muted hidden" style="font-size:12px;margin-top:6px">
             単発は自動募集しません。各通知の「📣 募集」ボタン（通知一覧／開催回）から好きなタイミングで送信できます。</p>
           <div class="actions" style="margin-top:12px">
-            <label class="inline"><input type="checkbox" id="nQuota" /> ノルマ</label>
+            <label class="inline" id="nQuotaLabel"><input type="checkbox" id="nQuota" /> ノルマ</label>
             <label class="inline"><input type="checkbox" id="nAssignment" /> 番号割り当て</label>
             <label class="inline"><input type="checkbox" id="nMention" checked /> メンション</label>
             <label class="inline"><input type="checkbox" id="nActive" checked /> 有効</label>
@@ -600,7 +600,10 @@
         $('#nOneoffBox').classList.toggle('hidden', t !== 'oneoff');
         $('#nNthBox').classList.toggle('hidden', !(t === 'recurring' && mode === 'monthly'));
         $('#nNextBox').classList.toggle('hidden', !(t === 'recurring' && mode === 'biweekly'));
-        $('#nQuotaBox').classList.toggle('hidden', !$('#nQuota').checked);
+        // 単発はノルマ非対応（参加間隔の督促は繰り返し向けの概念）。チェックボックスごと隠してオフ固定。
+        if (t === 'oneoff') $('#nQuota').checked = false;
+        $('#nQuotaLabel').classList.toggle('hidden', t === 'oneoff');
+        $('#nQuotaBox').classList.toggle('hidden', t === 'oneoff' || !$('#nQuota').checked);
         // 単発は手動募集のため「開始N日前に募集」を隠し、代わりに注記を出す
         $('#nRecruitBox').classList.toggle('hidden', t === 'oneoff');
         $('#nOneoffRecruitNote').classList.toggle('hidden', t !== 'oneoff');

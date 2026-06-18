@@ -127,7 +127,7 @@ function toNotificationInput(b: Record<string, unknown>): NotificationInput | nu
     anchor_date: b.anchor_date == null || b.anchor_date === '' ? null : String(b.anchor_date),
     start_time: typeof b.start_time === 'string' && b.start_time ? b.start_time : '21:00',
     duration_minutes:
-      b.duration_minutes == null ||
+      (typeof b.duration_minutes !== 'number' && typeof b.duration_minutes !== 'string') ||
       b.duration_minutes === '' ||
       !Number.isFinite(Number(b.duration_minutes)) ||
       Number(b.duration_minutes) <= 0
@@ -136,8 +136,11 @@ function toNotificationInput(b: Record<string, unknown>): NotificationInput | nu
     recruit_days_before: num(b.recruit_days_before, 7),
     remind_start_days: num(b.remind_start_days, 3),
     remind_undecided_days: num(b.remind_undecided_days, 1),
-    quota_enabled: b.quota_enabled ? 1 : 0,
+    // ノルマ（参加間隔の督促）は繰り返し開催のための概念。単発(oneoff)では無効に固定し、
+    // cron 自動募集を廃止した単発でノルマDMが沈黙する不整合（旧挙動からの回帰）を防ぐ。
+    quota_enabled: type === 'oneoff' ? 0 : b.quota_enabled ? 1 : 0,
     quota_interval_days:
+      type === 'oneoff' ||
       b.quota_interval_days == null ||
       b.quota_interval_days === '' ||
       !Number.isFinite(Number(b.quota_interval_days))

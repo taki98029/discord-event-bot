@@ -68,9 +68,9 @@ Event 層は廃止し `events.ts` は削除。Notification は `guild_id` で Se
 - `ensureMember(db, userId, userName, displayName): Promise<void>`（無ければ追加。ボタン自動登録用）
 
 ## src/db/notifications.ts（新規）
-- `listNotifications(db): Promise<Notification[]>` / `listActiveNotifications(db): Promise<Notification[]>`（active=1）
+- `listNotifications(db): Promise<NotificationListItem[]>`（一覧用に candidate_count/decided_date/decided_time を付与）/ `listActiveNotifications(db): Promise<Notification[]>`（active=1・cron 用）
 - `getNotification(db, id): Promise<Notification|null>`
-- `listNotificationsByGuild(db, guildId): Promise<Notification[]>`（Server 配下の絞り込み）
+- `listNotificationsByGuild(db, guildId): Promise<NotificationListItem[]>`（Server 配下の絞り込み・一覧用集計列付き）
 - `createNotification(db, input): Promise<Notification>` / `updateNotification(db, id, patch): Promise<boolean>`
 - `deleteNotification(db, id): Promise<boolean>` — 配下 occurrences と、その responses/assignments も削除。
 - 数値フラグ(quota_enabled/assignment_enabled/mention_enabled/active)は 0/1 で扱う。

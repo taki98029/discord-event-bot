@@ -113,7 +113,7 @@ export async function recruitNotificationNow(
         return { ok: false, message: '確定した開催回が見つかりません（確定解除や削除の可能性）。' };
       }
       await sendRecruitment(env, n, occ);
-      return { ok: true, message: `**${occ.occurrence_date}** の募集メッセージを送信しました!` };
+      return { ok: true, message: `**${formatOccurrenceLabel(occ.occurrence_date, slotTime(occ, n), n.duration_minutes)}** の募集メッセージを送信しました!` };
     }
     const candidates = await listScheduledOccurrences(db, n.id);
     // 候補回が未生成の旧データは one_off_date から 1 件だけ補完
@@ -129,7 +129,7 @@ export async function recruitNotificationNow(
         : { ok: false, message: '募集メッセージの送信に失敗しました。' };
     }
     await sendRecruitment(env, n, live[0]);
-    return { ok: true, message: `**${live[0].occurrence_date}** の募集メッセージを送信しました!` };
+    return { ok: true, message: `**${formatOccurrenceLabel(live[0].occurrence_date, slotTime(live[0], n), n.duration_minutes)}** の募集メッセージを送信しました!` };
   }
 
   // recurring: 次回開催回を 1 件募集
@@ -142,7 +142,7 @@ export async function recruitNotificationNow(
     return { ok: false, message: `**${target}** の開催回は中止扱いのため募集できません。` };
   }
   await sendRecruitment(env, n, occ);
-  return { ok: true, message: `**${target}** の募集メッセージを送信しました!` };
+  return { ok: true, message: `**${formatOccurrenceLabel(occ.occurrence_date, slotTime(occ, n), n.duration_minutes)}** の募集メッセージを送信しました!` };
 }
 
 /** [PRD 4.2.4] ノルマ確認（個別 DM） */

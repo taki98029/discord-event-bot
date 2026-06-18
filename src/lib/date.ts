@@ -56,6 +56,7 @@ export function getDaysUntil(dateStr: string, now: Date = getJSTNow()): number {
 
 /**
  * 'HH:MM' に分を加算した終了時刻を返す。24:00 を跨いだ場合は nextDay=true。
+ * minutes は非負（開催時間=duration）を前提とする。負値を渡すと前日扱いになるが正規の用途ではない。
  * 例: addMinutesToTime('23:00', 180) → { time: '02:00', nextDay: true }
  */
 export function addMinutesToTime(time: string, minutes: number): { time: string; nextDay: boolean } {

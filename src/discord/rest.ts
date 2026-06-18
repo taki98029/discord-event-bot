@@ -90,6 +90,35 @@ export function buildStatusMessage(
   );
 }
 
+/**
+ * 単発の複数候補の状況を 1 メッセージにまとめる（statusall ボタン用）。
+ * Discord のメッセージ上限(2000字)に収まるよう、超えそうなら残りを「…ほか N 件」に要約する。
+ */
+export function buildAllStatusMessage(
+  notificationName: string,
+  rows: { label: string; buckets: EventStatusBuckets }[],
+  type: NotificationType = 'recurring',
+): string {
+  const L = answerLabels(type);
+  const MAX = 1900; // 2000 字制限に対する安全マージン
+  let msg = `📊 **${notificationName} の候補別 状況**\n`;
+  let shown = 0;
+  for (const r of rows) {
+    const line =
+      `\n🗓️ **${r.label}**\n` +
+      `　${L.participate} ${r.buckets.参加.length} / ${L.absent} ${r.buckets.不参加.length} / ` +
+      `${L.undecided} ${r.buckets.未定.length} / 未回答 ${r.buckets.未回答.length}`;
+    // 最低 1 件は必ず出す。以降は上限を超える行が来たら残数を要約して打ち切る。
+    if (shown > 0 && msg.length + line.length > MAX) {
+      msg += `\n\n…ほか ${rows.length - shown} 件（長いため省略）`;
+      break;
+    }
+    msg += line;
+    shown++;
+  }
+  return msg;
+}
+
 async function postMessage(
   env: Env,
   channelId: string,

@@ -6,6 +6,7 @@ import { getNotification, listNotificationsByChannel } from '../db/notifications
 import { getOccurrence, getLatestScheduledOccurrence, listScheduledOccurrences } from '../db/occurrences';
 import {
   getSegment,
+  getActiveSegmentMembers,
   addSegmentMember,
   listSegmentMembers,
   listSegmentsForMember,
@@ -13,7 +14,7 @@ import {
 } from '../db/segments';
 import { upsertResponse, getStatusBuckets } from '../db/responses';
 import { assignNumbers } from '../db/assignments';
-import { sendChannelMessage, buildStatusMessage, answerLabels } from '../discord/rest';
+import { sendChannelMessage, buildStatusMessage, buildAllStatusMessage } from '../discord/rest';
 import { formatOccurrenceLabel } from '../lib/date';
 import { recruitNotificationNow } from '../cron/dailyCheck';
 
@@ -325,15 +326,15 @@ async function handleButton(
       if (!n) return ephemeral('❌ 対象の通知が見つかりません。');
       const occs = await listScheduledOccurrences(db, n.id);
       if (occs.length === 0) return ephemeral('まだ集計できる候補がありません。');
-      const L = answerLabels(n.type);
-      let msg = `📊 **${n.name} の候補別 状況**\n`;
-      for (const o of occs) {
-        const b = await getStatusBuckets(db, o.id, n.segment_id);
-        msg +=
-          `\n🗓️ **${formatOccurrenceLabel(o.occurrence_date, o.start_time || n.start_time, n.duration_minutes)}**\n` +
-          `　${L.participate} ${b.参加.length} / ${L.absent} ${b.不参加.length} / ${L.undecided} ${b.未定.length} / 未回答 ${b.未回答.length}`;
-      }
-      return ephemeral(msg);
+      // 区分メンバーは 1 回だけ取得して使い回し（候補ごとの再取得を避ける）。集計は並列実行。
+      const members = await getActiveSegmentMembers(db, n.segment_id);
+      const rows = await Promise.all(
+        occs.map(async (o) => ({
+          label: formatOccurrenceLabel(o.occurrence_date, o.start_time || n.start_time, n.duration_minutes),
+          buckets: await getStatusBuckets(db, o.id, n.segment_id, members),
+        })),
+      );
+      return ephemeral(buildAllStatusMessage(n.name, rows, n.type));
     } catch (e) {
       console.error('[Button] statusall error:', (e as Error).message);
       return ephemeral('❌ 状況確認に失敗しました。');
