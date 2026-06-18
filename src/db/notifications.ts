@@ -1,10 +1,11 @@
-import type { Notification, NotificationListItem, NotificationType } from './types';
+import type { MentionMode, Notification, NotificationListItem, NotificationType } from './types';
 import { listOccurrencesForNotification, setOccurrenceStatus } from './occurrences';
 
 const COLS =
   'id, guild_id, segment_id, name, channel_id, type, rrule, one_off_date, anchor_date, start_time, ' +
   'duration_minutes, recruit_days_before, remind_start_days, remind_undecided_days, ' +
-  'quota_enabled, quota_interval_days, assignment_enabled, mention_enabled, active, ' +
+  'quota_enabled, quota_interval_days, assignment_enabled, mention_enabled, mention_mode, ' +
+  'requires_response, message_title, message_body, active, ' +
   'decided_occurrence_id, created_at';
 
 /** 一覧表示用の集計列（候補数・確定回の日時）。COLS に続けて付与する。 */
@@ -31,7 +32,10 @@ export interface NotificationInput {
   quota_enabled: number;
   quota_interval_days: number | null;
   assignment_enabled: number;
-  mention_enabled: number;
+  mention_mode: MentionMode;
+  requires_response: number;
+  message_title: string;
+  message_body: string | null;
   active: number;
 }
 
@@ -97,8 +101,9 @@ export async function createNotification(
       `INSERT INTO notifications (
          guild_id, segment_id, name, channel_id, type, rrule, one_off_date, anchor_date, start_time,
          duration_minutes, recruit_days_before, remind_start_days, remind_undecided_days,
-         quota_enabled, quota_interval_days, assignment_enabled, mention_enabled, active
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         quota_enabled, quota_interval_days, assignment_enabled, mention_mode, requires_response,
+         message_title, message_body, active
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       input.guild_id,
@@ -117,13 +122,26 @@ export async function createNotification(
       input.quota_enabled,
       input.quota_interval_days ?? null,
       input.assignment_enabled,
-      input.mention_enabled,
+      input.mention_mode,
+      input.requires_response,
+      input.message_title,
+      input.message_body ?? null,
       input.active,
     )
     .run();
   const id = res.meta.last_row_id as number;
   const row = await getNotification(db, id);
-  return row ?? { id, created_at: '', decided_occurrence_id: null, ...input };
+  // フォールバック（getNotification が null の異常系のみ）。deprecated な mention_enabled は
+  // mention_mode から導出して Notification 型を満たす。
+  return (
+    row ?? {
+      id,
+      created_at: '',
+      decided_occurrence_id: null,
+      mention_enabled: input.mention_mode === 'role' ? 1 : 0,
+      ...input,
+    }
+  );
 }
 
 /** Notification 更新。対象が無ければ false */
@@ -139,7 +157,8 @@ export async function updateNotification(
          one_off_date = ?, anchor_date = ?, start_time = ?, duration_minutes = ?,
          recruit_days_before = ?, remind_start_days = ?,
          remind_undecided_days = ?, quota_enabled = ?, quota_interval_days = ?,
-         assignment_enabled = ?, mention_enabled = ?, active = ?
+         assignment_enabled = ?, mention_mode = ?, requires_response = ?,
+         message_title = ?, message_body = ?, active = ?
        WHERE id = ?`,
     )
     .bind(
@@ -159,7 +178,10 @@ export async function updateNotification(
       patch.quota_enabled,
       patch.quota_interval_days ?? null,
       patch.assignment_enabled,
-      patch.mention_enabled,
+      patch.mention_mode,
+      patch.requires_response,
+      patch.message_title,
+      patch.message_body ?? null,
       patch.active,
       id,
     )

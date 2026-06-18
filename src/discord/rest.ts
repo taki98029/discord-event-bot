@@ -1,5 +1,5 @@
 import type { Env } from '../env';
-import type { Member, EventStatusBuckets, NotificationType, Segment } from '../db/types';
+import type { Member, EventStatusBuckets, MentionMode, NotificationType, Segment } from '../db/types';
 import { setDmChannelId } from '../db/members';
 
 const API = 'https://discord.com/api/v10';
@@ -58,15 +58,58 @@ export function createStatusAllButton(notificationId: number): unknown[] {
   ];
 }
 
+/** バイネームメンションの文字予算（2000字上限に対し見出し/本文/日時ぶんを残す安全枠・ADR 0010）。 */
+const MENTION_BUDGET = 1500;
+
 /**
- * 募集メッセージの @メンション接頭辞を組み立てる。
- * enabled かつ Segment に mention_role_id があれば、その指定でメンションを付ける。
- * '@everyone' はそのまま、それ以外はロールメンション `<@&id>` として展開する。
+ * 投稿メッセージの @メンション接頭辞を mention_mode に従って組み立てる（ADR 0010）。
+ * - 'none': 空文字（メンションなし）
+ * - 'role': Segment の mention_role_id をロールメンション。'@everyone' はそのまま、他は `<@&id>`。
+ * - 'members': memberIds を `<@id>` で個別列挙。予算超過分は「ほかN名」と省略（破綻回避）。
+ * いずれも末尾は改行2つ（接頭辞が空なら本文が先頭に来る）。
  */
-export function buildMentionPrefix(segment: Segment, enabled: boolean): string {
-  if (!enabled || !segment.mention_role_id) return '';
-  if (segment.mention_role_id === '@everyone') return '@everyone\n\n';
-  return `<@&${segment.mention_role_id}>\n\n`;
+export function buildMentionPrefix(
+  segment: Segment | null,
+  mode: MentionMode,
+  memberIds: string[] = [],
+): string {
+  if (mode === 'none' || !segment) return '';
+  if (mode === 'role') {
+    if (!segment.mention_role_id) return '';
+    if (segment.mention_role_id === '@everyone') return '@everyone\n\n';
+    return `<@&${segment.mention_role_id}>\n\n`;
+  }
+  // 'members': バイネーム。予算内に収め、超過は「ほかN名」で省略する。
+  if (memberIds.length === 0) return '';
+  const shown: string[] = [];
+  let used = 0;
+  for (const id of memberIds) {
+    const tok = `<@${id}>`;
+    const add = (shown.length ? 1 : 0) + tok.length; // 区切りスペースぶんも加味
+    if (shown.length > 0 && used + add > MENTION_BUDGET) break;
+    shown.push(tok);
+    used += add;
+  }
+  const omitted = memberIds.length - shown.length;
+  const tail = omitted > 0 ? ` ほか${omitted}名` : '';
+  return `${shown.join(' ')}${tail}\n\n`;
+}
+
+/**
+ * チャンネル投稿の本文を合成する（ADR 0010）。
+ * `{prefix}**{title}**\n\n{body?}\n\n{tail}` の形。body は空なら省略。
+ * tail は日時行（募集/告知）や候補一覧（複数候補ヘッダ）など、システムが自動付加する後段。
+ */
+export function composePost(
+  prefix: string,
+  title: string,
+  body: string | null,
+  tail: string,
+): string {
+  let msg = `${prefix}**${title}**\n\n`;
+  if (body && body.trim()) msg += `${body.trim()}\n\n`;
+  msg += tail;
+  return msg;
 }
 
 /**

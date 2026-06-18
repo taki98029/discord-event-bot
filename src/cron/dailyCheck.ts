@@ -22,12 +22,37 @@ import {
   createButtonComponents,
   createStatusAllButton,
   buildMentionPrefix,
+  composePost,
   listGuildMembers,
   type GuildMemberSummary,
 } from '../discord/rest';
+import type { Segment } from '../db/types';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const DM_INTERVAL_MS = 300;
+
+/** 回答不要（通知のみ）か。recurring かつ requires_response=0 のとき true（ADR 0010）。 */
+function isAnnounceOnly(n: Notification): boolean {
+  return n.type === 'recurring' && !n.requires_response;
+}
+
+/**
+ * 投稿の @メンション接頭辞を mention_mode に従って解決する（ADR 0010）。
+ * 'members' のときだけ区分のアクティブメンバーを取得して `<@id>` 列挙の材料にする。
+ */
+async function mentionPrefixFor(
+  env: Env,
+  n: Notification,
+  segment: Segment | null,
+): Promise<string> {
+  if (!segment || n.mention_mode === 'none') return '';
+  let memberIds: string[] = [];
+  if (n.mention_mode === 'members') {
+    const members = await getActiveSegmentMembers(env.DB, n.segment_id);
+    memberIds = members.map((m) => m.user_id);
+  }
+  return buildMentionPrefix(segment, n.mention_mode, memberIds);
+}
 
 /** スロットの表示時刻（occ.start_time 優先・空なら通知の既定 start_time）。 */
 function slotTime(occ: Occurrence, n: Notification): string {
@@ -45,17 +70,11 @@ async function sendRecruitment(
   occ: Occurrence,
 ): Promise<void> {
   const segment = await getSegment(env.DB, n.segment_id);
-  const prefix = segment ? buildMentionPrefix(segment, !!n.mention_enabled) : '';
-  const message =
-    `${prefix}📅 **イベント募集開始!**\n\n` +
-    `日時: **${slotLabel(occ, n)}**\n\n` +
-    `参加状況を下のボタンで回答してください!`;
-  const ok = await sendChannelMessage(
-    env,
-    n.channel_id,
-    message,
-    createButtonComponents(occ.id, n.type),
-  );
+  const prefix = await mentionPrefixFor(env, n, segment);
+  // 見出し（必須）＋本文（任意）＋日時行（自動）。回答不要(announce-only)はボタンを付けない。
+  const message = composePost(prefix, n.message_title, n.message_body, `日時: **${slotLabel(occ, n)}**`);
+  const components = isAnnounceOnly(n) ? null : createButtonComponents(occ.id, n.type);
+  const ok = await sendChannelMessage(env, n.channel_id, message, components);
   console.log(ok ? `✅ [Recruitment] sent (n=${n.id})` : `❌ [Recruitment] failed (n=${n.id})`);
 }
 
@@ -72,12 +91,13 @@ export async function sendCandidateRecruitment(
 ): Promise<number> {
   if (occs.length === 0) return 0;
   const segment = await getSegment(env.DB, n.segment_id);
-  const prefix = segment ? buildMentionPrefix(segment, !!n.mention_enabled) : '';
+  const prefix = await mentionPrefixFor(env, n, segment);
   const list = occs.map((o, i) => `${i + 1}. **${slotLabel(o, n)}**`).join('\n');
-  const header =
-    `${prefix}📅 **イベント候補日の調整!**\n\n` +
+  // 見出し/本文（カスタム）に、候補投票の操作ガイド＋候補一覧をシステム後段として続ける。
+  const guide =
     `下の各候補について、ボタンで回答してください（都合のつく候補すべてに「可」を選べます）。\n` +
     `全体の状況は下の「📊 全候補の状況」ボタンで確認できます。\n\n${list}`;
+  const header = composePost(prefix, n.message_title, n.message_body, guide);
   // ヘッダに全候補の状況をまとめて返す集約ボタンを1つ付ける（各候補には状況確認を付けない）。
   await sendChannelMessage(env, n.channel_id, header, createStatusAllButton(n.id));
   await sleep(DM_INTERVAL_MS);
@@ -300,20 +320,25 @@ async function processSingleOccurrence(env: Env, n: Notification): Promise<void>
   const daysUntil = getDaysUntil(target);
   console.log(`[n=${n.id}] Target: ${target}, daysUntil: ${daysUntil}`);
 
-  // 募集 & ノルマ確認（募集開始日に同時実行）
+  // 回答不要（通知のみ）は告知だけ。ノルマ・未回答/未定リマインドは回答前提のため対象外（ADR 0010）。
+  const announceOnly = isAnnounceOnly(n);
+
+  // 募集/告知 & ノルマ確認（募集開始日に同時実行）
   if (daysUntil === n.recruit_days_before) {
     const occ = await getOrCreateOccurrence(db, n.id, target, n.start_time);
     if (occ.status === 'cancelled') {
       console.log(`[n=${n.id}] occurrence cancelled, skip recruitment`);
     } else {
       await sendRecruitment(env, n, occ);
-      if (n.quota_enabled) await checkQuotaAndNotify(env, n);
+      if (!announceOnly && n.quota_enabled) await checkQuotaAndNotify(env, n);
     }
   }
 
-  // リマインド（同じ開催回を再取得）
-  const occ = await getOrCreateOccurrence(db, n.id, target, n.start_time);
-  await remindForOccurrence(env, n, occ, daysUntil);
+  // リマインド（回答不要ならスキップ）。同じ開催回を再取得。
+  if (!announceOnly) {
+    const occ = await getOrCreateOccurrence(db, n.id, target, n.start_time);
+    await remindForOccurrence(env, n, occ, daysUntil);
+  }
 }
 
 /**
