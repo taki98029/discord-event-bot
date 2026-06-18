@@ -137,7 +137,8 @@ function toNotificationInput(b: Record<string, unknown>): NotificationInput | nu
         : Math.floor(Number(b.duration_minutes)),
     recruit_days_before: num(b.recruit_days_before, 7),
     remind_start_days: num(b.remind_start_days, 3),
-    remind_undecided_days: num(b.remind_undecided_days, 1),
+    // 負値は daysUntil と一致せず未定リマインドが無音化するため 0 以上にクランプ（0=当日）。
+    remind_undecided_days: Math.max(0, num(b.remind_undecided_days, 1)),
     // ノルマ（参加間隔の督促）は繰り返し開催のための概念。単発(oneoff)では無効に固定し、
     // cron 自動募集を廃止した単発でノルマDMが沈黙する不整合（旧挙動からの回帰）を防ぐ。
     quota_enabled: type === 'oneoff' ? 0 : b.quota_enabled ? 1 : 0,
@@ -344,6 +345,10 @@ export async function handleAdmin(request: Request, env: Env): Promise<Response>
         const body = (await request.json()) as Record<string, unknown>;
         const input = toNotificationInput(body);
         if (!input) return json({ error: 'Invalid body' }, 400);
+        // 繰り返しは曜日/第N曜ルール（rrule）必須。空だと nextOccurrenceDate が常に null で無音通知になる。
+        if (input.type === 'recurring' && !input.rrule) {
+          return json({ error: '繰り返しは曜日/第N曜ルールが必須です。' }, 400);
+        }
         if (input.type === 'oneoff') {
           const slots = candidateSlotsOf(body, input.one_off_date, input.start_time);
           if (slots.length === 0) return json({ error: '単発は候補日時が必須です' }, 400);
@@ -416,6 +421,10 @@ export async function handleAdmin(request: Request, env: Env): Promise<Response>
         const body = (await request.json()) as Record<string, unknown>;
         const input = toNotificationInput(body);
         if (!input) return json({ error: 'Invalid body' }, 400);
+        // 繰り返しは曜日/第N曜ルール（rrule）必須。空だと nextOccurrenceDate が常に null で無音通知になる。
+        if (input.type === 'recurring' && !input.rrule) {
+          return json({ error: '繰り返しは曜日/第N曜ルールが必須です。' }, 400);
+        }
         if (input.type === 'oneoff') {
           const slots = candidateSlotsOf(body, input.one_off_date, input.start_time);
           if (slots.length === 0) return json({ error: '単発は候補日時が必須です' }, 400);
