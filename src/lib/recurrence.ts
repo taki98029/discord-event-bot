@@ -108,6 +108,11 @@ export type BuildRRuleOptions =
       /** 第 N（1〜5、-1 で最終週も可） */
       nth: number;
       byday: WeekdayCode;
+    }
+  | {
+      /** 毎月の (第N, 曜日) 複数指定（例 第1・第3・第5 日曜 / 第1日曜＋第3火曜）。BYDAY をカンマ連結する。 */
+      freq: 'monthly-nth-weekdays';
+      rules: { nth: number; byday: WeekdayCode }[];
     };
 
 /** RFC5545 の曜日コード */
@@ -148,6 +153,13 @@ export function buildRRule(opts: BuildRRuleOptions): string {
       rule = new RRule({
         freq: RRule.MONTHLY,
         byweekday: [WEEKDAY_MAP[opts.byday].nth(opts.nth)],
+      });
+      break;
+    case 'monthly-nth-weekdays':
+      // 複数の (第N, 曜日) を BYDAY にカンマ連結（例 1SU,3SU,5SU / 1SU,3TU）
+      rule = new RRule({
+        freq: RRule.MONTHLY,
+        byweekday: opts.rules.map((r) => WEEKDAY_MAP[r.byday].nth(r.nth)),
       });
       break;
   }

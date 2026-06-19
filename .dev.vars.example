@@ -1,11 +1,21 @@
 # ローカル開発用シークレット（wrangler dev が読み込む）
 # このファイルを .dev.vars にコピーして実値を設定してください。
 # .dev.vars は .gitignore 済み（コミットされません）。
+#
+# ※ このファイルに並ぶシークレット名は「Deploy to Cloudflare」ボタンの
+#    デプロイ時入力プロンプトの元にもなります（package.json の説明文つきで表示）。
+#    実際に必要な4つだけを記載してください。
 
+# Discord アプリの公開鍵（General Information の PUBLIC KEY）
 DISCORD_PUBLIC_KEY=your_public_key_here
+# Discord アプリの ID（General Information の APPLICATION ID）
 DISCORD_APPLICATION_ID=your_application_id_here
+# Bot のトークン（Bot → Reset Token）※秘密
 DISCORD_BOT_TOKEN=your_bot_token_here
 
-# 管理UIのアクセストークン（長いランダム文字列を生成して設定）
+# 管理UIのアクセストークン（長いランダム文字列。setup.html の「パスワードを生成する」で作成可）
 # 例: openssl rand -hex 32
 ADMIN_TOKEN=your_long_random_admin_token_here
+
+# ※ 投稿チャンネルは Notification ごとに管理 UI で設定するため、
+#    旧 DISCORD_CHANNEL_ID は廃止しました（記載不要）。

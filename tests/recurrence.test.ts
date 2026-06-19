@@ -23,6 +23,7 @@ function makeNotification(over: Partial<Notification>): Notification {
     one_off_date: null,
     anchor_date: null,
     start_time: '21:00',
+    duration_minutes: null,
     recruit_days_before: 7,
     remind_start_days: 3,
     remind_undecided_days: 1,
@@ -30,6 +31,10 @@ function makeNotification(over: Partial<Notification>): Notification {
     quota_interval_days: null,
     assignment_enabled: 0,
     mention_enabled: 1,
+    mention_mode: 'role',
+    requires_response: 1,
+    message_title: 'テスト通知',
+    message_body: null,
     active: 1,
     decided_occurrence_id: null,
     created_at: '',
@@ -110,6 +115,27 @@ describe('nextOccurrenceDate - 毎月第N曜（FREQ=MONTHLY;BYDAY=2SA）', () =>
   });
 });
 
+describe('nextOccurrenceDate - 毎月 複数第N曜（BYDAY 複数指定）', () => {
+  // 2025/06 の日曜=1,8,15,22,29 → 第1=6/1, 第3=6/15, 第5=6/29。火曜=3,10,17,24 → 第3火=6/17。
+  it('第1・第3・第5 日曜のうち直近を返す（第5がある月）', () => {
+    const n = makeNotification({ type: 'recurring', rrule: 'FREQ=MONTHLY;BYDAY=1SU,3SU,5SU', start_time: '21:00' });
+    expect(nextOccurrenceDate(n, new Date(2025, 5, 2, 10, 0))).toBe('2025/06/15'); // 6/2 → 第3
+    expect(nextOccurrenceDate(n, new Date(2025, 5, 16, 10, 0))).toBe('2025/06/29'); // 6/16 → 第5
+    expect(nextOccurrenceDate(n, new Date(2025, 5, 30, 10, 0))).toBe('2025/07/06'); // 6/30 → 翌月第1(7/6)
+  });
+
+  it('第5が無い月は第5の回だけスキップされる', () => {
+    // 2025/02 の日曜=2,9,16,23（第5なし）。第1=2/2, 第3=2/16。
+    const n = makeNotification({ type: 'recurring', rrule: 'FREQ=MONTHLY;BYDAY=1SU,3SU,5SU', start_time: '21:00' });
+    expect(nextOccurrenceDate(n, new Date(2025, 1, 17, 10, 0))).toBe('2025/03/02'); // 2/17 → 第5なし→翌月第1(3/2)
+  });
+
+  it('曜日混在 第1日曜＋第3火曜', () => {
+    const n = makeNotification({ type: 'recurring', rrule: 'FREQ=MONTHLY;BYDAY=1SU,3TU', start_time: '21:00' });
+    expect(nextOccurrenceDate(n, new Date(2025, 5, 2, 10, 0))).toBe('2025/06/17'); // 6/1(第1日)は過去→6/17(第3火)
+  });
+});
+
 describe('nextOccurrenceDate - anchor_date（隔週パリティ / 未来anchorの巻き戻し）', () => {
   it('anchor_date で隔週の開催週パリティが変わる', () => {
     const now = new Date(2025, 0, 1, 10, 0); // 1/1 水
@@ -177,6 +203,23 @@ describe('buildRRule', () => {
     expect(buildRRule({ freq: 'monthly-nth-weekday', nth: 2, byday: 'SA' })).toBe(
       'FREQ=MONTHLY;BYDAY=2SA',
     );
+  });
+
+  it('monthly-nth-weekdays（複数）→ FREQ=MONTHLY;BYDAY=1SU,3SU,5SU（順不同）', () => {
+    const r = buildRRule({
+      freq: 'monthly-nth-weekdays',
+      rules: [{ nth: 1, byday: 'SU' }, { nth: 3, byday: 'SU' }, { nth: 5, byday: 'SU' }],
+    });
+    expect(r.startsWith('FREQ=MONTHLY;BYDAY=')).toBe(true);
+    expect(r.split('BYDAY=')[1].split(',').sort()).toEqual(['1SU', '3SU', '5SU']);
+  });
+
+  it('monthly-nth-weekdays（曜日混在）→ BYDAY=1SU,3TU', () => {
+    const r = buildRRule({
+      freq: 'monthly-nth-weekdays',
+      rules: [{ nth: 1, byday: 'SU' }, { nth: 3, byday: 'TU' }],
+    });
+    expect(r.split('BYDAY=')[1].split(',').sort()).toEqual(['1SU', '3TU']);
   });
 
   it('buildRRule の出力は nextOccurrenceDate でそのまま評価できる', () => {

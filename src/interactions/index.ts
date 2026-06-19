@@ -3,9 +3,10 @@ import type { Env } from '../env';
 import type { Notification } from '../db/types';
 import { ensureMember, updateMemberDisplayName, getAllMembers } from '../db/members';
 import { getNotification, listNotificationsByChannel } from '../db/notifications';
-import { getOccurrence, getLatestScheduledOccurrence } from '../db/occurrences';
+import { getOccurrence, getLatestScheduledOccurrence, listScheduledOccurrences } from '../db/occurrences';
 import {
   getSegment,
+  getActiveSegmentMembers,
   addSegmentMember,
   listSegmentMembers,
   listSegmentsForMember,
@@ -13,7 +14,9 @@ import {
 } from '../db/segments';
 import { upsertResponse, getStatusBuckets } from '../db/responses';
 import { assignNumbers } from '../db/assignments';
-import { sendChannelMessage, buildStatusMessage } from '../discord/rest';
+import { sendChannelMessage, buildStatusMessage, buildAllStatusMessage } from '../discord/rest';
+import { roleGateAllows } from '../discord/syncSegment';
+import { formatOccurrenceLabel } from '../lib/date';
 import { recruitNotificationNow } from '../cron/dailyCheck';
 
 const EPHEMERAL = 64;
@@ -37,7 +40,7 @@ interface DiscordInteraction {
   };
   guild_id?: string;
   channel_id?: string;
-  member?: { user?: DiscordUser; nick?: string };
+  member?: { user?: DiscordUser; nick?: string; roles?: string[] };
   user?: DiscordUser;
 }
 
@@ -317,7 +320,29 @@ async function handleButton(
   const occurrenceId = sep >= 0 ? Number(customId.slice(sep + 1)) : NaN;
   if (!Number.isInteger(occurrenceId)) return ephemeral('❌ 不正なインタラクションです');
 
-  // 状況確認
+  // 全候補の状況（単発の集約ボタン）: 末尾の数値は notificationId
+  if (action === 'statusall') {
+    try {
+      const n = await getNotification(db, occurrenceId);
+      if (!n) return ephemeral('❌ 対象の通知が見つかりません。');
+      const occs = await listScheduledOccurrences(db, n.id);
+      if (occs.length === 0) return ephemeral('まだ集計できる候補がありません。');
+      // 区分メンバーは 1 回だけ取得して使い回し（候補ごとの再取得を避ける）。集計は並列実行。
+      const members = await getActiveSegmentMembers(db, n.segment_id);
+      const rows = await Promise.all(
+        occs.map(async (o) => ({
+          label: formatOccurrenceLabel(o.occurrence_date, o.start_time || n.start_time, n.duration_minutes),
+          buckets: await getStatusBuckets(db, o.id, n.segment_id, members),
+        })),
+      );
+      return ephemeral(buildAllStatusMessage(n.name, rows, n.type));
+    } catch (e) {
+      console.error('[Button] statusall error:', (e as Error).message);
+      return ephemeral('❌ 状況確認に失敗しました。');
+    }
+  }
+
+  // 状況確認（1スロット）
   if (action === 'status') {
     try {
       const occ = await getOccurrence(db, occurrenceId);
@@ -325,7 +350,8 @@ async function handleButton(
       const n = await getNotification(db, occ.notification_id);
       if (!n) return ephemeral('❌ 対象の通知が見つかりません。');
       const buckets = await getStatusBuckets(db, occ.id, n.segment_id);
-      return ephemeral(buildStatusMessage(occ.occurrence_date, buckets));
+      const title = formatOccurrenceLabel(occ.occurrence_date, occ.start_time || n.start_time, n.duration_minutes);
+      return ephemeral(buildStatusMessage(title, buckets, n.type));
     } catch (e) {
       console.error('[Button] status error:', (e as Error).message);
       return ephemeral('❌ 状況確認に失敗しました。');
@@ -341,12 +367,21 @@ async function handleButton(
     const n = await getNotification(db, occ.notification_id);
     if (!n) return ephemeral('❌ 対象の通知が見つかりません。');
 
+    // ロール管理区分はロールゲートで判定（@everyone は全員可・ADR 0009）。
+    // ギルド内ボタンは member.roles が同梱される（追加API不要）。DM のリマインド回答は member 不在の
+    // ためロール判定をスキップし、後段の所属/休止チェックに委ねる（roleGateAllows）。
+    const segment = await getSegment(db, n.segment_id);
+    const memberRoles = interaction.member ? (interaction.member.roles ?? []) : undefined;
+    if (segment && !roleGateAllows(segment.mention_role_id, memberRoles)) {
+      return ephemeral('🚫 この区分の対象（指定ロールの保有者）ではないため、回答できません。');
+    }
+
     // メンバーマスタへ自動登録（無ければ）
     await ensureMember(db, userId, userName, displayName).catch((e) =>
       console.error('[Button] ensureMember failed:', (e as Error).message),
     );
 
-    // 区分への自動所属（既存なら no-op、status は維持）
+    // 区分への自動所属（既存なら no-op、status は維持）。ロール管理区分でも保有者なら整合する。
     await addSegmentMember(db, n.segment_id, userId);
 
     // 休止中なら回答拒否

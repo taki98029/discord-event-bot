@@ -8,7 +8,8 @@ export default defineConfig({
       const migrations = await readD1Migrations('migrations');
       return {
         miniflare: {
-          bindings: { TEST_MIGRATIONS: migrations },
+          // MOCK_DISCORD=1: Discord API 呼び出しをフィクスチャで代替（ADR 0008）。ロール同期テスト用。
+          bindings: { TEST_MIGRATIONS: migrations, MOCK_DISCORD: '1' },
         },
         wrangler: { configPath: './wrangler.toml' },
       };

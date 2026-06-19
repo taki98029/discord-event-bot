@@ -1,8 +1,9 @@
 import type { Env } from '../env';
-import type { NotificationType } from '../db/types';
+import type { MentionMode, NotificationType } from '../db/types';
 import { listGuilds, listGuildChannels, listGuildMembers } from '../discord/rest';
 import {
   listSegments,
+  getSegment,
   createSegment,
   updateSegment,
   deleteSegment,
@@ -12,6 +13,7 @@ import {
   setSegmentMemberStatus,
   removeSegmentMember,
 } from '../db/segments';
+import { syncSegmentFromRole } from '../discord/syncSegment';
 import { getAllMembers, upsertMember, deleteMember } from '../db/members';
 import {
   listNotifications,
@@ -34,8 +36,9 @@ import {
 } from '../db/occurrences';
 import { getResponsesForOccurrence, getStatusBuckets, listRecentResponses } from '../db/responses';
 import { getAssignments, assignNumbers } from '../db/assignments';
-import { sendChannelMessage } from '../discord/rest';
+import { sendChannelMessage, createButtonComponents } from '../discord/rest';
 import { recruitNotificationNow } from '../cron/dailyCheck';
+import { formatTimeRange } from '../lib/date';
 import { getSetupStatus, registerCommandsForEnv } from './setup';
 
 function json(body: unknown, status = 200): Response {
@@ -115,6 +118,10 @@ function toNotificationInput(b: Record<string, unknown>): NotificationInput | nu
   const channel_id = typeof b.channel_id === 'string' ? b.channel_id : '';
   const type = (b.type === 'oneoff' ? 'oneoff' : 'recurring') as NotificationType;
   if (!guild_id || !segment_id || !name || !channel_id) return null;
+  // 回答要否は recurring 専用。oneoff は常に回答あり（1）。回答不要(=通知のみ)は回答依存機能を無効化する。
+  const requiresResponse =
+    type === 'oneoff' ? 1 : b.requires_response === undefined ? 1 : b.requires_response ? 1 : 0;
+  const announceOnly = type === 'recurring' && requiresResponse === 0;
   return {
     guild_id,
     segment_id,
@@ -125,18 +132,42 @@ function toNotificationInput(b: Record<string, unknown>): NotificationInput | nu
     one_off_date: b.one_off_date == null || b.one_off_date === '' ? null : String(b.one_off_date),
     anchor_date: b.anchor_date == null || b.anchor_date === '' ? null : String(b.anchor_date),
     start_time: typeof b.start_time === 'string' && b.start_time ? b.start_time : '21:00',
+    duration_minutes:
+      (typeof b.duration_minutes !== 'number' && typeof b.duration_minutes !== 'string') ||
+      b.duration_minutes === '' ||
+      !Number.isFinite(Number(b.duration_minutes)) ||
+      Number(b.duration_minutes) <= 0
+        ? null
+        : Math.floor(Number(b.duration_minutes)),
     recruit_days_before: num(b.recruit_days_before, 7),
     remind_start_days: num(b.remind_start_days, 3),
-    remind_undecided_days: num(b.remind_undecided_days, 1),
-    quota_enabled: b.quota_enabled ? 1 : 0,
+    // 負値は daysUntil と一致せず未定リマインドが無音化するため 0 以上にクランプ（0=当日）。
+    remind_undecided_days: Math.max(0, num(b.remind_undecided_days, 1)),
+    // ノルマ（参加間隔の督促）は繰り返し開催のための概念。単発(oneoff)では無効に固定し、
+    // cron 自動募集を廃止した単発でノルマDMが沈黙する不整合（旧挙動からの回帰）を防ぐ。
+    quota_enabled: type === 'oneoff' ? 0 : b.quota_enabled ? 1 : 0,
     quota_interval_days:
+      type === 'oneoff' ||
       b.quota_interval_days == null ||
       b.quota_interval_days === '' ||
       !Number.isFinite(Number(b.quota_interval_days))
         ? null
         : Number(b.quota_interval_days),
-    assignment_enabled: b.assignment_enabled ? 1 : 0,
-    mention_enabled: b.mention_enabled ? 1 : 0,
+    // 回答不要は番号割り当ても対象外。UI 表示と永続値を一致させ将来の発火経路追加時の事故も防ぐ。
+    assignment_enabled: announceOnly ? 0 : b.assignment_enabled ? 1 : 0,
+    // メンション方法（ADR 0010）。不正値は 'role' に倒す。
+    mention_mode: ((): MentionMode => {
+      const m = b.mention_mode;
+      return m === 'none' || m === 'role' || m === 'members' ? m : 'role';
+    })(),
+    requires_response: requiresResponse,
+    // 見出し（必須・1行・最大100字）。改行は空白化。空かどうかは呼び出し側で 400 判定する。
+    message_title: String(b.message_title ?? '').replace(/[\r\n]+/g, ' ').trim().slice(0, 100),
+    // 本文（任意・複数行・最大1500字）。空は null。
+    message_body:
+      b.message_body == null || String(b.message_body).trim() === ''
+        ? null
+        : String(b.message_body).trim().slice(0, 1500),
     active: b.active === undefined ? 1 : b.active ? 1 : 0,
   };
 }
@@ -261,6 +292,18 @@ export async function handleAdmin(request: Request, env: Env): Promise<Response>
         return json({ ok: true }, 201);
       }
     }
+    // /segments/:id/sync-from-role （ロール管理区分を Discord ロールから手動同期・ADR 0009）
+    const segSync = path.match(/^\/segments\/(\d+)\/sync-from-role$/);
+    if (segSync && method === 'POST') {
+      const seg = await getSegment(db, Number(segSync[1]));
+      if (!seg) return json({ error: 'Not found' }, 404);
+      if (!seg.mention_role_id) {
+        return json({ error: 'この区分はロール管理ではありません（ロール未設定）。' }, 400);
+      }
+      // 手動同期は確認ダイアログ経由のため allowEmpty=true（明示的に空にできる）。
+      const r = await syncSegmentFromRole(env, seg, { allowEmpty: true });
+      return json(r, r.ok ? 200 : 400);
+    }
     // /segments/:id
     const segId = path.match(/^\/segments\/(\d+)$/);
     if (segId) {
@@ -319,6 +362,12 @@ export async function handleAdmin(request: Request, env: Env): Promise<Response>
         const body = (await request.json()) as Record<string, unknown>;
         const input = toNotificationInput(body);
         if (!input) return json({ error: 'Invalid body' }, 400);
+        // 見出しは必須（ADR 0010）。空だと投稿の1行目が欠落する。
+        if (!input.message_title) return json({ error: '見出しは必須です。' }, 400);
+        // 繰り返しは曜日/第N曜ルール（rrule）必須。空だと nextOccurrenceDate が常に null で無音通知になる。
+        if (input.type === 'recurring' && !input.rrule) {
+          return json({ error: '繰り返しは曜日/第N曜ルールが必須です。' }, 400);
+        }
         if (input.type === 'oneoff') {
           const slots = candidateSlotsOf(body, input.one_off_date, input.start_time);
           if (slots.length === 0) return json({ error: '単発は候補日時が必須です' }, 400);
@@ -356,7 +405,8 @@ export async function handleAdmin(request: Request, env: Env): Promise<Response>
       const announced = await sendChannelMessage(
         env,
         n.channel_id,
-        `✅ **開催日が確定しました**\n\n**${occ.occurrence_date}** ${occ.start_time || n.start_time}~ に開催します！`,
+        `✅ **開催日が確定しました**\n\n**${occ.occurrence_date}** ${formatTimeRange(occ.start_time || n.start_time, n.duration_minutes)} に開催します！\n\n出欠が変わる場合は下のボタンで回答してください。`,
+        createButtonComponents(occ.id, n.type),
       );
       return json({ ok: true, decided_occurrence_id: occId, announced });
     }
@@ -390,6 +440,12 @@ export async function handleAdmin(request: Request, env: Env): Promise<Response>
         const body = (await request.json()) as Record<string, unknown>;
         const input = toNotificationInput(body);
         if (!input) return json({ error: 'Invalid body' }, 400);
+        // 見出しは必須（ADR 0010）。空だと投稿の1行目が欠落する。
+        if (!input.message_title) return json({ error: '見出しは必須です。' }, 400);
+        // 繰り返しは曜日/第N曜ルール（rrule）必須。空だと nextOccurrenceDate が常に null で無音通知になる。
+        if (input.type === 'recurring' && !input.rrule) {
+          return json({ error: '繰り返しは曜日/第N曜ルールが必須です。' }, 400);
+        }
         if (input.type === 'oneoff') {
           const slots = candidateSlotsOf(body, input.one_off_date, input.start_time);
           if (slots.length === 0) return json({ error: '単発は候補日時が必須です' }, 400);

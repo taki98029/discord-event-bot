@@ -1,53 +1,175 @@
 import type { Env } from '../env';
-import type { Member, EventStatusBuckets, Segment } from '../db/types';
+import type { Member, EventStatusBuckets, MentionMode, NotificationType, Segment } from '../db/types';
 import { setDmChannelId } from '../db/members';
 
 const API = 'https://discord.com/api/v10';
 /** Discord API への User-Agent（バージョンは package.json と同期）。コマンド登録でも共用。 */
 export const USER_AGENT = 'DiscordBot (https://github.com/discord-event-bot, 7.0.0)';
 
-type MessagePayload = { content: string; components?: unknown[] };
+type MessagePayload = { content: string; components?: unknown[]; allowed_mentions?: unknown };
+
+/** Discord メッセージ content の文字上限。合成後はこれを超えないようにする（ADR 0010）。 */
+export const DISCORD_CONTENT_LIMIT = 2000;
 
 export function mentionUser(userId: string): string {
   return `<@${userId}>`;
 }
 
-/** 出欠回答ボタン（参加/不参加/未定/状況確認）。custom_id は {action}_{occurrenceId} */
-export function createButtonComponents(occurrenceId: number): unknown[] {
+/** 回答の表示ラベル（保存値・custom_id は不変。単発=日程調整は「可/不可/未確定」表記）。 */
+export interface AnswerLabels {
+  participate: string;
+  absent: string;
+  undecided: string;
+}
+export function answerLabels(type: NotificationType): AnswerLabels {
+  return type === 'oneoff'
+    ? { participate: '可', absent: '不可', undecided: '未確定' }
+    : { participate: '参加', absent: '不参加', undecided: '未定' };
+}
+
+/**
+ * 出欠回答ボタン（可否/状況確認）。custom_id は {action}_{occurrenceId} で固定（保存値も不変）。
+ * type で表示ラベルのみ切替（oneoff=可/不可/未確定）。includeStatus=false で状況確認ボタンを省く
+ * （単発の複数候補は各スロットに状況確認を付けず、ヘッダの集約ボタンへ寄せるため）。
+ */
+export function createButtonComponents(
+  occurrenceId: number,
+  type: NotificationType = 'recurring',
+  includeStatus = true,
+): unknown[] {
+  const L = answerLabels(type);
+  const components: unknown[] = [
+    { type: 2, style: 3, label: L.participate, custom_id: `participate_${occurrenceId}` },
+    { type: 2, style: 4, label: L.absent, custom_id: `absent_${occurrenceId}` },
+    { type: 2, style: 2, label: L.undecided, custom_id: `undecided_${occurrenceId}` },
+  ];
+  if (includeStatus) {
+    components.push({ type: 2, style: 2, label: '📊 状況確認', custom_id: `status_${occurrenceId}` });
+  }
+  return [{ type: 1, components }];
+}
+
+/** 単発の複数候補募集ヘッダ用：全候補の状況をまとめて返す集約ボタン。custom_id は statusall_{notificationId}。 */
+export function createStatusAllButton(notificationId: number): unknown[] {
   return [
     {
-      type: 1, // Action Row
+      type: 1,
       components: [
-        { type: 2, style: 3, label: '参加', custom_id: `participate_${occurrenceId}` },
-        { type: 2, style: 4, label: '不参加', custom_id: `absent_${occurrenceId}` },
-        { type: 2, style: 2, label: '未定', custom_id: `undecided_${occurrenceId}` },
-        { type: 2, style: 2, label: '📊 状況確認', custom_id: `status_${occurrenceId}` },
+        { type: 2, style: 2, label: '📊 全候補の状況', custom_id: `statusall_${notificationId}` },
       ],
     },
   ];
 }
 
+/** バイネームメンションの既定文字予算。呼び出し側が本文長に応じて動的に下げる（ADR 0010）。 */
+const MENTION_BUDGET = 1500;
+
 /**
- * 募集メッセージの @メンション接頭辞を組み立てる。
- * enabled かつ Segment に mention_role_id があれば、その指定でメンションを付ける。
- * '@everyone' はそのまま、それ以外はロールメンション `<@&id>` として展開する。
+ * 投稿メッセージの @メンション接頭辞を mention_mode に従って組み立てる（ADR 0010）。
+ * - 'none': 空文字（メンションなし）
+ * - 'role': Segment の mention_role_id をロールメンション。'@everyone' はそのまま、他は `<@&id>`。
+ * - 'members': memberIds を `<@id>` で個別列挙。budget を超える分は「ほかN名」と省略（破綻回避）。
+ *   budget は「接頭辞全体（末尾改行・省略表記込み）の上限字数」。呼び出し側が見出し/本文/日時の
+ *   実長から `2000 −（それら）` を渡すことで、合成後の総量が Discord 上限に収まる。
+ * いずれも末尾は改行2つ（接頭辞が空なら本文が先頭に来る）。
  */
-export function buildMentionPrefix(segment: Segment, enabled: boolean): string {
-  if (!enabled || !segment.mention_role_id) return '';
-  if (segment.mention_role_id === '@everyone') return '@everyone\n\n';
-  return `<@&${segment.mention_role_id}>\n\n`;
+export function buildMentionPrefix(
+  segment: Segment | null,
+  mode: MentionMode,
+  memberIds: string[] = [],
+  budget: number = MENTION_BUDGET,
+): string {
+  if (mode === 'none' || !segment) return '';
+  if (mode === 'role') {
+    if (!segment.mention_role_id) return '';
+    if (segment.mention_role_id === '@everyone') return '@everyone\n\n';
+    return `<@&${segment.mention_role_id}>\n\n`;
+  }
+  // 'members': バイネーム。budget 内に収め、超過は「ほかN名」で省略する。
+  if (memberIds.length === 0) return '';
+  // 「 ほかN名」＋末尾改行(\n\n)ぶんを予約し、接頭辞全体が budget を超えないようにする。
+  const cap = budget - 16;
+  const shown: string[] = [];
+  let used = 0;
+  for (const id of memberIds) {
+    const tok = `<@${id}>`;
+    const add = (shown.length ? 1 : 0) + tok.length; // 区切りスペースぶんも加味
+    if (used + add > cap) break;
+    shown.push(tok);
+    used += add;
+  }
+  // 予算が無く 1 人も入らない場合はメンションを諦め、本文側を優先する（破綻回避）。
+  if (shown.length === 0) return '';
+  const omitted = memberIds.length - shown.length;
+  const tail = omitted > 0 ? ` ほか${omitted}名` : '';
+  return `${shown.join(' ')}${tail}\n\n`;
 }
 
-/** 状況確認メッセージ（旧 buildStatusMessage） */
-export function buildStatusMessage(targetDate: string, s: EventStatusBuckets): string {
+/**
+ * チャンネル投稿の本文を合成する（ADR 0010）。
+ * `{prefix}**{title}**\n\n{body?}\n\n{tail}` の形。body は空なら省略。
+ * tail は日時行（募集/告知）や候補一覧（複数候補ヘッダ）など、システムが自動付加する後段。
+ */
+export function composePost(
+  prefix: string,
+  title: string,
+  body: string | null,
+  tail: string,
+): string {
+  let msg = `${prefix}**${title}**\n\n`;
+  if (body && body.trim()) msg += `${body.trim()}\n\n`;
+  msg += tail;
+  return msg;
+}
+
+/**
+ * 状況確認メッセージ。title は日付（または 'YYYY/MM/DD (曜) HH:MM〜' 等の表示ラベル）。
+ * type で見出し・回答ラベルを切替（oneoff=調整状況・可/不可/未確定）。集計バケットのキー自体は不変。
+ */
+export function buildStatusMessage(
+  title: string,
+  s: EventStatusBuckets,
+  type: NotificationType = 'recurring',
+): string {
+  const L = answerLabels(type);
+  const head = type === 'oneoff' ? '調整状況' : '参加状況';
   const fmt = (users: string[]) => (users.length > 0 ? users.join(', ') : '(なし)');
   return (
-    `📅 **${targetDate} の参加状況**\n\n` +
-    `⭕ **参加 (${s.参加.length}名)**\n${fmt(s.参加)}\n\n` +
-    `❌ **不参加 (${s.不参加.length}名)**\n${fmt(s.不参加)}\n\n` +
-    `❓ **未定 (${s.未定.length}名)**\n${fmt(s.未定)}\n\n` +
+    `📅 **${title} の${head}**\n\n` +
+    `⭕ **${L.participate} (${s.参加.length}名)**\n${fmt(s.参加)}\n\n` +
+    `❌ **${L.absent} (${s.不参加.length}名)**\n${fmt(s.不参加)}\n\n` +
+    `❓ **${L.undecided} (${s.未定.length}名)**\n${fmt(s.未定)}\n\n` +
     `⚠️ **未回答 (${s.未回答.length}名)**\n${fmt(s.未回答)}`
   );
+}
+
+/**
+ * 単発の複数候補の状況を 1 メッセージにまとめる（statusall ボタン用）。
+ * Discord のメッセージ上限(2000字)に収まるよう、超えそうなら残りを「…ほか N 件」に要約する。
+ */
+export function buildAllStatusMessage(
+  notificationName: string,
+  rows: { label: string; buckets: EventStatusBuckets }[],
+  type: NotificationType = 'recurring',
+): string {
+  const L = answerLabels(type);
+  const MAX = 1900; // 2000 字制限に対する安全マージン
+  let msg = `📊 **${notificationName} の候補別 状況**\n`;
+  let shown = 0;
+  for (const r of rows) {
+    const line =
+      `\n🗓️ **${r.label}**\n` +
+      `　${L.participate} ${r.buckets.参加.length} / ${L.absent} ${r.buckets.不参加.length} / ` +
+      `${L.undecided} ${r.buckets.未定.length} / 未回答 ${r.buckets.未回答.length}`;
+    // 最低 1 件は必ず出す。以降は上限を超える行が来たら残数を要約して打ち切る。
+    if (shown > 0 && msg.length + line.length > MAX) {
+      msg += `\n\n…ほか ${rows.length - shown} 件（長いため省略）`;
+      break;
+    }
+    msg += line;
+    shown++;
+  }
+  return msg;
 }
 
 async function postMessage(
@@ -55,9 +177,19 @@ async function postMessage(
   channelId: string,
   content: string,
   components: unknown[] | null,
+  allowedMentions: unknown | null = null,
 ): Promise<boolean> {
-  const payload: MessagePayload = { content };
+  // 最終防衛: 動的予算で通常は収まるが、想定外経路で上限超過しても 400 で無音失敗しないよう切り詰める。
+  let body = content;
+  if (body.length > DISCORD_CONTENT_LIMIT) {
+    console.warn(
+      `[postMessage] content length ${body.length} > ${DISCORD_CONTENT_LIMIT}; truncating (channel=${channelId})`,
+    );
+    body = body.slice(0, DISCORD_CONTENT_LIMIT - 1) + '…';
+  }
+  const payload: MessagePayload = { content: body };
   if (components) payload.components = components;
+  if (allowedMentions) payload.allowed_mentions = allowedMentions;
 
   try {
     const res = await fetch(`${API}/channels/${channelId}/messages`, {
@@ -80,14 +212,18 @@ async function postMessage(
   }
 }
 
-/** チャンネルへ送信（旧 sendDiscordMessage）。channelId は必須（既定チャンネル廃止） */
+/**
+ * チャンネルへ送信（旧 sendDiscordMessage）。channelId は必須（既定チャンネル廃止）。
+ * allowedMentions を渡すと Discord 側の解析対象を絞れる（本文経由の意図しない一斉メンション抑止・ADR 0010）。
+ */
 export async function sendChannelMessage(
   env: Env,
   channelId: string,
   content: string,
   components: unknown[] | null = null,
+  allowedMentions: unknown | null = null,
 ): Promise<boolean> {
-  return postMessage(env, channelId, content, components);
+  return postMessage(env, channelId, content, components, allowedMentions);
 }
 
 /** DM チャンネルを作成して channelId を返す（旧 createDM） */
@@ -152,11 +288,13 @@ export interface ChannelSummary {
   id: string;
   name: string;
 }
-/** メンバーピッカーの 1 候補（サーバー内ニック付き・ADR 0006） */
+/** メンバーピッカーの 1 候補（サーバー内ニック付き・ADR 0006）。roles はロール同期用（ADR 0009） */
 export interface GuildMemberSummary {
   user_id: string;
   user_name: string | null;
   display_name: string | null;
+  /** このメンバーが保有する Discord ロールID（@everyone は含まれない） */
+  roles: string[];
 }
 
 const MOCK_GUILDS: GuildSummary[] = [
@@ -169,9 +307,9 @@ const MOCK_CHANNELS: ChannelSummary[] = [
   { id: '2003', name: 'スタッフ連絡' },
 ];
 const MOCK_MEMBERS: GuildMemberSummary[] = [
-  { user_id: '3001', user_name: 'aoi', display_name: 'あおい' },
-  { user_id: '3002', user_name: 'kenta', display_name: 'けんた' },
-  { user_id: '3003', user_name: 'miki', display_name: 'みき' },
+  { user_id: '3001', user_name: 'aoi', display_name: 'あおい', roles: ['4001'] },
+  { user_id: '3002', user_name: 'kenta', display_name: 'けんた', roles: ['4001'] },
+  { user_id: '3003', user_name: 'miki', display_name: 'みき', roles: [] },
 ];
 
 function botHeaders(env: Env): HeadersInit {
@@ -218,6 +356,7 @@ export async function listGuildMembers(env: Env, guildId: string): Promise<Guild
     const page = (await res.json()) as Array<{
       user?: { id: string; username?: string; global_name?: string | null; bot?: boolean };
       nick?: string | null;
+      roles?: string[];
     }>;
     if (page.length === 0) break;
     for (const m of page) {
@@ -226,6 +365,7 @@ export async function listGuildMembers(env: Env, guildId: string): Promise<Guild
         user_id: m.user.id,
         user_name: m.user.username ?? null,
         display_name: m.nick ?? m.user.global_name ?? m.user.username ?? null,
+        roles: m.roles ?? [],
       });
     }
     after = page[page.length - 1].user?.id ?? after;

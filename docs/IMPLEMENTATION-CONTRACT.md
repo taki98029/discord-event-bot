@@ -2,7 +2,7 @@
 
 > **v8 改訂（重要）**: 本契約書は v7 スナップショット。以後の構造変更は ADR が上書きする — [0004 マルチサーバー](adr/0004-multi-server.md) / [0005 Event 廃止](adr/0005-drop-event-layer.md) / [0006 メンバー3層](adr/0006-member-three-layers.md) / [0007 管理画面リデザイン](adr/0007-admin-ui-redesign.md) / [0008 検証方針](adr/0008-verify-on-deployed-test-worker.md)。**Event 層は廃止**され階層は `Server(guild_id) ＞ Notification → Segment ＞ Occurrence`、`notifications.event_id` は `guild_id` に置換、UI は 2 層シェル＋各種ピッカーへ移行済み。本文中の Event / 単一テナント /「イベント」タブ / 基準日 等の旧記述は当該 ADR が優先する。
 
-各モジュールが従う API・アルゴリズム・I/F の単一の真実。型は `src/db/types.ts`、スキーマは `migrations/0002`＋`0003`(guild_id)＋`0004`(Event 廃止)＋`0005`(単発の複数候補日)、用語は `CONTEXT.md`、背景は `docs/adr/*` を参照。
+各モジュールが従う API・アルゴリズム・I/F の単一の真実。型は `src/db/types.ts`、スキーマは `migrations/0002`＋`0003`(guild_id)＋`0004`(Event 廃止)、用語は `CONTEXT.md`、背景は `docs/adr/*` を参照。
 
 **不変条件**
 - 言語=日本語固定 / 時刻=JST固定（`getJSTNow()` 基準）。マルチサーバー（テナント分離なし・単一 ADMIN_TOKEN・ADR 0004）。
@@ -67,9 +67,9 @@ Event 層は廃止し `events.ts` は削除。Notification は `guild_id` で Se
 - `ensureMember(db, userId, userName, displayName): Promise<void>`（無ければ追加。ボタン自動登録用）
 
 ## src/db/notifications.ts（新規）
-- `listNotifications(db): Promise<Notification[]>` / `listActiveNotifications(db): Promise<Notification[]>`（active=1）
+- `listNotifications(db): Promise<NotificationListItem[]>`（一覧用に candidate_count/decided_date/decided_time を付与）/ `listActiveNotifications(db): Promise<Notification[]>`（active=1・cron 用）
 - `getNotification(db, id): Promise<Notification|null>`
-- `listNotificationsByGuild(db, guildId): Promise<Notification[]>`（Server 配下の絞り込み）
+- `listNotificationsByGuild(db, guildId): Promise<NotificationListItem[]>`（Server 配下の絞り込み・一覧用集計列付き）
 - `createNotification(db, input): Promise<Notification>` / `updateNotification(db, id, patch): Promise<boolean>`
 - `deleteNotification(db, id): Promise<boolean>` — 配下 occurrences と、その responses/assignments も削除。
 - 数値フラグ(quota_enabled/assignment_enabled/mention_enabled/active)は 0/1 で扱う。
@@ -103,8 +103,8 @@ Event 層は廃止し `events.ts` は削除。Notification は `guild_id` で Se
 1. `target = nextOccurrenceDate(n)`。null ならスキップ。`daysUntil = getDaysUntil(target)`。
 2. **募集 & ノルマ**: `daysUntil === n.recruit_days_before` のとき:
    - `occ = getOrCreateOccurrence(db, n.id, target)`。occ.status==='cancelled' ならスキップ。
-   - 募集メッセージを `n.channel_id` へ送信（mention 接頭辞 + 「📅 イベント募集開始!」＋ 日時 `target (曜日) start_time~` ＋ ボタン `createButtonComponents(occ.id)`）。
-   - `n.quota_enabled` なら `checkQuotaForNotification` → 各対象へ DM。
+   - 募集メッセージを `n.channel_id` へ送信。**※ ADR 0010 で更新**: 文面は `composePost`（mention 接頭辞 + ユーザ指定の見出し `message_title` ＋ 任意本文 `message_body` ＋ 日時行）で合成し、メンションは `mention_mode`（none/role/members）に従う。ボタンは `requires_response=0`（回答不要・recurring）では付けない。
+   - `n.quota_enabled` なら `checkQuotaForNotification` → 各対象へ DM（回答不要では発火しない）。
 3. **未回答リマインド**: `0 <= daysUntil <= n.remind_start_days` のとき、当日は開始時刻前のみ（現挙動踏襲）。対象=segment アクティブメンバー − 既回答。occ が無ければ getOrCreate。各対象へ DM。
 4. **未定リマインド**: `daysUntil === n.remind_undecided_days` のとき、occ の未定者（休止者除く）へ DM。
 - DM 連投は `await sleep(300)` を挟む（DM_INTERVAL_MS）。ログは現行同様 `console.log`。

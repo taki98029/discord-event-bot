@@ -312,7 +312,7 @@
 
       // ================= 繰り返し（RRULE は隠す） =================
       const WEEKDAYS = [['SU', '日'], ['MO', '月'], ['TU', '火'], ['WE', '水'], ['TH', '木'], ['FR', '金'], ['SA', '土']];
-      const NTH = [['1', '第1'], ['2', '第2'], ['3', '第3'], ['4', '第4'], ['-1', '最終']];
+      const NTH = [['1', '第1'], ['2', '第2'], ['3', '第3'], ['4', '第4'], ['5', '第5'], ['-1', '最終']];
       const wdLabel = (c) => (WEEKDAYS.find((w) => w[0] === c) || ['', ''])[1];
       const nthLabel = (n) => (NTH.find((x) => x[0] === String(n)) || ['', ''])[1];
 
@@ -320,17 +320,78 @@
         const mode = $('#nMode').value, byday = $('#nWeekday').value;
         if (mode === 'weekly') return `FREQ=WEEKLY;BYDAY=${byday}`;
         if (mode === 'biweekly') return `FREQ=WEEKLY;INTERVAL=2;BYDAY=${byday}`;
-        if (mode === 'monthly') return `FREQ=MONTHLY;BYDAY=${$('#nNth').value}${byday}`;
+        if (mode === 'monthly') {
+          const rules = getMonthlyRules();
+          return rules.length ? `FREQ=MONTHLY;BYDAY=${rules.map((r) => r.nth + r.byday).join(',')}` : '';
+        }
         return '';
       }
       function parseRRuleToBuilder(rrule) {
-        const out = { mode: 'weekly', byday: 'SA', nth: '2' };
+        const out = { mode: 'weekly', byday: 'SA', nth: '2', rules: [] };
         if (!rrule) return out;
         const p = Object.fromEntries(rrule.split(';').map((x) => { const [k, v] = x.split('='); return [k.toUpperCase(), v]; }));
         const freq = (p.FREQ || '').toUpperCase(), byday = (p.BYDAY || '').toUpperCase();
-        if (freq === 'MONTHLY') { const m = byday.match(/^(-?\d+)([A-Z]{2})$/); if (m) { out.mode = 'monthly'; out.nth = m[1]; out.byday = m[2]; } }
-        else if (freq === 'WEEKLY') { out.mode = p.INTERVAL === '2' ? 'biweekly' : 'weekly'; out.byday = byday.replace(/^-?\d+/, '') || 'SA'; }
+        if (freq === 'MONTHLY') {
+          out.mode = 'monthly';
+          out.rules = byday.split(',').map((tok) => {
+            const m = tok.match(/^(-?\d+)([A-Z]{2})$/);
+            return m ? { nth: m[1], byday: m[2] } : null;
+          }).filter(Boolean);
+          if (out.rules.length) { out.nth = out.rules[0].nth; out.byday = out.rules[0].byday; }
+        } else if (freq === 'WEEKLY') {
+          out.mode = p.INTERVAL === '2' ? 'biweekly' : 'weekly';
+          out.byday = byday.replace(/^-?\d+/, '') || 'SA';
+        }
         return out;
+      }
+      // ----- 毎月: (第N, 曜日) ルールの複数指定 -----
+      function monthlyRuleHtml(nth, byday) {
+        const nthOpts = NTH.map(([v, l]) => `<option value="${v}"${v === String(nth) ? ' selected' : ''}>${l}</option>`).join('');
+        const wdOpts = WEEKDAYS.map(([v, l]) => `<option value="${v}"${v === byday ? ' selected' : ''}>${l}曜</option>`).join('');
+        return `<span data-mrule style="display:inline-flex;align-items:center;gap:6px">
+          <select class="mNth" style="width:auto" aria-label="第N">${nthOpts}</select>
+          <select class="mWd" style="width:auto" aria-label="曜日">${wdOpts}</select>
+          <button type="button" class="btn xs ghost" data-rmmrule aria-label="このルールを削除">×</button>
+        </span>`;
+      }
+      function bindMonthlyControls() {
+        const box = $('#nMonthlyRules'); if (!box) return;
+        box.querySelectorAll('.mNth, .mWd').forEach((s) => { s.onchange = syncNotifUI; });
+        box.querySelectorAll('[data-rmmrule]').forEach((b) => {
+          b.onclick = () => {
+            if (box.querySelectorAll('[data-mrule]').length > 1) { b.closest('[data-mrule]').remove(); syncNotifUI(); }
+            else toast('ルールは最低1つ必要です', true);
+          };
+        });
+      }
+      function renderMonthlyRules(rules) {
+        const box = $('#nMonthlyRules'); if (!box) return;
+        const list = (rules && rules.length) ? rules : [{ nth: '2', byday: 'SA' }];
+        box.innerHTML = list.map((r) => monthlyRuleHtml(r.nth, r.byday)).join('');
+        bindMonthlyControls();
+      }
+      function addMonthlyRule() {
+        const box = $('#nMonthlyRules'); if (!box) return;
+        box.insertAdjacentHTML('beforeend', monthlyRuleHtml('1', 'SU'));
+        bindMonthlyControls(); syncNotifUI();
+      }
+      /** (第N, 曜日) ルールを取得し重複除去（順序維持）。 */
+      function getMonthlyRules() {
+        const box = $('#nMonthlyRules'); if (!box) return [];
+        const seen = new Set(), out = [];
+        box.querySelectorAll('[data-mrule]').forEach((r) => {
+          const nth = r.querySelector('.mNth').value, byday = r.querySelector('.mWd').value;
+          const k = nth + byday;
+          if (!seen.has(k)) { seen.add(k); out.push({ nth, byday }); }
+        });
+        return out;
+      }
+      /** 「毎月 第1・第3・第5 日曜日」/ 混在「毎月 第1日曜・第3火曜」 */
+      function humanMonthly(rules) {
+        if (!rules || !rules.length) return '毎月（未設定）';
+        const wds = new Set(rules.map((r) => r.byday));
+        if (wds.size === 1) return `毎月 ${rules.map((r) => nthLabel(r.nth)).join('・')} ${wdLabel(rules[0].byday)}曜日`;
+        return `毎月 ${rules.map((r) => nthLabel(r.nth) + wdLabel(r.byday) + '曜').join('・')}`;
       }
       function fmtDate(d) {
         return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
@@ -414,18 +475,38 @@
         return out;
       }
 
+      // 開始時刻＋開催時間(分) を From-To 文字列に（サーバ src/lib/date.ts formatTimeRange と同等）
+      function addMinsToTime(time, minutes) {
+        const [h, m] = (time || '0:0').split(':').map(Number);
+        const total = (h || 0) * 60 + (m || 0) + minutes;
+        const wrapped = ((total % 1440) + 1440) % 1440;
+        const hh = String(Math.floor(wrapped / 60)).padStart(2, '0');
+        const mm = String(wrapped % 60).padStart(2, '0');
+        return { time: `${hh}:${mm}`, nextDay: total >= 1440 || total < 0 };
+      }
+      function fmtTimeRange(start, dur) {
+        if (!dur || dur <= 0) return `${start}〜`;
+        const e = addMinsToTime(start, dur);
+        return `${start}〜${e.nextDay ? '翌' : ''}${e.time}`;
+      }
+      function durValue() {
+        const v = ($('#nDuration') && $('#nDuration').value.trim()) || '';
+        return v === '' ? null : Number(v);
+      }
+
       function scheduleSummary() {
         const t = ($('#nStartTime').value || '21:00');
+        const dur = durValue();
         if ($('#nType').value === 'oneoff') {
           const slots = getOneoffSlots();
           if (!slots.length) return '候補（日付＋時刻）を1つ以上追加してください';
           const days = new Set(slots.map((s) => s.date)).size;
-          return `候補 ${slots.length}枠（${days}日）`;
+          return `候補 ${slots.length}枠（${days}日）` + (dur ? `・各${dur}分` : '');
         }
-        const wd = wdLabel($('#nWeekday').value), mode = $('#nMode').value;
-        if (mode === 'weekly') return `毎週 ${wd}曜日 ${t}〜`;
-        if (mode === 'biweekly') return `隔週 ${wd}曜日 ${t}〜（次回 ${$('#nNext').value || '—'}）`;
-        return `毎月 ${nthLabel($('#nNth').value)} ${wd}曜日 ${t}〜`;
+        const wd = wdLabel($('#nWeekday').value), mode = $('#nMode').value, tr = fmtTimeRange(t, dur);
+        if (mode === 'weekly') return `毎週 ${wd}曜日 ${tr}`;
+        if (mode === 'biweekly') return `隔週 ${wd}曜日 ${tr}（次回 ${$('#nNext').value || '—'}）`;
+        return `${humanMonthly(getMonthlyRules())} ${tr}`;
       }
 
       // ================= 通知 =================
@@ -444,10 +525,18 @@
         const segName = (id) => { const s = segs.find((x) => x.id === id); return s ? s.name : '?'; };
         const chName = (id) => { const c = channels.find((x) => x.id === id); return c ? '#' + c.name : id; };
 
+        const oneoffSched = (n) => {
+          const earliest = `${esc(n.one_off_date || '')}${n.start_time ? ' ' + esc(fmtTimeRange(n.start_time, n.duration_minutes)) : ''}`;
+          if (n.decided_occurrence_id && n.decided_date) {
+            return `単発・確定 ${esc(n.decided_date)}${n.decided_time ? ' ' + esc(fmtTimeRange(n.decided_time, n.duration_minutes)) : ''}`;
+          }
+          if ((n.candidate_count || 0) > 1) return `単発・調整中（候補${n.candidate_count}件・最早 ${earliest}）`;
+          return `単発 ${earliest}`;
+        };
         const rows = notifs.map((n) => {
           const sched = n.type === 'oneoff'
-            ? `単発 ${esc(n.one_off_date || '')}${n.start_time ? ' ' + esc(n.start_time) + '〜' : ''}`
-            : esc(humanRRule(n.rrule, n.start_time));
+            ? oneoffSched(n)
+            : esc(humanRRule(n.rrule, n.start_time, n.duration_minutes));
           return `<div class="listrow">
             <div><div style="font-weight:600">${esc(n.name)}</div>
               <div class="muted" style="font-size:12px;margin-top:2px">
@@ -455,6 +544,7 @@
                 ${sched} ・ ${esc(chName(n.channel_id))}</div></div>
             <div class="actions">
               <span class="pill ${n.active ? 'on' : 'off'}">${n.active ? '有効' : '無効'}</span>
+              <button class="btn sm secondary" data-nrecruit="${n.id}">📣 募集</button>
               <button class="btn sm secondary" data-nedit="${n.id}">編集</button>
               <button class="btn sm ghost" data-nocc="${n.id}">開催回</button>
               <button class="btn sm danger" data-ndel="${n.id}">削除</button>
@@ -473,6 +563,16 @@
         document.querySelectorAll('[data-nocc]').forEach((b) => {
           b.onclick = () => loadOccurrences(Number(b.dataset.nocc));
         });
+        document.querySelectorAll('[data-nrecruit]').forEach((b) => {
+          b.onclick = async () => {
+            if (!(await confirmDialog('この通知の募集メッセージをチャンネルへ投稿します。', { okLabel: '送信する' }))) return;
+            await withBusy(b, async () => {
+              try { const r = await api('/notifications/' + b.dataset.nrecruit + '/recruit', { method: 'POST' });
+                toast(r && r.message ? r.message : '募集を送信しました'); }
+              catch (e) { toast(e.message, true); }
+            });
+          };
+        });
         document.querySelectorAll('[data-ndel]').forEach((b) => {
           b.onclick = async () => {
             if (!(await confirmDialog('この通知を、配下の開催回・回答ごとすべて削除します。元に戻せません。', { danger: true, okLabel: '削除' }))) return;
@@ -482,12 +582,12 @@
         });
       }
 
-      function humanRRule(rrule, time) {
+      function humanRRule(rrule, time, dur) {
         const b = parseRRuleToBuilder(rrule);
-        const wd = wdLabel(b.byday), t = time || '';
-        if (b.mode === 'weekly') return `毎週 ${wd}曜日 ${t}〜`;
-        if (b.mode === 'biweekly') return `隔週 ${wd}曜日 ${t}〜`;
-        return `毎月 ${nthLabel(b.nth)} ${wd}曜日 ${t}〜`;
+        const wd = wdLabel(b.byday), tr = fmtTimeRange(time || '', dur);
+        if (b.mode === 'weekly') return `毎週 ${wd}曜日 ${tr}`;
+        if (b.mode === 'biweekly') return `隔週 ${wd}曜日 ${tr}`;
+        return `${humanMonthly(b.rules)} ${tr}`;
       }
 
       function notifForm() {
@@ -496,7 +596,6 @@
           ? cacheChannels.map((c) => `<option value="${esc(c.id)}">#${esc(c.name)}</option>`).join('')
           : '<option value="">（チャンネルを取得できませんでした）</option>';
         const wdOpts = WEEKDAYS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
-        const nthOpts = NTH.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
         return `<fieldset><legend id="nFormTitle">新規通知</legend>
           <input type="hidden" id="nId" value="" />
           <div class="row">
@@ -505,17 +604,28 @@
           </div>
           <div class="row">
             <div><label>対象区分（メンバー区分）</label><select id="nSegment">${segOpts}</select></div>
-            <div><label>開始時刻</label><input id="nStartTime" type="time" value="21:00" /></div>
+            <div><label>開催時間（分）<span class="muted">（任意・空欄で開始時刻のみ表示）</span></label>
+              <input id="nDuration" type="number" min="0" placeholder="例: 120（2時間）" /></div>
           </div>
+          <label>見出し <span class="muted">（投稿の1行目・必須）</span></label>
+          <input id="nTitle" maxlength="100" placeholder="例: 第1・3・5日曜キャスト 開催のお知らせ" />
+          <label>本文 <span class="muted">（任意・複数行可。日時と回答ボタンは自動で付きます）</span></label>
+          <textarea id="nBody" rows="3" maxlength="1500" placeholder="補足メッセージ（任意）"></textarea>
           <label>種別</label>
           <select id="nType"><option value="recurring">繰り返し</option><option value="oneoff">単発</option></select>
           <div id="nRecurBox">
-            <div class="row3">
+            <div style="max-width:280px"><label>開始時刻</label><input id="nStartTime" type="time" value="21:00" /></div>
+            <div class="row">
               <div><label>繰り返し</label><select id="nMode">
                 <option value="weekly">毎週</option><option value="biweekly">隔週</option><option value="monthly">毎月第N曜</option>
               </select></div>
-              <div><label>曜日</label><select id="nWeekday">${wdOpts}</select></div>
-              <div id="nNthBox"><label>第N</label><select id="nNth">${nthOpts}</select></div>
+              <div id="nWeekdayBox"><label>曜日</label><select id="nWeekday">${wdOpts}</select></div>
+            </div>
+            <div id="nMonthlyBox" class="hidden">
+              <label>開催日（第N × 曜日・複数可）</label>
+              <div id="nMonthlyRules" class="timechips"></div>
+              <button type="button" class="btn sm secondary" id="nMonthlyAdd" style="margin-top:4px">＋ ルールを追加</button>
+              <p class="muted" style="font-size:12px;margin-top:6px">例: 第1・第3・第5 日曜／第1日曜＋第3火曜。「第5」は5週ある月のみ・「最終」は常に最後の週。</p>
             </div>
             <div id="nNextBox"><label>次にこの通知で開催する日 <span class="muted">（隔週の起点）</span></label>
               <select id="nNext"></select></div>
@@ -528,13 +638,25 @@
           </div>
           <div class="summary">📅 <span id="nSummary">—</span></div>
           <div class="row">
-            <div><label>開始 N 日前に募集を投稿</label><input id="nRecruit" type="number" value="7" /></div>
-            <div><label>N 日前から未回答者へリマインド</label><input id="nRemindStart" type="number" value="3" /></div>
+            <div id="nRecruitBox"><label id="nRecruitLabel">開始 N 日前に募集を投稿</label><input id="nRecruit" type="number" value="7" /></div>
+            <div id="nRemindStartBox"><label>N 日前から未回答者へリマインド <span class="muted">（一度も押していない人・毎日）</span></label><input id="nRemindStart" type="number" value="3" /></div>
           </div>
+          <div class="row" id="nRemindUndecidedBox">
+            <div><label>N 日前に未定者へリマインド <span class="muted">（「未定」回答者へ確定を促す・1回）</span></label><input id="nRemindUndecided" type="number" value="1" min="0" /></div>
+          </div>
+          <p id="nOneoffRecruitNote" class="muted hidden" style="font-size:12px;margin-top:6px">
+            単発は自動募集しません。各通知の「📣 募集」ボタン（通知一覧／開催回）から好きなタイミングで送信できます。</p>
+          <label>メンション方法</label>
+          <select id="nMention">
+            <option value="role">ロール（区分のロール / @everyone）</option>
+            <option value="members">バイネーム（メンバーを個別に呼ぶ）</option>
+            <option value="none">なし</option>
+          </select>
+          <p id="nMentionWarn" class="muted hidden" style="font-size:12px;color:var(--warn);margin-top:6px">⚠️ @everyone 区分でバイネームは全員への個別メンションになり、人数が多いと「ほかN名」で省略されます。</p>
           <div class="actions" style="margin-top:12px">
-            <label class="inline"><input type="checkbox" id="nQuota" /> ノルマ</label>
-            <label class="inline"><input type="checkbox" id="nAssignment" /> 番号割り当て</label>
-            <label class="inline"><input type="checkbox" id="nMention" checked /> メンション</label>
+            <label class="inline" id="nResponseLabel"><input type="checkbox" id="nRequireResponse" checked /> 回答を集める（参加/不参加/未定）</label>
+            <label class="inline" id="nQuotaLabel"><input type="checkbox" id="nQuota" /> ノルマ</label>
+            <label class="inline" id="nAssignmentLabel"><input type="checkbox" id="nAssignment" /> 番号割り当て</label>
             <label class="inline"><input type="checkbox" id="nActive" checked /> 有効</label>
           </div>
           <div id="nQuotaBox" class="hidden" style="max-width:280px"><label>ノルマ間隔（日数）</label><input id="nQuotaInterval" type="number" placeholder="例: 30" /></div>
@@ -555,29 +677,58 @@
         const t = $('#nType').value, mode = $('#nMode').value;
         $('#nRecurBox').classList.toggle('hidden', t !== 'recurring');
         $('#nOneoffBox').classList.toggle('hidden', t !== 'oneoff');
-        $('#nNthBox').classList.toggle('hidden', !(t === 'recurring' && mode === 'monthly'));
+        // 毎月は (第N×曜日) ルール編集を出し単一「曜日」を隠す。毎週/隔週は単一曜日。
+        const monthly = t === 'recurring' && mode === 'monthly';
+        $('#nMonthlyBox').classList.toggle('hidden', !monthly);
+        $('#nWeekdayBox').classList.toggle('hidden', monthly);
         $('#nNextBox').classList.toggle('hidden', !(t === 'recurring' && mode === 'biweekly'));
-        $('#nQuotaBox').classList.toggle('hidden', !$('#nQuota').checked);
+        // 回答要否は recurring 専用（単発は常に回答あり）。回答不要=通知のみ（ADR 0010）。
+        const requireResp = $('#nRequireResponse').checked;
+        const announceOnly = t === 'recurring' && !requireResp;
+        $('#nResponseLabel').classList.toggle('hidden', t !== 'recurring');
+        // 単発／回答不要はノルマ非対応（参加間隔の督促は回答前提の概念）。隠してオフ固定。
+        if (t === 'oneoff' || announceOnly) $('#nQuota').checked = false;
+        $('#nQuotaLabel').classList.toggle('hidden', t === 'oneoff' || announceOnly);
+        $('#nQuotaBox').classList.toggle('hidden', t === 'oneoff' || announceOnly || !$('#nQuota').checked);
+        // 回答不要は番号割り当て・未回答/未定リマインドも対象外（回答が無いため）。
+        if (announceOnly) $('#nAssignment').checked = false;
+        $('#nAssignmentLabel').classList.toggle('hidden', announceOnly);
+        $('#nRemindStartBox').classList.toggle('hidden', announceOnly);
+        $('#nRemindUndecidedBox').classList.toggle('hidden', announceOnly);
+        // 募集日数(nRecruit)は投稿タイミングとして残す。回答不要ならラベルを「告知」に。
+        $('#nRecruitLabel').textContent = announceOnly ? '開始 N 日前に告知を投稿' : '開始 N 日前に募集を投稿';
+        // 単発は手動募集のため「開始N日前に募集」を隠し、代わりに注記を出す
+        $('#nRecruitBox').classList.toggle('hidden', t === 'oneoff');
+        $('#nOneoffRecruitNote').classList.toggle('hidden', t !== 'oneoff');
+        // バイネーム × @everyone 区分は全員個別メンションになるため警告を出す。
+        const seg = cacheSegments.find((s) => String(s.id) === $('#nSegment').value);
+        const warn = $('#nMention').value === 'members' && !!seg && seg.mention_role_id === '@everyone';
+        $('#nMentionWarn').classList.toggle('hidden', !warn);
         $('#nSummary').textContent = scheduleSummary();
       }
       function bindNotifForm() {
         refreshNextOptions();
         renderOneoffSlots([]);
-        ['nType', 'nMode', 'nNth', 'nStartTime', 'nNext'].forEach((id) => { $('#' + id).onchange = syncNotifUI; });
+        renderMonthlyRules([]);
+        ['nType', 'nMode', 'nStartTime', 'nNext', 'nDuration', 'nRequireResponse', 'nMention', 'nSegment'].forEach((id) => { $('#' + id).onchange = syncNotifUI; });
         $('#nWeekday').onchange = () => { refreshNextOptions(); syncNotifUI(); };
         $('#nQuota').onchange = syncNotifUI;
         $('#nOneoffAdd').onclick = addOneoffGroup;
+        $('#nMonthlyAdd').onclick = addMonthlyRule;
         $('#nSave').onclick = (e) => withBusy(e.currentTarget, saveNotif);
         $('#nReset').onclick = resetNotifForm;
         syncNotifUI();
       }
       function resetNotifForm() {
         $('#nId').value = ''; $('#nFormTitle').textContent = '新規通知'; $('#nReset').classList.add('hidden');
-        $('#nName').value = ''; $('#nType').value = 'recurring'; $('#nMode').value = 'weekly';
-        $('#nWeekday').value = 'SA'; $('#nNth').value = '2'; renderOneoffSlots([]);
-        $('#nStartTime').value = '21:00'; $('#nRecruit').value = '7'; $('#nRemindStart').value = '3';
+        $('#nName').value = ''; $('#nTitle').value = ''; $('#nBody').value = '';
+        $('#nType').value = 'recurring'; $('#nMode').value = 'weekly';
+        $('#nWeekday').value = 'SA'; renderMonthlyRules([]); renderOneoffSlots([]);
+        $('#nStartTime').value = '21:00'; $('#nDuration').value = ''; $('#nRecruit').value = '7';
+        $('#nRemindStart').value = '3'; $('#nRemindUndecided').value = '1';
         $('#nQuotaInterval').value = '';
-        $('#nQuota').checked = false; $('#nAssignment').checked = false; $('#nMention').checked = true; $('#nActive').checked = true;
+        $('#nQuota').checked = false; $('#nAssignment').checked = false;
+        $('#nMention').value = 'role'; $('#nRequireResponse').checked = true; $('#nActive').checked = true;
         refreshNextOptions(); syncNotifUI();
       }
       async function fillNotifForm(n) {
@@ -606,6 +757,8 @@
         }
         $('#nId').value = n.id; $('#nFormTitle').textContent = '編集 (ID: ' + n.id + ')'; $('#nReset').classList.remove('hidden');
         $('#nName').value = n.name || '';
+        $('#nTitle').value = n.message_title || '';
+        $('#nBody').value = n.message_body || '';
         if (![...$('#nChannel').options].some((o) => o.value === n.channel_id) && n.channel_id) {
           $('#nChannel').insertAdjacentHTML('afterbegin', `<option value="${esc(n.channel_id)}">ID: ${esc(n.channel_id)}</option>`);
         }
@@ -613,13 +766,18 @@
         $('#nSegment').value = String(n.segment_id);
         $('#nType').value = n.type || 'recurring';
         const b = parseRRuleToBuilder(n.rrule);
-        $('#nMode').value = b.mode; $('#nWeekday').value = b.byday; $('#nNth').value = String(b.nth);
+        $('#nMode').value = b.mode; $('#nWeekday').value = b.byday;
+        renderMonthlyRules(b.mode === 'monthly' ? b.rules : []);
         renderOneoffSlots(n.type === 'oneoff' ? oneoffGroups : []);
         $('#nStartTime').value = n.start_time || '21:00';
+        $('#nDuration').value = n.duration_minutes == null ? '' : n.duration_minutes;
         $('#nRecruit').value = n.recruit_days_before; $('#nRemindStart').value = n.remind_start_days;
+        $('#nRemindUndecided').value = n.remind_undecided_days;
         $('#nQuotaInterval').value = n.quota_interval_days == null ? '' : n.quota_interval_days;
         $('#nQuota').checked = !!n.quota_enabled; $('#nAssignment').checked = !!n.assignment_enabled;
-        $('#nMention').checked = !!n.mention_enabled; $('#nActive').checked = !!n.active;
+        $('#nMention').value = n.mention_mode || 'role';
+        $('#nRequireResponse').checked = n.requires_response == null ? true : !!n.requires_response;
+        $('#nActive').checked = !!n.active;
         refreshNextOptions(n.anchor_date || null);
         syncNotifUI();
         $('#nFormTitle').scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -639,16 +797,22 @@
           candidate_slots: type === 'oneoff' ? slots : undefined,
           anchor_date: type === 'recurring' && $('#nMode').value === 'biweekly' ? ($('#nNext').value || null) : null,
           start_time: $('#nStartTime').value.trim() || '21:00',
+          duration_minutes: durValue(),
+          message_title: $('#nTitle').value.trim(),
+          message_body: $('#nBody').value.trim() || null,
           recruit_days_before: Number($('#nRecruit').value),
           remind_start_days: Number($('#nRemindStart').value),
-          remind_undecided_days: 1,
+          remind_undecided_days: Number($('#nRemindUndecided').value || 1),
           quota_enabled: $('#nQuota').checked ? 1 : 0,
           quota_interval_days: qi === '' ? null : Number(qi),
           assignment_enabled: $('#nAssignment').checked ? 1 : 0,
-          mention_enabled: $('#nMention').checked ? 1 : 0,
+          mention_mode: $('#nMention').value,
+          // 回答要否は recurring 専用。単発は常に回答あり。
+          requires_response: type === 'oneoff' ? 1 : ($('#nRequireResponse').checked ? 1 : 0),
           active: $('#nActive').checked ? 1 : 0,
         };
         if (!body.name) return toast('名前は必須です', true);
+        if (!body.message_title) return toast('見出しは必須です', true);
         if (!body.channel_id) return toast('チャンネルを選択してください', true);
         if (!body.segment_id) return toast('区分を選択してください', true);
         if (type === 'oneoff' && slots.length === 0) return toast('候補（日付＋時刻）を1つ以上追加してください', true);
@@ -679,10 +843,10 @@
         const [y, m, d] = (dateStr || '').split('/').map(Number);
         return (y && m && d) ? JADOW[new Date(y, m - 1, d).getDay()] : '';
       }
-      /** 開催回の表示ラベル '2026/06/18 (木) 21:00' */
-      function occLabel(o) {
+      /** 開催回の表示ラベル '2026/06/18 (木) 21:00〜23:00'（dur 未指定なら開始時刻のみ） */
+      function occLabel(o, dur) {
         const w = jaDow(o.occurrence_date);
-        return `${o.occurrence_date}${w ? ` (${w})` : ''}${o.start_time ? ' ' + o.start_time : ''}`;
+        return `${o.occurrence_date}${w ? ` (${w})` : ''}${o.start_time ? ' ' + fmtTimeRange(o.start_time, dur) : ''}`;
       }
       async function loadOccurrences(notifId) {
         const n = cacheNotifs.find((x) => x.id === notifId);
@@ -699,7 +863,7 @@
           const undecideBtn = decided
             ? `<button class="btn sm ghost" data-undecide="${notifId}">確定解除</button>` : '';
           return `<div class="pickrow">
-            <div>${esc(occLabel(o))} <span class="pill ${pillCls}">${label}</span>
+            <div>${esc(occLabel(o, n && n.duration_minutes))} <span class="pill ${pillCls}">${label}</span>
               <br><span class="muted" id="tally-${o.id}" style="font-size:12px">集計中…</span></div>
             <div class="actions">${decideBtn}${undecideBtn}
               <button class="btn sm secondary" data-occ="${o.id}">番号割り当て</button></div></div>`;
@@ -761,7 +925,9 @@
         cacheSegments = segs;
         const rows = segs.map((s) => `<div class="listrow">
           <div><div style="font-weight:600">${esc(s.name)}</div>
-            <div class="muted" style="font-size:12px;margin-top:2px">メンション: ${s.mention_role_id ? `<span class="pill">${esc(s.mention_role_id)}</span>` : '<span class="pill off">なし</span>'}</div></div>
+            <div class="muted" style="font-size:12px;margin-top:2px">${s.mention_role_id
+              ? `<span class="pill on">ロール管理</span> <span class="pill">${esc(s.mention_role_id)}</span>`
+              : '<span class="pill off">手動管理</span>'}</div></div>
           <div class="actions">
             <button class="btn sm secondary" data-smembers="${s.id}">メンバー</button>
             <button class="btn sm ghost" data-sedit="${s.id}">編集</button>
@@ -773,7 +939,7 @@
             <input type="hidden" id="segId" />
             <div class="row">
               <div><label>名前</label><input id="segName" placeholder="例: キャスト" /></div>
-              <div><label>@メンション先（任意・ロールID / @everyone）</label><input id="segRole" placeholder="未設定可" /></div>
+              <div><label>ロール / @everyone（任意）<span class="muted">設定するとメンバーをこのロールから自動同期＋メンション先に</span></label><input id="segRole" placeholder="未設定＝手動管理" /></div>
             </div>
             <div class="actions" style="margin-top:12px">
               <button class="btn" id="segSave">保存</button>
@@ -813,29 +979,43 @@
         } catch (e) { toast(e.message, true); }
       }
 
-      // ----- 区分メンバー（ピッカー） -----
+      // ----- 区分メンバー（手動ピッカー / ロール同期・ADR 0009） -----
       let cacheGuildMembers = null;
       async function loadSegmentMembers(segmentId) {
         const seg = cacheSegments.find((s) => s.id === segmentId);
+        const roleManaged = !!(seg && seg.mention_role_id);
+        const isEveryone = !!(seg && seg.mention_role_id === '@everyone');
         let list = [];
         try { list = await api('/segments/' + segmentId + '/members'); } catch (e) { return toast(e.message, true); }
         const rows = list.map((m) => {
           const paused = m.status === '休止中';
           const name = m.display_name || m.user_name || m.user_id;
+          // ロール管理区分は手動「外す」を出さない（同期が支配）。休止/再開は可。
+          const delBtn = roleManaged ? '' : `<button class="btn sm danger" data-smdel="${esc(m.user_id)}">外す</button>`;
           return `<div class="pickrow">
             <div>${esc(name)} <span class="muted" style="font-size:12px">${esc(m.user_id)}</span>
               ${paused ? '<span class="pill off">休止中</span>' : '<span class="pill on">アクティブ</span>'}</div>
             <div class="actions">
               <button class="btn sm secondary" data-smtoggle="${esc(m.user_id)}" data-status="${paused ? '' : '休止中'}">${paused ? '再開' : '休止'}</button>
-              <button class="btn sm danger" data-smdel="${esc(m.user_id)}">外す</button>
+              ${delBtn}
             </div></div>`;
         }).join('');
+        const synced = seg && seg.members_synced_at ? esc(seg.members_synced_at) : '未同期';
+        const roleLabel = isEveryone ? '@everyone（全員）' : esc(seg ? seg.mention_role_id : '');
+        const emptyMsg = roleManaged
+          ? 'まだ同期されていません。下の「ロールから同期」を実行してください。'
+          : 'まだ誰も所属していません。下のピッカーから追加できます。';
+        const panel = roleManaged
+          ? `<div class="summary">🔗 <b>ロール管理区分</b>：メンバーは Discord ロール <code>${roleLabel}</code> から自動同期されます（手動の追加/外すは不可・休止は可）。最終同期: ${synced}</div>
+             ${isEveryone ? '<p class="muted" style="font-size:12px;color:var(--warn)">⚠️ @everyone はサーバー全員が対象です。リマインド/ノルマの DM も全員へ届きます。</p>' : ''}
+             <div class="actions"><button class="btn" id="segSyncBtn">🔄 ロールから同期</button></div>`
+          : `<h3 style="margin-top:14px">メンバーを追加</h3>
+             <div class="search"><input id="memSearch" placeholder="サーバー参加者を検索（User ID 入力は不要）" /></div>
+             <div id="memPicker" style="margin-top:8px"><p class="muted">読み込み中…</p></div>`;
         $('#segMembersBox').innerHTML = `<fieldset>
           <legend>区分メンバー: ${esc(seg ? seg.name : segmentId)} (${list.length})</legend>
-          ${list.length ? rows : '<div class="empty">まだ誰も所属していません。下のピッカーから追加できます。</div>'}
-          <h3 style="margin-top:14px">メンバーを追加</h3>
-          <div class="search"><input id="memSearch" placeholder="サーバー参加者を検索（User ID 入力は不要）" /></div>
-          <div id="memPicker" style="margin-top:8px"><p class="muted">読み込み中…</p></div>
+          ${list.length ? rows : '<div class="empty">' + emptyMsg + '</div>'}
+          ${panel}
           </fieldset>`;
         $('#segMembersBox').scrollIntoView({ behavior: 'smooth', block: 'center' });
         document.querySelectorAll('[data-smtoggle]').forEach((b) => {
@@ -853,7 +1033,24 @@
           };
         });
 
-        // メンバーピッカー（サーバー在籍をライブ取得）
+        // ロール管理区分: 手動同期ボタン（破壊的確認つき）。ピッカーは出さない。
+        if (roleManaged) {
+          $('#segSyncBtn').onclick = (e) => withBusy(e.currentTarget, async () => {
+            const warn = isEveryone
+              ? 'Discord ロール @everyone（サーバー全員）からメンバーを同期します。ロール非保有者は区分から外れ、全員がリマインド/ノルマ DM の対象になります。'
+              : 'Discord ロールからメンバーを同期します。ロール非保有の現メンバーは区分から外れます。';
+            if (!(await confirmDialog(warn, { okLabel: '同期する', danger: true }))) return;
+            try {
+              const r = await api('/segments/' + segmentId + '/sync-from-role', { method: 'POST' });
+              toast(r && r.message ? r.message : '同期しました');
+              try { cacheSegments = await api('/segments?guild_id=' + encodeURIComponent(guild.id)); } catch (_) {}
+              loadSegmentMembers(segmentId);
+            } catch (e) { toast(e.message, true); }
+          });
+          return;
+        }
+
+        // メンバーピッカー（手動区分のみ・サーバー在籍をライブ取得）
         const already = new Set(list.map((m) => m.user_id));
         if (!cacheGuildMembers) {
           try { cacheGuildMembers = await api('/guilds/' + guild.id + '/members'); }

@@ -1,6 +1,6 @@
 import type { Member, Segment, SegmentMember } from './types';
 
-const SEG_COLS = 'id, guild_id, name, mention_role_id, created_at';
+const SEG_COLS = 'id, guild_id, name, mention_role_id, members_synced_at, created_at';
 const MEMBER_COLS = 'm.user_id, m.user_name, m.display_name, m.dm_channel_id, m.created_at';
 
 /** Segment 取得（guildId 指定時はそのギルドのみ、未指定で全件） */
@@ -38,7 +38,16 @@ export async function createSegment(
     .run();
   const id = res.meta.last_row_id as number;
   const row = await getSegment(db, id);
-  return row ?? { id, guild_id: input.guild_id, name: input.name, mention_role_id: input.mention_role_id ?? null, created_at: '' };
+  return (
+    row ?? {
+      id,
+      guild_id: input.guild_id,
+      name: input.name,
+      mention_role_id: input.mention_role_id ?? null,
+      members_synced_at: null,
+      created_at: '',
+    }
+  );
 }
 
 /** Segment 更新。対象が無ければ false */
@@ -174,6 +183,14 @@ export async function removeSegmentMember(
   return (res.meta.changes ?? 0) > 0;
 }
 
+/** ロール管理区分のメンバー同期完了時刻を現在時刻で記録する（ADR 0009）。 */
+export async function setSegmentMembersSyncedAt(db: D1Database, segmentId: number): Promise<void> {
+  await db
+    .prepare("UPDATE segments SET members_synced_at = datetime('now') WHERE id = ?")
+    .bind(segmentId)
+    .run();
+}
+
 /** ある Member が所属する区分一覧（/pause の自動選択用） */
 export async function listSegmentsForMember(
   db: D1Database,
@@ -181,7 +198,7 @@ export async function listSegmentsForMember(
 ): Promise<Segment[]> {
   const { results } = await db
     .prepare(
-      `SELECT s.id, s.guild_id, s.name, s.mention_role_id, s.created_at
+      `SELECT s.id, s.guild_id, s.name, s.mention_role_id, s.members_synced_at, s.created_at
          FROM segment_members sm
          JOIN segments s ON s.id = sm.segment_id
         WHERE sm.user_id = ?

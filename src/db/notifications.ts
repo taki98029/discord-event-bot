@@ -1,11 +1,18 @@
-import type { Notification, NotificationType } from './types';
+import type { MentionMode, Notification, NotificationListItem, NotificationType } from './types';
 import { listOccurrencesForNotification, setOccurrenceStatus } from './occurrences';
 
 const COLS =
   'id, guild_id, segment_id, name, channel_id, type, rrule, one_off_date, anchor_date, start_time, ' +
-  'recruit_days_before, remind_start_days, remind_undecided_days, ' +
-  'quota_enabled, quota_interval_days, assignment_enabled, mention_enabled, active, ' +
+  'duration_minutes, recruit_days_before, remind_start_days, remind_undecided_days, ' +
+  'quota_enabled, quota_interval_days, assignment_enabled, mention_enabled, mention_mode, ' +
+  'requires_response, message_title, message_body, active, ' +
   'decided_occurrence_id, created_at';
+
+/** 一覧表示用の集計列（候補数・確定回の日時）。COLS に続けて付与する。 */
+const LIST_EXTRA =
+  `, (SELECT COUNT(*) FROM occurrences o WHERE o.notification_id = notifications.id AND o.status = 'scheduled') AS candidate_count` +
+  `, (SELECT o.occurrence_date FROM occurrences o WHERE o.id = notifications.decided_occurrence_id) AS decided_date` +
+  `, (SELECT o.start_time FROM occurrences o WHERE o.id = notifications.decided_occurrence_id) AS decided_time`;
 
 /** Notification 作成/更新の入力（数値フラグは 0/1） */
 export interface NotificationInput {
@@ -18,21 +25,25 @@ export interface NotificationInput {
   one_off_date: string | null;
   anchor_date: string | null;
   start_time: string;
+  duration_minutes: number | null;
   recruit_days_before: number;
   remind_start_days: number;
   remind_undecided_days: number;
   quota_enabled: number;
   quota_interval_days: number | null;
   assignment_enabled: number;
-  mention_enabled: number;
+  mention_mode: MentionMode;
+  requires_response: number;
+  message_title: string;
+  message_body: string | null;
   active: number;
 }
 
-/** 全 Notification 取得（作成順） */
-export async function listNotifications(db: D1Database): Promise<Notification[]> {
+/** 全 Notification 取得（作成順・一覧用の集計列付き） */
+export async function listNotifications(db: D1Database): Promise<NotificationListItem[]> {
   const { results } = await db
-    .prepare(`SELECT ${COLS} FROM notifications ORDER BY created_at`)
-    .all<Notification>();
+    .prepare(`SELECT ${COLS}${LIST_EXTRA} FROM notifications ORDER BY created_at`)
+    .all<NotificationListItem>();
   return results;
 }
 
@@ -68,15 +79,15 @@ export async function listNotificationsByChannel(
   return results;
 }
 
-/** Server(guild_id) 配下の Notification 一覧 */
+/** Server(guild_id) 配下の Notification 一覧（一覧用の集計列付き） */
 export async function listNotificationsByGuild(
   db: D1Database,
   guildId: string,
-): Promise<Notification[]> {
+): Promise<NotificationListItem[]> {
   const { results } = await db
-    .prepare(`SELECT ${COLS} FROM notifications WHERE guild_id = ? ORDER BY created_at`)
+    .prepare(`SELECT ${COLS}${LIST_EXTRA} FROM notifications WHERE guild_id = ? ORDER BY created_at`)
     .bind(guildId)
-    .all<Notification>();
+    .all<NotificationListItem>();
   return results;
 }
 
@@ -89,9 +100,10 @@ export async function createNotification(
     .prepare(
       `INSERT INTO notifications (
          guild_id, segment_id, name, channel_id, type, rrule, one_off_date, anchor_date, start_time,
-         recruit_days_before, remind_start_days, remind_undecided_days,
-         quota_enabled, quota_interval_days, assignment_enabled, mention_enabled, active
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         duration_minutes, recruit_days_before, remind_start_days, remind_undecided_days,
+         quota_enabled, quota_interval_days, assignment_enabled, mention_mode, requires_response,
+         message_title, message_body, active
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       input.guild_id,
@@ -103,19 +115,33 @@ export async function createNotification(
       input.one_off_date ?? null,
       input.anchor_date ?? null,
       input.start_time,
+      input.duration_minutes ?? null,
       input.recruit_days_before,
       input.remind_start_days,
       input.remind_undecided_days,
       input.quota_enabled,
       input.quota_interval_days ?? null,
       input.assignment_enabled,
-      input.mention_enabled,
+      input.mention_mode,
+      input.requires_response,
+      input.message_title,
+      input.message_body ?? null,
       input.active,
     )
     .run();
   const id = res.meta.last_row_id as number;
   const row = await getNotification(db, id);
-  return row ?? { id, created_at: '', decided_occurrence_id: null, ...input };
+  // フォールバック（getNotification が null の異常系のみ）。deprecated な mention_enabled は
+  // mention_mode から導出して Notification 型を満たす。
+  return (
+    row ?? {
+      id,
+      created_at: '',
+      decided_occurrence_id: null,
+      mention_enabled: input.mention_mode === 'role' ? 1 : 0,
+      ...input,
+    }
+  );
 }
 
 /** Notification 更新。対象が無ければ false */
@@ -128,9 +154,11 @@ export async function updateNotification(
     .prepare(
       `UPDATE notifications SET
          guild_id = ?, segment_id = ?, name = ?, channel_id = ?, type = ?, rrule = ?,
-         one_off_date = ?, anchor_date = ?, start_time = ?, recruit_days_before = ?, remind_start_days = ?,
+         one_off_date = ?, anchor_date = ?, start_time = ?, duration_minutes = ?,
+         recruit_days_before = ?, remind_start_days = ?,
          remind_undecided_days = ?, quota_enabled = ?, quota_interval_days = ?,
-         assignment_enabled = ?, mention_enabled = ?, active = ?
+         assignment_enabled = ?, mention_mode = ?, requires_response = ?,
+         message_title = ?, message_body = ?, active = ?
        WHERE id = ?`,
     )
     .bind(
@@ -143,13 +171,17 @@ export async function updateNotification(
       patch.one_off_date ?? null,
       patch.anchor_date ?? null,
       patch.start_time,
+      patch.duration_minutes ?? null,
       patch.recruit_days_before,
       patch.remind_start_days,
       patch.remind_undecided_days,
       patch.quota_enabled,
       patch.quota_interval_days ?? null,
       patch.assignment_enabled,
-      patch.mention_enabled,
+      patch.mention_mode,
+      patch.requires_response,
+      patch.message_title,
+      patch.message_body ?? null,
       patch.active,
       id,
     )
