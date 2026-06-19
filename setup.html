@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>セットアップ・アシスタント — discord-event-bot</title>
+  <style>
+    :root {
+      --accent: #5865f2;
+      --accent-d: #4451d6;
+      --ok: #18794e;
+      --ok-bg: #e8f5ee;
+      --bg: #f5f6fa;
+      --card: #ffffff;
+      --ink: #1f2430;
+      --muted: #5a6275;
+      --line: #e2e5ee;
+      --warn-bg: #fff7e6;
+      --warn-line: #ffd27a;
+      --radius: 14px;
+      --shadow: 0 1px 3px rgba(20, 24, 40, .06), 0 8px 24px rgba(20, 24, 40, .06);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #14161c; --card: #1d2029; --ink: #eef0f6; --muted: #a3aabb;
+        --line: #2c3140; --ok-bg: #15302440; --warn-bg: #332a12; --warn-line: #6b551f;
+        --shadow: 0 1px 3px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.4);
+      }
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Kaku Gothic ProN", "Noto Sans JP", Meiryo, sans-serif;
+      line-height: 1.75; font-size: 16px;
+    }
+    header.top {
+      background: linear-gradient(135deg, var(--accent), #7b86ff);
+      color: #fff; padding: 22px 20px 18px;
+      position: sticky; top: 0; z-index: 20;
+      box-shadow: 0 4px 16px rgba(20, 24, 40, .18);
+    }
+    .wrap { max-width: 760px; margin: 0 auto; padding: 0 18px; }
+    header.top .wrap { padding: 0 18px; }
+    h1 { margin: 0 0 6px; font-size: 1.5rem; letter-spacing: .01em; }
+    header.top p { margin: 0; opacity: .94; font-size: .96rem; }
+    .progress { margin: 16px auto 0; max-width: 760px; }
+    .bar { height: 10px; background: rgba(255,255,255,.28); border-radius: 99px; overflow: hidden; }
+    .bar > i { display: block; height: 100%; width: 0; background: #fff; border-radius: 99px; transition: width .35s ease; }
+    .bar-label { font-size: .82rem; margin-top: 6px; opacity: .95; }
+
+    main { padding: 22px 0 60px; }
+    .note {
+      background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: var(--radius);
+      padding: 14px 16px; margin: 0 0 18px; font-size: .92rem;
+    }
+    .note b { font-weight: 700; }
+
+    .step {
+      background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+      box-shadow: var(--shadow); margin: 0 0 16px; overflow: hidden;
+    }
+    .step.done { border-color: #bfe3cd; }
+    .step > summary {
+      list-style: none; cursor: pointer; padding: 16px 18px;
+      display: flex; align-items: center; gap: 12px; user-select: none;
+    }
+    .step > summary::-webkit-details-marker { display: none; }
+    .num {
+      flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%;
+      background: var(--accent); color: #fff; font-weight: 700;
+      display: grid; place-items: center; font-size: .95rem;
+    }
+    .step.done .num { background: var(--ok); }
+    .step.done .num::after { content: "✓"; }
+    .step.done .num span { display: none; }
+    .summary-txt { flex: 1; }
+    .summary-txt h2 { margin: 0; font-size: 1.08rem; }
+    .summary-txt .sub { color: var(--muted); font-size: .85rem; }
+    .chev { color: var(--muted); transition: transform .2s; }
+    .step[open] .chev { transform: rotate(90deg); }
+    .body { padding: 4px 18px 20px 60px; }
+    @media (max-width: 540px) { .body { padding: 4px 16px 18px 16px; } }
+    .body p { margin: 8px 0; }
+    .body ol, .body ul { margin: 8px 0; padding-left: 1.2em; }
+    .body li { margin: 4px 0; }
+
+    label.fld { display: block; margin: 14px 0 4px; font-weight: 600; font-size: .92rem; }
+    label.fld .hint { font-weight: 400; color: var(--muted); font-size: .82rem; }
+    .row { display: flex; gap: 8px; align-items: stretch; }
+    input[type=text], input[type=password] {
+      flex: 1; min-width: 0; padding: 11px 12px; border: 1px solid var(--line);
+      border-radius: 10px; background: var(--bg); color: var(--ink); font-size: .95rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    input:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
+    .valid { border-color: #bfe3cd !important; }
+
+    button {
+      font: inherit; cursor: pointer; border: none; border-radius: 10px;
+      padding: 11px 16px; font-weight: 600; font-size: .92rem; transition: filter .15s, background .15s;
+    }
+    button:active { transform: translateY(1px); }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: var(--accent-d); }
+    .btn-ghost { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+    .btn-ghost:hover { border-color: var(--accent); }
+    .btn-copy { flex: 0 0 auto; background: var(--bg); color: var(--ink); border: 1px solid var(--line); }
+    .btn-copy:hover { border-color: var(--accent); }
+    .btn-copy.copied { background: var(--ok-bg); color: var(--ok); border-color: #bfe3cd; }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; align-items: center; }
+    a.linkbtn { text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+
+    .pill {
+      display: inline-block; background: var(--bg); border: 1px solid var(--line);
+      border-radius: 8px; padding: 2px 8px; font-family: ui-monospace, Menlo, Consolas, monospace;
+      font-size: .9em; white-space: nowrap;
+    }
+    .copybox {
+      display: flex; gap: 8px; align-items: center; margin: 6px 0;
+      background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 8px 8px 8px 12px;
+    }
+    .copybox code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; font-size: .9rem; }
+    .copybox .cap { flex: 0 0 auto; color: var(--muted); font-size: .82rem; font-family: system-ui; }
+
+    .done-toggle { margin-top: 18px; display: flex; align-items: center; gap: 9px; font-weight: 600; }
+    .done-toggle input { width: 19px; height: 19px; accent-color: var(--ok); }
+
+    .secret-warn { color: #b54708; font-weight: 600; }
+    .step-tip { background: var(--bg); border-radius: 10px; padding: 10px 12px; font-size: .9rem; color: var(--muted); margin-top: 12px; }
+    footer { max-width: 760px; margin: 0 auto; padding: 8px 18px 50px; color: var(--muted); font-size: .86rem; }
+    footer .actions { justify-content: space-between; }
+    .danger { color: #b42318; background: transparent; border: 1px solid var(--line); }
+    .danger:hover { border-color: #b42318; }
+    .ok-text { color: var(--ok); font-weight: 600; }
+    .err-text { color: #b42318; font-weight: 600; font-size: .85rem; }
+    kbd { background: var(--bg); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 6px; padding: 1px 6px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .85em; }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <h1>🛠️ セットアップ・アシスタント</h1>
+      <p>discord-event-bot を動かすための初期設定を、画面の案内に沿って進めます。所要時間 15〜20 分・ターミナル操作は不要です。</p>
+      <div class="progress">
+        <div class="bar"><i id="bar"></i></div>
+        <div class="bar-label"><span id="doneCount">0</span> / <span id="totalCount">6</span> ステップ完了</div>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div class="note">
+      🔒 <b>安全について</b>：入力した値（トークンなど）は<b>このブラウザの中だけ</b>に一時保存され、どこにも送信されません。
+      共用パソコンでは使い終わったら下部の「<b>入力をすべて消去</b>」を押してください。<b>このタブを閉じると入力値は消えます</b>（安全のため）。
+    </div>
+
+    <!-- STEP 0 -->
+    <details class="step" id="s0" open>
+      <summary>
+        <span class="num"><span>0</span></span>
+        <span class="summary-txt"><h2>用意するもの</h2><span class="sub">登録は Discord と Cloudflare の2つだけ・どちらも無料</span></span>
+        <span class="chev">▶</span>
+      </summary>
+      <div class="body">
+        <ul>
+          <li><b>Discord アカウント</b>と、Bot を入れたい<b>サーバーの管理権限</b></li>
+          <li><b>Cloudflare アカウント</b>（無料。クレジットカード不要）</li>
+        </ul>
+        <p>このアシスタントでは、設定に必要な「合言葉」を順に集めていきます。各欄に貼り付けると、次の手順で<b>自動的に使い回します</b>（招待リンクの生成・コピー用の値など）。</p>
+        <label class="done-toggle"><input type="checkbox" data-done="0"> 準備できた</label>
+      </div>
+    </details>
+
+    <!-- STEP 1 -->
+    <details class="step" id="s1">
+      <summary>
+        <span class="num"><span>1</span></span>
+        <span class="summary-txt"><h2>Discord でアプリ（Bot）を作る</h2><span class="sub">3つの合言葉を取得し、Bot をサーバーに招待</span></span>
+        <span class="chev">▶</span>
+      </summary>
+      <div class="body">
+        <ol>
+          <li>下のボタンで Discord Developer Portal を開き、右上の <b>「New Application」</b> で名前（例: イベント出欠Bot）を付けて作成。</li>
+          <li>左メニュー <b>「General Information」</b> で <b>APPLICATION ID</b> と <b>PUBLIC KEY</b> の「Copy」を押し、下の欄に貼り付け。</li>
+          <li>左メニュー <b>「Bot」</b> で <b>「Reset Token」</b> を押してトークンを表示・コピーし、下の欄に貼り付け。
+            さらに下にスクロールして <b>「Server Members Intent」を ON</b> にして保存（メンバー一覧の取得に必要）。</li>
+        </ol>
+        <div class="actions">
+          <a class="linkbtn" href="https://discord.com/developers/applications" target="_blank" rel="noopener">
+            <button class="btn-primary" type="button">🌐 Discord Developer Portal を開く</button>
+          </a>
+        </div>
+
+        <label class="fld" for="appId">アプリID（Application ID） <span class="hint">— 数字のみ・18〜20桁ほど</span></label>
+        <div class="row">
+          <input type="text" id="appId" inputmode="numeric" autocomplete="off" spellcheck="false" placeholder="例: 1234567890123456789" />
+        </div>
+        <div class="err-text" id="appIdErr" hidden>数字だけのIDを貼り付けてください。</div>
+
+        <label class="fld" for="publicKey">Public Key（公開鍵） <span class="hint">— なりすまし防止の照合キー・64文字の英数字</span></label>
+        <div class="row">
+          <input type="text" id="publicKey" autocomplete="off" spellcheck="false" placeholder="例: a1b2c3... （64文字）" />
+        </div>
+
+        <label class="fld" for="botToken">Bot Token（ボットのトークン） <span class="hint secret-warn">— Bot のパスワード。他人に教えない</span></label>
+        <div class="row">
+          <input type="password" id="botToken" autocomplete="off" spellcheck="false" placeholder="貼り付け（•で隠れます）" />
+          <button class="btn-copy" type="button" id="toggleBot">表示</button>
+        </div>
+
+        <div class="step-tip">
+          💡 <b>Bot をサーバーに招待</b>：アプリIDを入れると、必要な権限を組み込んだ招待リンクを自動で作ります。
+        </div>
+        <div class="copybox">
+          <span class="cap">招待リンク</span>
+          <code id="inviteUrl">（アプリIDを入力すると表示されます）</code>
+          <button class="btn-copy" type="button" data-copy="inviteUrl">コピー</button>
+        </div>
+        <div class="actions">
+          <a class="linkbtn" id="inviteOpen" href="#" target="_blank" rel="noopener" hidden>
+            <button class="btn-primary" type="button">🤖 このリンクで Bot を招待する</button>
+          </a>
+        </div>
+        <div class="step-tip">付与される権限：チャンネルの閲覧 ／ メッセージの送信 ／ ロール・@everyone へのメンション（募集メッセージの通知に使用）。</div>
+
+        <label class="done-toggle"><input type="checkbox" data-done="1"> 3つの合言葉を取得し、Bot を招待した</label>
+      </div>
+    </details>
+
+    <!-- STEP 2 -->
+    <details class="step" id="s2">
+      <summary>
+        <span class="num"><span>2</span></span>
+        <span class="summary-txt"><h2>管理パスワード（ADMIN_TOKEN）を作る</h2><span class="sub">管理画面に入るための合言葉・自動生成できます</span></span>
+        <span class="chev">▶</span>
+      </summary>
+      <div class="body">
+        <p>この Bot の<b>管理画面に入るためのパスワード</b>です。推測されにくい長い文字列が必要なので、下のボタンで自動生成します（自分で考えなくてOK）。</p>
+        <div class="actions">
+          <button class="btn-primary" type="button" id="genToken">🎲 パスワードを生成する</button>
+        </div>
+        <label class="fld" for="adminToken">ADMIN_TOKEN <span class="hint secret-warn">— 秘密。後で使うので無くさない</span></label>
+        <div class="row">
+          <input type="text" id="adminToken" autocomplete="off" spellcheck="false" placeholder="「生成する」を押すと入ります（手入力も可）" />
+          <button class="btn-copy" type="button" data-copy="adminToken">コピー</button>
+        </div>
+        <div class="step-tip">⚠️ このパスワードはあとで「デプロイ時の入力」と「管理画面ログイン」で使います。生成したらコピーして安全な場所に控えてください。</div>
+        <label class="done-toggle"><input type="checkbox" data-done="2"> パスワードを生成・保存した</label>
+      </div>
+    </details>
+
+    <!-- STEP 3 -->
+    <details class="step" id="s3">
+      <summary>
+        <span class="num"><span>3</span></span>
+        <span class="summary-txt"><h2>Cloudflare にデプロイする</h2><span class="sub">ボタンを押して進めるだけ・4つの合言葉はここで入力</span></span>
+        <span class="chev">▶</span>
+      </summary>
+      <div class="body">
+        <ol>
+          <li>下の <b>「Deploy to Cloudflare」</b> ボタンを押し、Cloudflare にログイン（初めてなら無料登録）して画面の指示どおり進めます。データベース（D1）は自動で作られます。</li>
+          <li>途中で <b>4つの合言葉（シークレット）の入力欄</b>が出ます。下の値をそれぞれ「コピー」して貼り付けてください。</li>
+          <li>デプロイが完了すると <b>あなたの Bot の URL</b>（<span class="pill">https://◯◯◯.workers.dev</span>）が表示されます。下の欄に貼り付け。</li>
+        </ol>
+        <div class="actions">
+          <a class="linkbtn" href="https://deploy.workers.cloudflare.com/?url=https://github.com/taki98029/discord-event-bot" target="_blank" rel="noopener">
+            <button class="btn-primary" type="button">🚀 Deploy to Cloudflare を開く</button>
+          </a>
+        </div>
+
+        <p style="margin-top:18px;"><b>デプロイ画面に貼り付ける4つの値：</b></p>
+        <div class="copybox"><span class="cap">DISCORD_PUBLIC_KEY</span><code id="v_pk">（手順1で入力）</code><button class="btn-copy" type="button" data-copyval="publicKey">コピー</button></div>
+        <div class="copybox"><span class="cap">DISCORD_APPLICATION_ID</span><code id="v_app">（手順1で入力）</code><button class="btn-copy" type="button" data-copyval="appId">コピー</button></div>
+        <div class="copybox"><span class="cap">DISCORD_BOT_TOKEN</span><code id="v_bot">（手順1で入力）</code><button class="btn-copy" type="button" data-copyval="botToken">コピー</button></div>
+        <div class="copybox"><span class="cap">ADMIN_TOKEN</span><code id="v_adm">（手順2で生成）</code><button class="btn-copy" type="button" data-copyval="adminToken">コピー</button></div>
+
+        <label class="fld" for="workerUrl">あなたの Bot の URL <span class="hint">— デプロイ完了画面に出る https://◯◯◯.workers.dev</span></label>
+        <div class="row">
+          <input type="text" id="workerUrl" autocomplete="off" spellcheck="false" placeholder="https://◯◯◯.workers.dev" />
+        </div>
+        <div class="err-text" id="workerUrlErr" hidden>https:// で始まる URL を貼り付けてください。</div>
+
+        <label class="done-toggle"><input type="checkbox" data-done="3"> デプロイが完了し、Bot の URL を控えた</label>
+      </div>
+    </details>
+
+    <!-- STEP 4 -->
+    <details class="step" id="s4">
+      <summary>
+        <span class="num"><span>4</span></span>
+        <span class="summary-txt"><h2>管理画面を開いてコマンドを登録する</h2><span class="sub">スラッシュコマンドをボタンで登録</span></span>
+        <span class="chev">▶</span>
+      </summary>
+      <div class="body">
+        <ol>
+          <li>下のボタンで管理画面を開き、<b>ADMIN_TOKEN</b>（手順2のパスワード）でログイン。</li>
+          <li>左メニュー <b>「⚙️ セットアップ」</b> を開き、シークレットがすべて「設定済み」か確認。</li>
+          <li><b>「コマンドを登録」ボタン</b>を押す（<span class="pill">/recruit</span> などが使えるようになります）。</li>
+        </ol>
+        <div class="actions">
+          <a class="linkbtn" id="adminOpen" href="#" target="_blank" rel="noopener">
+            <button class="btn-primary" type="button">🖥️ 管理画面を開く</button>
+          </a>
+        </div>
+        <div class="copybox"><span class="cap">ログイン用 ADMIN_TOKEN</span><code id="v_adm2">（手順2で生成）</code><button class="btn-copy" type="button" data-copyval="adminToken">コピー</button></div>
+        <div class="step-tip" id="adminHint">先に手順3で Bot の URL を入力すると、ここから直接開けます。</div>
+        <label class="done-toggle"><input type="checkbox" data-done="4"> 管理画面にログインし、コマンドを登録した</label>
+      </div>
+    </details>
+
+    <!-- STEP 5 -->
+    <details class="step" id="s5">
+      <summary>
+        <span class="num"><span>5</span></span>
+        <span class="summary-txt"><h2>Discord に接続先（URL）を貼る</h2><span class="sub">Interaction Endpoint URL の設定</span></span>
+        <span class="chev">▶</span>
+      </summary>
+      <div class="body">
+        <p>Discord からのボタン操作やコマンドを Bot が受け取れるように、<b>接続先の URL</b> を Discord に登録します。</p>
+        <ol>
+          <li>下の URL を「コピー」。</li>
+          <li>「Discord Developer Portal を開く」→ アプリの <b>「General Information」</b> の <b>「Interactions Endpoint URL」</b> に貼り付け。</li>
+          <li><b>「Save Changes」</b> を押す（Discord が自動で接続確認 → 緑のチェックで成功）。</li>
+        </ol>
+        <div class="copybox"><span class="cap">Interactions Endpoint URL</span><code id="v_endpoint">（手順3で URL を入力）</code><button class="btn-copy" type="button" data-copyval="endpoint">コピー</button></div>
+        <div class="actions">
+          <a class="linkbtn" href="https://discord.com/developers/applications" target="_blank" rel="noopener">
+            <button class="btn-ghost" type="button">🌐 Discord Developer Portal を開く</button>
+          </a>
+        </div>
+        <label class="done-toggle"><input type="checkbox" data-done="5"> Interactions Endpoint URL を保存した</label>
+      </div>
+    </details>
+
+    <!-- STEP 6 -->
+    <details class="step" id="s6">
+      <summary>
+        <span class="num"><span>6</span></span>
+        <span class="summary-txt"><h2>中身を作る（区分 → 通知 → メンバー）</h2><span class="sub">管理画面で実際のイベント設定</span></span>
+        <span class="chev">▶</span>
+      </summary>
+      <div class="body">
+        <p>ここからは管理画面の左メニューで設定します。</p>
+        <ol>
+          <li><b>👥 メンバー区分</b>：対象グループを作成（例: キャスト、スタッフ）。@メンションする Discord ロールを任意で紐付け。メンバーは「メンバーを追加」で一覧から選ぶだけ。</li>
+          <li><b>🔔 通知</b>：対象区分・投稿チャンネル・スケジュール（毎週/隔週/毎月第N曜、または単発）・開始時刻・募集/リマインドのタイミングを設定。</li>
+          <li>メンバーは募集メッセージのボタンに回答すると<b>自動で登録</b>され、区分にも自動所属します。</li>
+        </ol>
+        <div class="step-tip">📖 詳しい操作や「単発イベントの複数候補日」などは <b>セットアップガイド</b>（docs/setup-guide-ja.md）を参照してください。</div>
+        <label class="done-toggle"><input type="checkbox" data-done="6"> 区分・通知を作成した</label>
+      </div>
+    </details>
+
+    <div class="note" id="finishNote" hidden>
+      🎉 <b>おつかれさまでした！</b> セットアップは完了です。Bot が募集・リマインドを自動で行います。
+      共用パソコンの場合は、下の「入力をすべて消去」を押して合言葉を消しておきましょう。
+    </div>
+  </main>
+
+  <footer class="wrap">
+    <div class="actions">
+      <span>discord-event-bot セットアップ・アシスタント</span>
+      <button class="danger" type="button" id="clearAll">🗑️ 入力をすべて消去</button>
+    </div>
+  </footer>
+
+  <script>
+    (function () {
+      "use strict";
+      var STORE = window.sessionStorage; // タブを閉じると消える（安全側）
+      var KEY = "deb_setup_v1";
+      var INVITE_PERMS = "134144"; // VIEW_CHANNEL(1024)+SEND_MESSAGES(2048)+MENTION_EVERYONE(131072)
+      var TOTAL_STEPS = 7; // 0..6
+
+      var state = load();
+      function load() {
+        try { return JSON.parse(STORE.getItem(KEY)) || {}; } catch (e) { return {}; }
+      }
+      function save() {
+        try { STORE.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+      }
+      function $(id) { return document.getElementById(id); }
+
+      // --- フィールド <-> state の紐付け ---
+      var fields = ["appId", "publicKey", "botToken", "adminToken", "workerUrl"];
+      fields.forEach(function (id) {
+        var el = $(id);
+        if (state[id]) el.value = state[id];
+        el.addEventListener("input", function () {
+          state[id] = el.value.trim();
+          save();
+          render();
+        });
+      });
+
+      // --- コピー（クリップボード API + フォールバック）---
+      function copyText(text, btn) {
+        function ok() {
+          if (!btn) return;
+          var orig = btn.textContent;
+          btn.textContent = "コピー済み ✓";
+          btn.classList.add("copied");
+          setTimeout(function () { btn.textContent = orig; btn.classList.remove("copied"); }, 1400);
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(ok, function () { legacy(text, ok); });
+        } else { legacy(text, ok); }
+      }
+      function legacy(text, ok) {
+        var ta = document.createElement("textarea");
+        ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+        document.body.appendChild(ta); ta.select();
+        try { document.execCommand("copy"); ok(); } catch (e) {}
+        document.body.removeChild(ta);
+      }
+      // data-copy: 要素のテキストをコピー / data-copyval: 計算値をコピー
+      document.addEventListener("click", function (e) {
+        var b = e.target.closest("[data-copy],[data-copyval]");
+        if (!b) return;
+        if (b.hasAttribute("data-copy")) {
+          var src = $(b.getAttribute("data-copy"));
+          copyText((src.textContent || src.value || "").trim(), b);
+        } else {
+          copyText(valueFor(b.getAttribute("data-copyval")), b);
+        }
+      });
+      function valueFor(name) {
+        if (name === "endpoint") return endpointUrl();
+        return state[name] || "";
+      }
+
+      // --- 計算値 ---
+      function inviteUrl() {
+        var id = (state.appId || "").replace(/\D/g, "");
+        if (!id) return "";
+        return "https://discord.com/oauth2/authorize?client_id=" + id +
+          "&scope=bot%20applications.commands&permissions=" + INVITE_PERMS;
+      }
+      function normUrl() {
+        var u = (state.workerUrl || "").trim().replace(/\/+$/, "");
+        return u;
+      }
+      function endpointUrl() { var u = normUrl(); return u ? u + "/interactions" : ""; }
+
+      // --- ADMIN_TOKEN 生成（48文字・base62）---
+      $("genToken").addEventListener("click", function () {
+        var chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+        var arr = new Uint8Array(48);
+        (window.crypto || window.msCrypto).getRandomValues(arr);
+        var out = "";
+        for (var i = 0; i < arr.length; i++) out += chars[arr[i] % chars.length];
+        $("adminToken").value = out;
+        state.adminToken = out; save(); render();
+      });
+
+      // --- Bot Token 表示/非表示 ---
+      $("toggleBot").addEventListener("click", function () {
+        var f = $("botToken");
+        if (f.type === "password") { f.type = "text"; this.textContent = "隠す"; }
+        else { f.type = "password"; this.textContent = "表示"; }
+      });
+
+      // --- 完了チェック ---
+      document.querySelectorAll("[data-done]").forEach(function (cb) {
+        var n = cb.getAttribute("data-done");
+        cb.checked = !!(state.done && state.done[n]);
+        cb.addEventListener("change", function () {
+          state.done = state.done || {};
+          state.done[n] = cb.checked;
+          save();
+          // 完了したら自動で次のステップを開く
+          if (cb.checked) {
+            var next = $("s" + (parseInt(n, 10) + 1));
+            if (next) next.open = true;
+          }
+          render();
+        });
+      });
+
+      // --- 消去 ---
+      $("clearAll").addEventListener("click", function () {
+        if (!confirm("入力した合言葉と進捗をすべて消去します。よろしいですか？")) return;
+        STORE.removeItem(KEY);
+        state = {};
+        fields.forEach(function (id) { $(id).value = ""; });
+        $("botToken").type = "password"; $("toggleBot").textContent = "表示";
+        document.querySelectorAll("[data-done]").forEach(function (cb) { cb.checked = false; });
+        render();
+      });
+
+      // --- 表示更新 ---
+      function setText(id, txt, placeholder) {
+        var el = $(id); if (!el) return;
+        el.textContent = txt || placeholder;
+      }
+      function render() {
+        // 招待リンク
+        var inv = inviteUrl();
+        setText("inviteUrl", inv, "（アプリIDを入力すると表示されます）");
+        var io = $("inviteOpen");
+        if (inv) { io.href = inv; io.hidden = false; } else { io.hidden = true; }
+
+        // デプロイ用の値プレビュー
+        setText("v_pk", state.publicKey, "（手順1で入力）");
+        setText("v_app", (state.appId || "").replace(/\D/g, ""), "（手順1で入力）");
+        setText("v_bot", state.botToken ? "•".repeat(Math.min(24, state.botToken.length)) + "（コピーで実値）" : "", "（手順1で入力）");
+        setText("v_adm", state.adminToken, "（手順2で生成）");
+        setText("v_adm2", state.adminToken, "（手順2で生成）");
+
+        // 管理画面リンク
+        var u = normUrl();
+        var ao = $("adminOpen");
+        if (u) { ao.href = u + "/"; $("adminHint").textContent = "URL: " + u + "/"; }
+        else { ao.href = "#"; $("adminHint").textContent = "先に手順3で Bot の URL を入力すると、ここから直接開けます。"; }
+
+        // Endpoint
+        setText("v_endpoint", endpointUrl(), "（手順3で URL を入力）");
+
+        // 入力欄の妥当性ヒント
+        markValid("appId", /^\d{15,22}$/.test((state.appId || "").replace(/\D/g, "")) || !state.appId);
+        toggleErr("appIdErr", state.appId && !/^\d{15,22}$/.test((state.appId || "").replace(/\D/g, "")));
+        markValid("workerUrl", !state.workerUrl || /^https:\/\/.+/.test(state.workerUrl));
+        toggleErr("workerUrlErr", state.workerUrl && !/^https:\/\/.+/.test(state.workerUrl));
+
+        // ステップの done クラス
+        for (var i = 0; i < TOTAL_STEPS; i++) {
+          var st = $("s" + i);
+          if (st) st.classList.toggle("done", !!(state.done && state.done[i]));
+        }
+        // 進捗バー
+        var done = 0;
+        for (var k = 0; k < TOTAL_STEPS; k++) if (state.done && state.done[k]) done++;
+        $("bar").style.width = Math.round((done / TOTAL_STEPS) * 100) + "%";
+        $("doneCount").textContent = done;
+        $("totalCount").textContent = TOTAL_STEPS;
+        $("finishNote").hidden = done < TOTAL_STEPS;
+      }
+      function markValid(id, ok) { var el = $(id); if (el) el.classList.toggle("valid", !!(ok && el.value)); }
+      function toggleErr(id, show) { var el = $(id); if (el) el.hidden = !show; }
+
+      render();
+    })();
+  </script>
+</body>
+</html>

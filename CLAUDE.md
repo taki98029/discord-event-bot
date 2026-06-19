@@ -16,3 +16,9 @@ Cloudflare Workers + D1 で稼働する Discord イベント出欠/勤怠Bot（`
 - 本番 Discord へのメッセージ送信・DM・スラッシュコマンド登録
 
 ローカル検証は `.dev.vars`（テスト用アプリ＋ダミーサーバーの値のみ）が存在する前提で行う。本番値が混入する恐れがある場合は実行しない。
+
+## 開発・配信・更新フロー
+
+- 開発／デプロイ／配信・更新の必須ルールは `.claude/rules/dev-and-release.md`（`package.json`・`migrations/`・`src/` 等の関連ファイル編集時に自動ロード）。
+- 手順の詳細は `docs/dev-and-release-flow.md`、設計判断の根拠は `docs/adr/0011-distribution-and-update-model.md` を参照。
+- 特に重要: `npm run deploy` は本番D1へマイグレーションを適用してからデプロイする（本番Choiemu操作・要事前許可）。

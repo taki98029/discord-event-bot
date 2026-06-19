@@ -6,12 +6,12 @@
   "main": "src/index.ts",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "deploy": "npm run db:migrate:remote && wrangler deploy",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "db:migrate:local": "wrangler d1 migrations apply choiemu-event-bot-db --local",
-    "db:migrate:remote": "wrangler d1 migrations apply choiemu-event-bot-db --remote",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
     "register-commands": "node scripts/register-commands.js"
   },
   "dependencies": {
@@ -28,5 +28,23 @@
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "cloudflare": {
+    "label": "Discord イベント出欠 Bot",
+    "products": ["Workers", "D1"],
+    "bindings": {
+      "DISCORD_PUBLIC_KEY": {
+        "description": "Discord アプリの公開鍵。Developer Portal → アプリ → General Information の PUBLIC KEY をコピーして貼り付け。"
+      },
+      "DISCORD_APPLICATION_ID": {
+        "description": "Discord アプリの ID。Developer Portal → アプリ → General Information の APPLICATION ID をコピーして貼り付け。"
+      },
+      "DISCORD_BOT_TOKEN": {
+        "description": "Bot のトークン（秘密）。Developer Portal → アプリ → Bot → Reset Token で表示・コピーして貼り付け。"
+      },
+      "ADMIN_TOKEN": {
+        "description": "管理画面のパスワード（自分で決める長いランダム文字列）。同梱の setup.html の「パスワードを生成する」で作れます。"
+      }
+    }
   }
 }

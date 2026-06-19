@@ -2,6 +2,10 @@
 
 このガイドは、**プログラミングやターミナル操作の知識がなくても** Bot を動かせるように、画面の操作だけで進められる手順をまとめたものです。所要時間はだいたい **15〜20 分**です。
 
+> ✅ **おすすめ**: ダウンロードしたフォルダにある **`setup.html`** をダブルクリックして開くと、
+> 本ガイドと同じ手順を**画面の案内に沿って**進められます（管理パスワードの自動生成・Bot 招待リンクの自動作成・
+> 「どの値をどこに貼るか」のコピーボタンつき）。`setup.html` を見ながら、画面確認用にこのガイドを併用してください。
+
 > 🖼 このガイドには「ここで画像を入れる」という印（> 🖼 画像 …）が随所にあります。実際のスクリーンショットは運用者が追って差し込んでください（Discord / Cloudflare の画面はときどき変わるため、文章でも分かるように書いています）。
 
 ## 用意するもの
@@ -10,14 +14,14 @@
 - **Cloudflare アカウント**（無料。ここで新規作成できます）
 - それだけです。クレジットカードもサーバーも不要です。
 
-これから登録する「合言葉」は 4 つです。あとで使うのでメモ帳などに控えてください。
+これから登録する「合言葉」は 4 つです。あとで使うのでメモ帳などに控えてください（`setup.html` を使う場合は各欄に貼り付けておけば自動で控えられます）。
 
 | 名前 | これは何？ | どこで手に入る？ |
 |------|-----------|----------------|
 | Public Key（公開鍵） | なりすまし防止の照合キー | Discord（手順1で取得） |
 | Application ID（アプリID） | アプリの識別番号 | Discord（手順1で取得） |
 | Bot Token（ボットのトークン） | Bot のパスワード。**他人に教えない** | Discord（手順1で取得） |
-| 管理パスワード（ADMIN_TOKEN） | この Bot の管理画面に入るための合言葉 | **自分で決める**（手順3） |
+| 管理パスワード（ADMIN_TOKEN） | この Bot の管理画面に入るための合言葉 | **自分で決める**（`setup.html` の「パスワードを生成する」で自動作成可） |
 
 ---
 
@@ -36,61 +40,51 @@
    - 下にスクロールして **「Privileged Gateway Intents」** の **「Server Members Intent」を ON** にし、保存します（メンバー一覧の取得に必要）。
    > 🖼 画像: Reset Token と Server Members Intent のトグル
 
-4. Bot をサーバーに招待します。左メニュー **「OAuth2」→「URL Generator」** で、
-   - SCOPES: **`bot`** と **`applications.commands`** にチェック
-   - BOT PERMISSIONS: **Send Messages**（メッセージ送信）にチェック（必要に応じて他も）
-   - 一番下に出る URL をブラウザで開き、対象サーバーを選んで招待します。
+4. Bot をサーバーに招待します。
+   - **`setup.html` を使う場合**: Application ID を入れると**招待リンクが自動生成**されるので、「この リンクで Bot を招待する」を押すだけです（権限は設定済み）。
+   - **手動で作る場合**: 左メニュー **「OAuth2」→「URL Generator」** で、SCOPES に **`bot`** と **`applications.commands`**、BOT PERMISSIONS に **Send Messages**（メッセージ送信）／ **View Channels**（チャンネルの閲覧）にチェック（ロールへ @メンションするなら **Mention Everyone** も）。一番下の URL をブラウザで開き、対象サーバーを選んで招待します。
    > 🖼 画像: スコープと権限のチェック、生成された招待 URL
 
 ---
 
-## 手順2. Cloudflare にデプロイする（ボタンを押すだけ）
+## 手順2. Cloudflare にデプロイする（合言葉もここで入力）
 
-1. README の **「Deploy to Cloudflare」ボタン** を押します。
+1. README の **「Deploy to Cloudflare」ボタン**（または `setup.html` の「Deploy to Cloudflare を開く」）を押します。
 2. Cloudflare に**ログイン**（初めての場合は無料で新規登録）し、画面の指示どおり **GitHub と連携**します。
-3. そのまま進めると、Bot の本体と **データベース（D1）が自動で作成・デプロイ**されます。
-4. 完了画面に表示される **あなたの Bot の URL**（`https://○○○.workers.dev` の形）を控えます。
-   > 🖼 画像: Deploy to Cloudflare の確認画面 → デプロイ完了後の URL
+3. 途中で **4 つの合言葉（シークレット）の入力欄**が表示されます。次の値を貼り付けてください（名前ごとに説明が出ます）。
+
+   | 入力欄の名前 | 入れる値 |
+   |------------|---------|
+   | `DISCORD_PUBLIC_KEY` | 手順1で控えた Public Key |
+   | `DISCORD_APPLICATION_ID` | 手順1で控えた Application ID |
+   | `DISCORD_BOT_TOKEN` | 手順1で控えた Bot Token |
+   | `ADMIN_TOKEN` | **自分で決める長い合言葉**（`setup.html` の「パスワードを生成する」で作成可） |
+
+   > 🖼 画像: Deploy to Cloudflare のシークレット入力欄
+
+4. そのまま進めると、Bot の本体と **データベース（D1）が自動で作成・デプロイ**されます。
+5. 完了画面に表示される **あなたの Bot の URL**（`https://○○○.workers.dev` の形）を控えます。
+   > 🖼 画像: デプロイ完了後の URL
+
+> 💡 もし合言葉の入力を飛ばしてしまっても大丈夫です。あとから [Cloudflare ダッシュボード](https://dash.cloudflare.com/) → **「Workers & Pages」** → 対象のプロジェクト → **「Settings」→「Variables and Secrets」** で、種類を **「Secret」** にして追加できます（名前は上の表のとおり正確に）。次の手順4の管理画面で「設定済み」かどうか確認できます。
 
 ---
 
-## 手順3. 4 つの合言葉（シークレット）を入力する
-
-1. [Cloudflare ダッシュボード](https://dash.cloudflare.com/) を開き、左メニュー **「Workers & Pages」** から、今作成された Bot（プロジェクト）を選びます。
-2. **「Settings」→「Variables and Secrets」**（変数とシークレット）を開きます。
-3. **「+ Add」** で、種類を **「Secret」** にして次の 4 つを追加します（名前は正確に、大文字小文字も一致させてください）。
-
-| 入力する名前 | 入れる値 |
-|------------|---------|
-| `DISCORD_PUBLIC_KEY` | 手順1で控えた Public Key |
-| `DISCORD_APPLICATION_ID` | 手順1で控えた Application ID |
-| `DISCORD_BOT_TOKEN` | 手順1で控えた Bot Token |
-| `ADMIN_TOKEN` | **自分で決める長い合言葉**（例: 英数字 30 文字以上のランダムな文字列） |
-
-> 🖼 画像: Variables and Secrets で Secret を追加する画面
-
-4. 保存後、変更を反映するために **「Deploy」/「Save and deploy」** を押します（求められた場合）。
-
-> 💡 `ADMIN_TOKEN` はこの Bot の管理画面に入るためのパスワードです。推測されにくい長い文字列にしてください。
-
----
-
-## 手順4. 管理画面を開いてウィザードを進める
+## 手順3. 管理画面を開いてコマンドを登録する
 
 1. ブラウザで **あなたの Bot の URL**（手順2で控えた `https://○○○.workers.dev/`）を開きます。
-2. 先ほど決めた **`ADMIN_TOKEN`** を入力してログインします。
-3. **管理するサーバーを選択**します（Bot が参加しているサーバーが自動で表示されます。出てこない場合は手順1の招待を確認）。
-4. 左メニューの **「⚙️ セットアップ」** を開きます。ここで初期設定を進めます:
-   - **1. シークレットの確認**: 4 つすべてが「設定済み」になっているか確認（未設定があれば手順3に戻る）。
+2. 手順2で入力した **`ADMIN_TOKEN`** を入力してログインします。
+3. 左メニューの **「⚙️ セットアップ」** を開きます。ここで初期設定を進めます:
+   - **1. シークレットの確認**: 4 つすべてが「設定済み」になっているか確認（未設定があれば手順2の💡を参照）。
    - **2. スラッシュコマンドを登録**: **「コマンドを登録」ボタン**を押します（`/recruit` などが使えるようになります）。
-   - **3. Interaction Endpoint URL**: 表示された URL の **「コピー」**を押します（次の手順5で使います）。
+   - **3. Interaction Endpoint URL**: 表示された URL の **「コピー」**を押します（次の手順4で使います）。
    > 🖼 画像: 管理画面の「⚙️ セットアップ」タブ
 
 ---
 
-## 手順5. Discord に Interaction Endpoint URL を貼る
+## 手順4. Discord に Interaction Endpoint URL を貼る
 
-1. もう一度 [Discord Developer Portal](https://discord.com/developers/applications) のアプリを開き、**「General Information」** の **「Interactions Endpoint URL」** に、手順4でコピーした URL を貼り付けます。
+1. もう一度 [Discord Developer Portal](https://discord.com/developers/applications) のアプリを開き、**「General Information」** の **「Interactions Endpoint URL」** に、手順3でコピーした URL を貼り付けます。
 2. **「Save Changes」** を押します。Discord が自動で接続確認を行い、問題なければ保存できます（緑のチェック）。
    > 🖼 画像: Interactions Endpoint URL の入力欄と保存
 
@@ -98,7 +92,7 @@
 
 ---
 
-## 手順6. 中身を作る（区分 → 通知 → メンバー）
+## 手順5. 中身を作る（区分 → 通知 → メンバー）
 
 管理画面の左メニューから、次の順に設定します。
 
@@ -124,11 +118,12 @@
 
 | 症状 | 確認すること |
 |------|------------|
-| スラッシュコマンド（/recruit 等）が Discord に出てこない | 手順4-2「コマンドを登録」を実行したか／手順5 の Interaction Endpoint URL を保存したか |
+| スラッシュコマンド（/recruit 等）が Discord に出てこない | 手順3「コマンドを登録」を実行したか／手順4 の Interaction Endpoint URL を保存したか |
 | 「サーバーが取得できません」と出る | Bot をサーバーに招待したか（手順1-4）／`DISCORD_BOT_TOKEN` が正しいか |
 | メンバー一覧（ピッカー）が空 | Discord 側で **Server Members Intent** を ON にしたか（手順1-3） |
 | 募集メッセージが投稿されない | Bot にそのチャンネルへの送信権限があるか／通知の投稿チャンネル設定 |
-| 管理画面にログインできない | `ADMIN_TOKEN`（手順3）が一致しているか |
+| @ロールのメンションが飛ばない | 招待時に **Mention Everyone** 権限を付けたか／対象ロールが「メンション可能」か |
+| 管理画面にログインできない | `ADMIN_TOKEN`（手順2）が一致しているか／管理画面の「⚙️ セットアップ」で「設定済み」か |
 
 ---
 
