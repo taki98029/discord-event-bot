@@ -29,6 +29,10 @@
   "engines": {
     "node": ">=18.0.0"
   },
+  "overrides": {
+    "@emnapi/core": "1.10.0",
+    "@emnapi/runtime": "1.10.0"
+  },
   "cloudflare": {
     "label": "Discord イベント出欠 Bot",
     "products": ["Workers", "D1"],
