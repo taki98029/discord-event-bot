@@ -135,6 +135,12 @@
     .ok-text { color: var(--ok); font-weight: 600; }
     .err-text { color: #b42318; font-weight: 600; font-size: .85rem; }
     kbd { background: var(--bg); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 6px; padding: 1px 6px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .85em; }
+
+    figure.shot{margin:14px 0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--bg)}
+    figure.shot img{display:block;max-width:100%;height:auto}
+    figure.shot figcaption{padding:6px 10px;color:var(--muted);font-size:.82rem}
+    figure.shot.pending img{display:none}
+    figure.shot.pending figcaption::before{content:"🖼 "}
   </style>
 </head>
 <body>
@@ -182,10 +188,17 @@
       <div class="body">
         <ol>
           <li>下のボタンで Discord Developer Portal を開き、右上の <b>「New Application」</b> で名前（例: イベント出欠Bot）を付けて作成。</li>
+        </ol>
+        <figure class="shot pending"><img src="images/setup/01-discord-new-application.png" alt="Discord Developer Portal の「New Application」でアプリ名を入力して作成する画面" loading="lazy" onload="this.closest('figure').classList.remove('pending')" onerror="this.closest('figure').classList.add('pending')"><figcaption>（スクリーンショット準備中）</figcaption></figure>
+        <ol start="2">
           <li>左メニュー <b>「General Information」</b> で <b>APPLICATION ID</b> と <b>PUBLIC KEY</b> の「Copy」を押し、下の欄に貼り付け。</li>
+        </ol>
+        <figure class="shot pending"><img src="images/setup/02-discord-copy-ids.png" alt="General Information 画面で APPLICATION ID と PUBLIC KEY をコピーする位置" loading="lazy" onload="this.closest('figure').classList.remove('pending')" onerror="this.closest('figure').classList.add('pending')"><figcaption>（スクリーンショット準備中）</figcaption></figure>
+        <ol start="3">
           <li>左メニュー <b>「Bot」</b> で <b>「Reset Token」</b> を押してトークンを表示・コピーし、下の欄に貼り付け。
             さらに下にスクロールして <b>「Server Members Intent」を ON</b> にして保存（メンバー一覧の取得に必要）。</li>
         </ol>
+        <figure class="shot pending"><img src="images/setup/03-discord-bot-token-intent.png" alt="Bot 画面の Reset Token ボタンと Server Members Intent のトグル" loading="lazy" onload="this.closest('figure').classList.remove('pending')" onerror="this.closest('figure').classList.add('pending')"><figcaption>（スクリーンショット準備中）</figcaption></figure>
         <div class="actions">
           <a class="linkbtn" href="https://discord.com/developers/applications" target="_blank" rel="noopener">
             <button class="btn-primary" type="button">🌐 Discord Developer Portal を開く</button>
@@ -275,11 +288,14 @@
         <div class="copybox"><span class="cap">DISCORD_BOT_TOKEN</span><code id="v_bot">（手順1で入力）</code><button class="btn-copy" type="button" data-copyval="botToken">コピー</button></div>
         <div class="copybox"><span class="cap">ADMIN_TOKEN</span><code id="v_adm">（手順2で生成）</code><button class="btn-copy" type="button" data-copyval="adminToken">コピー</button></div>
 
+        <figure class="shot pending"><img src="images/setup/04-cloudflare-deploy-secrets.png" alt="Deploy to Cloudflare の途中で表示される4つのシークレット入力欄" loading="lazy" onload="this.closest('figure').classList.remove('pending')" onerror="this.closest('figure').classList.add('pending')"><figcaption>（スクリーンショット準備中）</figcaption></figure>
+
         <label class="fld" for="workerUrl">あなたの Bot の URL <span class="hint">— デプロイ完了画面に出る https://◯◯◯.workers.dev</span></label>
         <div class="row">
           <input type="text" id="workerUrl" autocomplete="off" spellcheck="false" placeholder="https://◯◯◯.workers.dev" />
         </div>
         <div class="err-text" id="workerUrlErr" hidden>https:// で始まる URL を貼り付けてください。</div>
+        <figure class="shot pending"><img src="images/setup/05-cloudflare-deploy-url.png" alt="デプロイ完了後に表示される Worker の URL" loading="lazy" onload="this.closest('figure').classList.remove('pending')" onerror="this.closest('figure').classList.add('pending')"><figcaption>（スクリーンショット準備中）</figcaption></figure>
 
         <label class="done-toggle"><input type="checkbox" data-done="3"> デプロイが完了し、Bot の URL を控えた</label>
       </div>
@@ -298,6 +314,7 @@
           <li>左メニュー <b>「⚙️ セットアップ」</b> を開き、シークレットがすべて「設定済み」か確認。</li>
           <li><b>「コマンドを登録」ボタン</b>を押す（<span class="pill">/recruit</span> などが使えるようになります）。</li>
         </ol>
+        <figure class="shot pending"><img src="images/setup/06-admin-setup-tab.png" alt="管理画面の「⚙️ セットアップ」タブ。シークレットの状態とコマンド登録ボタン" loading="lazy" onload="this.closest('figure').classList.remove('pending')" onerror="this.closest('figure').classList.add('pending')"><figcaption>（スクリーンショット準備中）</figcaption></figure>
         <div class="actions">
           <a class="linkbtn" id="adminOpen" href="#" target="_blank" rel="noopener">
             <button class="btn-primary" type="button">🖥️ 管理画面を開く</button>
@@ -324,6 +341,7 @@
           <li><b>「Save Changes」</b> を押す（Discord が自動で接続確認 → 緑のチェックで成功）。</li>
         </ol>
         <div class="copybox"><span class="cap">Interactions Endpoint URL</span><code id="v_endpoint">（手順3で URL を入力）</code><button class="btn-copy" type="button" data-copyval="endpoint">コピー</button></div>
+        <figure class="shot pending"><img src="images/setup/07-discord-interactions-endpoint.png" alt="Discord の General Information にある Interactions Endpoint URL の入力欄と保存ボタン" loading="lazy" onload="this.closest('figure').classList.remove('pending')" onerror="this.closest('figure').classList.add('pending')"><figcaption>（スクリーンショット準備中）</figcaption></figure>
         <div class="actions">
           <a class="linkbtn" href="https://discord.com/developers/applications" target="_blank" rel="noopener">
             <button class="btn-ghost" type="button">🌐 Discord Developer Portal を開く</button>
@@ -347,8 +365,44 @@
           <li><b>🔔 通知</b>：対象区分・投稿チャンネル・スケジュール（毎週/隔週/毎月第N曜、または単発）・開始時刻・募集/リマインドのタイミングを設定。</li>
           <li>メンバーは募集メッセージのボタンに回答すると<b>自動で登録</b>され、区分にも自動所属します。</li>
         </ol>
-        <div class="step-tip">📖 詳しい操作や「単発イベントの複数候補日」などは <b>セットアップガイド</b>（docs/setup-guide-ja.md）を参照してください。</div>
+        <div class="step-tip">📖 管理画面の各メニューはラベルに沿って進められます。</div>
         <label class="done-toggle"><input type="checkbox" data-done="6"> 区分・通知を作成した</label>
+      </div>
+    </details>
+
+    <!-- 参照: アップデートのしかた -->
+    <details class="step" id="ref-update">
+      <summary>
+        <span class="num">🔄</span>
+        <span class="summary-txt"><h2>アップデートのしかた</h2><span class="sub">新バージョンが出たら「Sync fork」を押すだけ</span></span>
+        <span class="chev">▶</span>
+      </summary>
+      <div class="body">
+        <p>新しいバージョンが出たら、<b>自分の GitHub の fork ページ</b>を開いて <b>「Sync fork」</b> ボタンを押すだけです。</p>
+        <ol>
+          <li>Cloudflare が変更を検知して<b>自動で再デプロイ</b>します。</li>
+          <li><b>データベースも自動で最新化</b>されます（手作業のマイグレーションは不要）。</li>
+        </ol>
+        <div class="step-tip">💡 「DB変更あり」と書かれたリリースでも、やることは同じ <b>「Sync fork」</b> だけ。必要なデータベースの更新も自動で適用されます。<b>ターミナル操作は不要</b>です。</div>
+      </div>
+    </details>
+
+    <!-- 参照: うまくいかないときは -->
+    <details class="step" id="ref-trouble">
+      <summary>
+        <span class="num">🆘</span>
+        <span class="summary-txt"><h2>うまくいかないときは</h2><span class="sub">よくある症状と確認すること</span></span>
+        <span class="chev">▶</span>
+      </summary>
+      <div class="body">
+        <ul>
+          <li><b>スラッシュコマンド（/recruit 等）が Discord に出てこない</b><br>手順4「コマンドを登録」を実行したか／手順5 の Interaction Endpoint URL を保存したか。</li>
+          <li><b>「サーバーが取得できません」と出る</b><br>Bot をサーバーに招待したか（手順1）／<span class="pill">DISCORD_BOT_TOKEN</span> が正しいか。</li>
+          <li><b>メンバー一覧（ピッカー）が空</b><br>Discord 側で <b>Server Members Intent</b> を ON にしたか（手順1）。</li>
+          <li><b>募集メッセージが投稿されない</b><br>Bot にそのチャンネルへの送信権限があるか／通知の投稿チャンネル設定。</li>
+          <li><b>@ロールのメンションが飛ばない</b><br>招待時に <b>Mention Everyone</b> 権限を付けたか／対象ロールが「メンション可能」か。</li>
+          <li><b>管理画面にログインできない</b><br><span class="pill">ADMIN_TOKEN</span>（手順2）が一致しているか／管理画面の「⚙️ セットアップ」で「設定済み」か。</li>
+        </ul>
       </div>
     </details>
 
