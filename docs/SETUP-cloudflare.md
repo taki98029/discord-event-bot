@@ -1,7 +1,7 @@
 # セットアップ手順（discord-event-bot / Cloudflare Workers + D1）
 
 自己ホスト型の構築手順。**登録が必要なサービスは Discord と Cloudflare の 2 つだけ**・無料枠で動作します。
-データモデルは Server ＞ Notification → Segment ＞ Occurrence（用語は [`CONTEXT.md`](../CONTEXT.md)、設計は [`docs/adr/`](./adr) と [`docs/IMPLEMENTATION-CONTRACT.md`](./IMPLEMENTATION-CONTRACT.md)）。言語=日本語固定 / 時刻=JST固定 / マルチサーバー（テナント分離なし・単一 ADMIN_TOKEN）。
+データモデルは Server ＞ Notification → Segment ＞ Occurrence。言語=日本語固定 / 時刻=JST固定 / マルチサーバー（テナント分離なし・単一 ADMIN_TOKEN）。
 
 ## 0. 前提
 - Node.js 18 以上

@@ -87,7 +87,6 @@ tests/              vitest（D1 含む）
 
 - `setup.html` — **非エンジニア向けセットアップ（BOOTH 配布・ターミナル不要）**
 - [docs/SETUP-cloudflare.md](docs/SETUP-cloudflare.md) — **開発者向け**（CLI でのセットアップ・デプロイ）
-- [docs/IMPLEMENTATION-CONTRACT.md](docs/IMPLEMENTATION-CONTRACT.md) / [docs/adr/](docs/adr/) — 設計ドキュメント / 決定事項（ADR）
 
 ## 📜 ライセンス
 
