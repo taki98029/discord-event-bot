@@ -159,13 +159,14 @@
     <details class="step" id="s0" open>
       <summary>
         <span class="num"><span>0</span></span>
-        <span class="summary-txt"><h2>用意するもの</h2><span class="sub">登録は Discord と Cloudflare の2つだけ・どちらも無料</span></span>
+        <span class="summary-txt"><h2>用意するもの</h2><span class="sub">登録は Discord・Cloudflare・GitHub の3つ・すべて無料</span></span>
         <span class="chev">▶</span>
       </summary>
       <div class="body">
         <ul>
           <li><b>Discord アカウント</b>と、Bot を入れたい<b>サーバーの管理権限</b></li>
           <li><b>Cloudflare アカウント</b>（無料。クレジットカード不要）</li>
+          <li><b>GitHub アカウント</b>（無料。デプロイ用の fork 作成と、アップデート時の「Sync fork」に使います）</li>
         </ul>
         <p>このアシスタントでは、設定に必要な「合言葉」を順に集めていきます。各欄に貼り付けると、次の手順で<b>自動的に使い回します</b>（招待リンクの生成・コピー用の値など）。</p>
         <label class="done-toggle"><input type="checkbox" data-done="0"> 準備できた</label>
@@ -355,11 +356,11 @@
     <details class="step" id="ref-update">
       <summary>
         <span class="num">🔄</span>
-        <span class="summary-txt"><h2>アップデートのしかた</h2><span class="sub">新バージョンが出たら「Sync fork」を押すだけ</span></span>
+        <span class="summary-txt"><h2>アップデートのしかた</h2><span class="sub">新バージョンが出たら GitHub の fork で「Sync fork」を押すだけ</span></span>
         <span class="chev">▶</span>
       </summary>
       <div class="body">
-        <p>新しいバージョンが出たら、<b>自分の GitHub の fork ページ</b>を開いて <b>「Sync fork」</b> ボタンを押すだけです。</p>
+        <p>新しいバージョンが出たら、<b>自分の GitHub の fork ページ</b>を開いて <b>「Sync fork」</b> ボタンを押すだけです。（GitHub アカウントは無料。手順0 で fork 用に用意しておきます）</p>
         <ol>
           <li>Cloudflare が変更を検知して<b>自動で再デプロイ</b>します。</li>
           <li><b>データベースも自動で最新化</b>されます（手作業のマイグレーションは不要）。</li>

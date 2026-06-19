@@ -4,7 +4,7 @@
 
 リポジトリ構成は、実装が `src/`、管理 UI が `ui/`、スキーマのマイグレーションが `migrations/`、配布アシスタント（利用者向けセットアップページ）が `setup.html`（リポジトリ直下）である。言語は日本語。
 
-なお非エンジニアの利用者は CLI を使わず、BOOTH で受け取った `setup.html` から「Deploy to Cloudflare」ボタンでセットアップする（[配信フロー](#配信フロー)参照）。本書は**保守者／開発者が CLI で環境を立ち上げる**ための手順書である。データモデル（Server ＞ Notification → Segment ＞ Occurrence）の用語は [`CONTEXT.md`](CONTEXT.md)、設計は [`docs/dev/adr/`](adr) と [`docs/dev/IMPLEMENTATION-CONTRACT.md`](IMPLEMENTATION-CONTRACT.md) を参照。言語=日本語固定／時刻=JST固定／マルチサーバー（テナント分離なし・単一 `ADMIN_TOKEN`）。
+なお非エンジニアの利用者は CLI を使わず、BOOTH で受け取った `setup.html` から「Deploy to Cloudflare」ボタンでセットアップする（[配信フロー](#配信フロー)参照）。更新は自分の GitHub fork で「Sync fork」を押すだけで完結する（CLI 不要・Workers Builds が自動再デプロイ）。本書は**保守者／開発者が CLI で環境を立ち上げる**ための手順書である。データモデル（Server ＞ Notification → Segment ＞ Occurrence）の用語は [`CONTEXT.md`](CONTEXT.md)、設計は [`docs/dev/adr/`](adr) と [`docs/dev/IMPLEMENTATION-CONTRACT.md`](IMPLEMENTATION-CONTRACT.md) を参照。言語=日本語固定／時刻=JST固定／マルチサーバー（テナント分離なし・単一 `ADMIN_TOKEN`）。
 
 ---
 
@@ -15,10 +15,11 @@
 ### 0. 前提
 
 - Node.js 18 以上（`package.json` の `engines` は `>=18.0.0`）。
+- **GitHub アカウント**（fork を作成し、Sync fork で更新を受け取るため。公開リポジトリは Deploy ボタンの動力源で廃止不可）。
 - Cloudflare アカウント（無料枠で可）。
 - Discord アプリ（Developer Portal）— Bot Token / Application ID / Public Key を取得済みであること。
 
-登録が必要な外部サービスは **Discord と Cloudflare の 2 つだけ**で、いずれも無料枠で動作する。
+登録が必要な外部サービスは **Discord・Cloudflare・GitHub の 3 つ**で、いずれも無料枠で動作する。
 
 ### 1. リポジトリ取得・依存インストール
 
