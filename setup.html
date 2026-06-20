@@ -186,6 +186,7 @@
           <li>左メニュー <b>「General Information」</b> で <b>APPLICATION ID</b> と <b>PUBLIC KEY</b> の「Copy」を押し、下の欄に貼り付け。</li>
           <li>左メニュー <b>「Bot」</b> で <b>「Reset Token」</b> を押してトークンを表示・コピーし、下の欄に貼り付け。
             さらに下にスクロールして <b>「Server Members Intent」を ON</b> にして保存（メンバー一覧の取得に必要）。</li>
+          <li><b>「Installation」</b> タブを開き、<b>「Install Link」</b> を <b>「None」</b> に変更して保存（自分専用 Bot にするため。これをやらないと後で「PUBLIC BOT を OFF にできない」エラーになります）。</li>
         </ol>
         <div class="actions">
           <a class="linkbtn" href="https://discord.com/developers/applications" target="_blank" rel="noopener">
@@ -307,7 +308,13 @@
         <ol>
           <li>下のボタンで管理画面を開き、<b>ADMIN_TOKEN</b>（手順2のパスワード）でログイン。</li>
           <li>左メニュー <b>「⚙️ セットアップ」</b> を開き、シークレットがすべて「設定済み」か確認。</li>
-          <li><b>「コマンドを登録」ボタン</b>を押す（<span class="pill">/recruit</span> などが使えるようになります）。</li>
+          <li><b>「コマンドを登録」ボタン</b>を押す。下記の 3 つが Discord で使えるようになります:
+            <ul>
+              <li><span class="pill">/recruit</span>（管理者用）— 募集メッセージをそのチャンネルに今すぐ送信</li>
+              <li><span class="pill">/help</span>（誰でも）— コマンド一覧と管理画面 URL を表示</li>
+              <li><span class="pill">/manage</span>（管理者用）— 管理画面の URL を表示</li>
+            </ul>
+          </li>
         </ol>
         <div class="actions">
           <a class="linkbtn" id="adminOpen" href="#" target="_blank" rel="noopener">
@@ -390,13 +397,16 @@
       </summary>
       <div class="body">
         <ul>
-          <li><b>スラッシュコマンド（/recruit 等）が Discord に出てこない</b><br>手順4「コマンドを登録」を実行したか／手順5 の Interaction Endpoint URL を保存したか。</li>
+          <li><b>スラッシュコマンド（/recruit /help /manage）が Discord に出てこない</b><br>手順4「コマンドを登録」を実行したか／手順5 の Interaction Endpoint URL を保存したか。</li>
+          <li><b>Discord で Interaction Endpoint URL の保存時に「The specified interactions endpoint url could not be verified」エラー</b><br>Cloudflare 側の <span class="pill">DISCORD_PUBLIC_KEY</span> が未設定 or 誤りです（手順2 の貼り付けを再確認）。シークレットを修正したら、Cloudflare の Worker を一度再デプロイ（Deployments タブから Retry）してから、Discord 側でもう一度 Save。</li>
+          <li><b>Discord で PUBLIC BOT を OFF にしようとして「Private application cannot have a default authorization link」エラー</b><br>Discord Developer Portal → <b>Installation</b> タブ → <b>Install Link</b> を <b>「None」</b> に変更して保存（手順1 の追加ステップ）。</li>
           <li><b>「サーバーが取得できません」と出る</b><br>Bot をサーバーに招待したか（手順1）／<span class="pill">DISCORD_BOT_TOKEN</span> が正しいか。</li>
           <li><b>メンバー一覧（ピッカー）が空</b><br>Discord 側で <b>Server Members Intent</b> を ON にしたか（手順1）。</li>
           <li><b>募集メッセージが投稿されない</b><br>Bot にそのチャンネルへの送信権限があるか／通知の投稿チャンネル設定。</li>
           <li><b>@ロールのメンションが飛ばない</b><br>招待時に <b>Mention Everyone</b> 権限を付けたか／対象ロールが「メンション可能」か。</li>
           <li><b>管理画面にログインできない</b><br><span class="pill">ADMIN_TOKEN</span>（手順2）が一致しているか／管理画面の「⚙️ セットアップ」で「設定済み」か。</li>
-          <li><b>更新後にデータが消えたように見える</b><br>同じ Worker に更新していればデータは保持されます。Cloudflare の Worker → <b>Settings → Bindings</b> で <span class="pill">DB</span>（D1）の紐付けを確認。別の Worker を新規作成すると別のデータベースになります。</li>
+          <li><b>Cloudflare で初回ビルドが走らない（Deployments タブに新しいエントリが出ない）</b><br>fork したリポジトリで何か変更を 1 回 push してください（GitHub Web 上の README 編集など、小さな変更でも OK）。Cloudflare Workers Builds は接続直後にビルドを自動起動せず、次の push を待つ仕様です。</li>
+          <li><b>更新後にデータが消えたように見える</b><br>同じ Worker に更新していればデータは保持されます。Cloudflare の Worker → <b>Settings → Bindings</b> で <span class="pill">DB</span>（D1）の紐付けを確認。同じアカウント内に同名 D1 があれば再利用されるので、Worker を作り直しても多くの場合はデータが維持されます（保証ではないため、重要なデータは管理画面からエクスポートしてバックアップしてください）。</li>
         </ul>
       </div>
     </details>

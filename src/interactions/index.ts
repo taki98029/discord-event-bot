@@ -281,7 +281,7 @@ async function handleButton(
     const mine = memberships.find((m) => m.user_id === userId);
     if (mine && mine.status) {
       return ephemeral(
-        `⏸️ あなたはこの区分で現在「${mine.status}」のため、回答できません。\n管理者に \`/resume\` でステータスを解除してもらってください。`,
+        `⏸️ あなたはこの区分で現在「${mine.status}」のため、回答できません。\n管理者に管理画面（\`/manage\`）でステータスを解除してもらってください。`,
       );
     }
 
