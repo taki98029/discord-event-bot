@@ -24,6 +24,9 @@ Thumbs.db
 dist/
 *.tsbuildinfo
 
+# 保守者ローカル専用の wrangler 上書き設定（実 database_id を含む・配布しない）
+wrangler.local.jsonc
+
 # 移行で生成される実データ（PII含む・コミット禁止）
 scripts/seed.sql
 

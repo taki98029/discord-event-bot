@@ -1,0 +1,43 @@
+{
+  // 配布用の Cloudflare 設定（JSONC）。「Deploy to Cloudflare」ボタン／Workers Builds が
+  // このファイルを読む。JSON 形式なのは、自動生成された database_id の「書き戻し」が
+  // .toml では行われない問題（workers-sdk issue #13632）を避けるため。
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "discord-event-bot",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-12-30",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // --- D1 データベース ---
+  // database_id は「空」にしておく。Cloudflare の自動プロビジョニング（2025-10-24〜）は
+  // 「id の無い／空のバインディング＝新規作成」とみなし、利用者のアカウントに D1 を自動生成する。
+  // マイグレーションはバインディング名 "DB" で解決する（wrangler 4.102.0+ / PR #14275）。
+  // ※ 保守者がローカル CLI から本番 Choiemu へデプロイするときは、実 database_id を持つ
+  //    wrangler.local.jsonc（gitignore 済み）を使う（package.json の deploy:cli）。理由は
+  //    docs/dev/distribution-and-environments.html §4 リスク① / §5 を参照。
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "choiemu-event-bot-db",
+      "database_id": "",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  // --- 日次 cron（UTC基準。0 12 * * * = JST 21:00）---
+  "triggers": {
+    "crons": ["0 12 * * *"]
+  },
+
+  // --- 管理UI（静的アセット）---
+  // ui/ を SPA として配信。env.ASSETS でプログラムからも参照可能。
+  "assets": {
+    "directory": "./ui",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  }
+
+  // シークレットは Deploy ボタンの入力欄、または wrangler secret put で設定（コミットしない）:
+  //   DISCORD_PUBLIC_KEY / DISCORD_APPLICATION_ID / DISCORD_BOT_TOKEN / ADMIN_TOKEN
+  // ※ 投稿チャンネルは Notification ごとに DB で持つため、単一の DISCORD_CHANNEL_ID は廃止。
+}

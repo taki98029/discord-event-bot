@@ -1,7 +1,8 @@
 ---
 paths:
   - "package.json"
-  - "wrangler.toml"
+  - "wrangler.jsonc"
+  - "wrangler.local.jsonc"
   - "migrations/**"
   - "src/**"
   - "scripts/**"
@@ -18,10 +19,17 @@ paths:
 - ローカル検証は `.dev.vars`（テスト用Discordアプリ＋ダミーサーバーの値のみ）。本番値の混入は厳禁。`npm test` / `npm run typecheck` を回す。
 - 仕上げ検証はデプロイ済みテストWorker（テスト用Discordに接続）で行う（ADR 0008）。
 
+## 設定ファイル（wrangler.jsonc）
+- 配布用 `wrangler.jsonc` の `d1_databases[].database_id` は**空文字**に保つ。空にすると Deploy ボタンが利用者のアカウントに D1 を自動生成する。実IDをベタ書きすると利用者のデプロイが失敗する。`.toml` ではなく `jsonc` を使うのは自動生成IDの書き戻し問題（issue #13632）回避のため。
+- `wrangler` 下限は **`^4.102.0`**（空ID＋バインディング名 `DB` でのマイグレーション解決＝PR #14275 が初収録された版）。`package.json` 変更時は `@emnapi` ピン留めを崩さないよう lockfile は npm10 で扱う。
+- 保守者ローカル専用の `wrangler.local.jsonc`（実 `database_id`・**gitignore 済み・配布しない**）は、移行期に CLI から本番へデプロイするためだけに使う。
+
 ## デプロイ
-- `npm run deploy` = `npm run db:migrate:remote && wrangler deploy`。本番D1へマイグレーションを適用してからデプロイする。
+- **素の `npm run deploy`（`db:migrate:remote && wrangler deploy`）は Workers Builds／Deploy ボタン用**。配布用 `wrangler.jsonc` は空IDのため、ローカルから素で実行すると別D1を自動生成してしまう（ローカル本番デプロイには使わない）。
+- 保守者がローカルCLIから本番Choiemuへデプロイするときは **`npm run deploy:cli`**（`wrangler.local.jsonc` を `--config` 指定）。本番D1へマイグレーションを適用してからデプロイする。
 - これは本番Choiemu操作にあたる。CLAUDE.md のルールに従い、実行前に必ずユーザー許可を得る。
 - マイグレーションはバインディング名 `DB` で指定する（`wrangler d1 migrations apply DB --remote`）。Deployボタン配布時に各利用者のD1が別名で生成されるため、バインディング名で統一する。
+- **方針（ADR 0012）**: 本番・検証とも最終的に GitHub→Cloudflare（Workers Builds）経路へ寄せ、`deploy:cli`（ローカルCLIリモートデプロイ）は Workers Builds 本番の立ち上げ後に撤去する移行措置。
 
 ## 配信・更新
 - 配布チャネル: **BOOTH＝入口**。公開GitHubリポジトリ＝「Deploy to Cloudflare」ボタンの動力源で廃止不可（ボタンが公開gitリポジトリを参照するため）。

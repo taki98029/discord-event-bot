@@ -37,7 +37,7 @@ wrangler login            # ブラウザで Cloudflare にログイン
 wrangler d1 create choiemu-event-bot-db   # 名前は任意
 ```
 
-出力された `database_id` を **`wrangler.toml` の `[[d1_databases]]` の `database_id`** に貼り付ける。`[[d1_databases]]` の **バインディング名は `DB`** のままにすること（マイグレーション・デプロイのスクリプトがバインディング名 `DB` を前提にしている。理由は[バインディング名 DB を指定する理由](#バインディング名-db-を指定する理由issue-13632--pr-14275)を参照）。
+出力された `database_id` は、**配布用の `wrangler.jsonc` ではなく `wrangler.local.jsonc`（gitignore 済み・保守者ローカル専用）の `database_id`** に貼り付ける。配布用 `wrangler.jsonc` の `database_id` は**空のまま**にしておくこと（空にしておくと「Deploy to Cloudflare」ボタンが利用者のアカウントに D1 を自動生成する。ベタ書きすると自動生成がスキップされ利用者のデプロイが失敗する。理由は[配布用設定は database_id を空にする](#配布用設定は-database_id-を空にする)を参照）。`d1_databases` の **バインディング名は `DB`** のままにすること（マイグレーション・デプロイのスクリプトがバインディング名 `DB` を前提にしている。理由は[バインディング名 DB を指定する理由](#バインディング名-db-を指定する理由issue-13632--pr-14275)を参照）。
 
 ### 3. スキーマ適用（初回マイグレーション）
 
@@ -71,11 +71,19 @@ npm run register-commands   # = node scripts/register-commands.js
 
 ### 6. 初回デプロイ
 
+保守者がローカル CLI から自分の本番 D1（実 `database_id`）へデプロイするときは、`wrangler.local.jsonc` を指定する **`deploy:cli`** を使う:
+
 ```bash
-npm run deploy   # = npm run db:migrate:remote && wrangler deploy
+npm run deploy:cli
+# = wrangler d1 migrations apply DB --remote --config wrangler.local.jsonc
+#   && wrangler deploy --config wrangler.local.jsonc
 ```
 
-`npm run deploy` は**本番 D1 へマイグレーションを適用してからデプロイ**する。本番 Choiemu 操作にあたるため、実行前に必ずユーザーの明示的な許可を得ること（詳細は[npm run deploy の本番マイグレーション挙動](#npm-run-deploy-の本番マイグレーション挙動要ユーザー許可)）。出力される URL（例 `https://discord-event-bot.<account>.workers.dev`）を控える。
+配布用 `wrangler.jsonc` は `database_id` が空のため、素の `npm run deploy`（`--config` 無し）をローカルで実行すると**本番とは別の新しい D1 を自動生成してしまう**（本番 Choiemu データから切り離される）。素の `npm run deploy` は **Workers Builds／Deploy ボタン側が実行する用**で、ローカルからの本番デプロイには使わない。詳細は[配布用設定は database_id を空にする](#配布用設定は-database_id-を空にする)を参照。
+
+`deploy:cli` も**本番 D1 へマイグレーションを適用してからデプロイ**する。本番 Choiemu 操作にあたるため、実行前に必ずユーザーの明示的な許可を得ること（詳細は[npm run deploy の本番マイグレーション挙動](#npm-run-deploy-の本番マイグレーション挙動要ユーザー許可)）。出力される URL（例 `https://discord-event-bot.<account>.workers.dev`）を控える。
+
+> **方針（[ADR 0012](adr/0012-three-tier-parity.md)）**: 本番も検証も最終的には GitHub→Cloudflare（Workers Builds）経路に寄せ、ローカルからの CLI リモートデプロイ（`deploy:cli`）は撤去する。`deploy:cli` は Workers Builds 本番が立ち上がるまでの**移行措置**である。
 
 ### 7. Discord 側の設定
 
@@ -229,17 +237,24 @@ deploy スクリプト（npm run deploy）が自動実行:
 
 ## 注意点
 
-### npm run deploy の本番マイグレーション挙動（要ユーザー許可）
+### 配布用設定は database_id を空にする
 
-- `npm run deploy` は `"deploy": "npm run db:migrate:remote && wrangler deploy"` であり、**本番 D1 へマイグレーションを適用してからデプロイする**。
-- `db:migrate:remote` は `wrangler d1 migrations apply DB --remote`。`--remote` は本番（リモート）D1 を対象とする。
-- これは本番 Choiemu 操作にあたるため、[CLAUDE.md](../CLAUDE.md) のルールに従い、**実行前に必ずユーザーの明示的な許可を得る**こと。
+- 配布用 `wrangler.jsonc` の `d1_databases[].database_id` は**空文字**にしてある。Cloudflare の自動プロビジョニング（2025-10-24〜）は「id の無い／空のバインディング＝新規作成」とみなし、「Deploy to Cloudflare」ボタンで利用者のアカウントに D1 を自動生成する。実 `database_id` をベタ書きすると、そのリソースは利用者のアカウントに存在しないため自動生成がスキップされ、**利用者のデプロイが失敗する**。
+- 自動生成された id の「書き戻し」が `.toml` では行われない（workers-sdk issue #13632）ため、設定ファイルは **`wrangler.jsonc`（JSON 形式）** にしている。
+- **保守者の落とし穴**: 同じ空 `database_id` の設定をローカルでも使うと、ローカルからの `wrangler deploy` も自動プロビジョニングで**本番とは別の D1 を作ってしまう**。保守者が本番 Choiemu へ CLI デプロイするときは、実 `database_id` を持つ `wrangler.local.jsonc`（gitignore 済み）を `--config` で指定する **`npm run deploy:cli`** を使う。
+
+### npm run deploy / deploy:cli の本番マイグレーション挙動（要ユーザー許可）
+
+- 素の `npm run deploy`（`"npm run db:migrate:remote && wrangler deploy"`）は **Workers Builds／Deploy ボタンが実行する用**。ローカルから素で実行すると上記のとおり別 D1 を作るため、ローカルからの本番デプロイには使わない。
+- 保守者がローカル CLI から本番 Choiemu へデプロイするときは **`npm run deploy:cli`**（`wrangler.local.jsonc` を `--config` 指定）を使う。これも **本番 D1 へマイグレーションを適用してからデプロイする**。
+- `--remote` は本番（リモート）D1 を対象とする。これは本番 Choiemu 操作にあたるため、[CLAUDE.md](../CLAUDE.md) のルールに従い、**実行前に必ずユーザーの明示的な許可を得る**こと。
 - 開発中にスキーマを試すときは、本番ではなく `npm run db:migrate:local`（`--local`）を使う。
 
 ### バインディング名 DB を指定する理由（issue #13632 → PR #14275）
 
 - マイグレーションコマンドは「データベース名」ではなく「**バインディング名 `DB`**」で指定している（`wrangler d1 migrations apply DB --remote` / `--local`）。
 - 理由: 「Deploy to Cloudflare」ボタンで配布すると、各利用者の D1 は**別名で自動生成**される。データベース名で指定すると利用者ごとに名前が異なって動かないが、**バインディング名は全環境で `DB` に揃う**ため、同じスクリプトがそのまま動く。これは Cloudflare 公式推奨の方式で、関連 issue #13632 は PR #14275 で解決済み。
+- `database_id` を空にしてもバインディング名 `DB` から UUID を API 解決して `wrangler d1 migrations apply DB --remote` が通るのは PR #14275（**wrangler 4.102.0 で初収録**）以降。このため `package.json` の `wrangler` 下限は **`^4.102.0`** に固定している（4.101.x へ戻ると空 id でマイグレーションが解決できない）。`package.json` を変更する際は `@emnapi` ピン留め（Deploy ビルド対策）を崩さないよう、lockfile は npm10 で扱うこと。
 
 ### Deploy ボタンのシークレット入力
 

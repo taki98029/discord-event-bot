@@ -61,133 +61,147 @@
 
   <p class="meta">discord-event-bot ／ 作成 2026-06-20 ／ 対象バージョン v7.0.1</p>
   <h1>配信と利用環境ガイド</h1>
-  <p class="lead">「私（保守者）の利用環境」と「ユーザーの利用環境」がどう違うのか、ユーザーがどうセットアップするのか、データベース（D1）はどう立つのかを、図とともに要点解説する文書です。出典は本リポジトリの設定ファイル・ADR と Cloudflare 公式ドキュメント（末尾に一覧）。Cloudflare の挙動に関する記述は公式ドキュメント・GitHub で確認したものですが、配布の通し挙動の最終確認は実デプロイで行う前提です。</p>
+  <p class="lead">「<b>開発者のテスト環境（staging）</b>」「<b>開発者の本番環境（Choiemu）</b>」「<b>ユーザーの本番環境</b>」の3つがどう違い・どうつながるのか、ユーザーがどうセットアップするのか、データベース（D1）はどう立つのかを、図とともに要点解説する文書です。3環境はいずれも「公開GitHub → Cloudflare Workers Builds」で動きます（<a href="adr/0012-three-tier-parity.md">ADR 0012</a>）。出典は本リポジトリの設定ファイル・ADR と Cloudflare 公式ドキュメント（末尾に一覧）。Cloudflare の挙動に関する記述は公式ドキュメント・GitHub で確認したものですが、配布の通し挙動の最終確認は実デプロイで行う前提です。</p>
 
-  <h2>1. 全体像：4つのフロー</h2>
-  <p>このプロジェクトには性質の異なる4つのフローがあります。<b>①開発</b>のあと道が左右に分かれ、<b>③私の本番</b>はローカルからCLIで直接、<b>②配信→④ユーザーの本番</b>は公開GitHub経由のノンCLIで構築されます。いったん動き出せば、運用と利用の方法は両者で同じです。</p>
+  <h2>1. 全体像：開発と3つの環境</h2>
+  <p>登場するのは <b>開発者のローカル（開発の起点）</b> と、そこから公開GitHub経由でデプロイされる<b>3つの環境</b>です ── <b>② 開発者のテスト環境（staging）</b>／<b>③ 開発者の本番環境（Choiemu）</b>／<b>④ ユーザーの本番環境</b>。<a href="adr/0012-three-tier-parity.md">ADR 0012</a> の方針では、この3環境はすべて同じ <b>「公開GitHub → Cloudflare Workers Builds」</b> 経路で動きます（＝デプロイ機構が同一＝環境差が出ない）。違いは「どのブランチ/forkを見るか」と「どのDiscord・データに繋がるか」だけです。</p>
 
   <figure>
-    <svg viewBox="0 0 680 545" role="img" aria-label="4つのフローの関係図">
+    <svg viewBox="0 0 700 500" role="img" aria-label="開発と3つの環境の全体像">
       <defs><marker id="ar1" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#888780" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
 
-      <rect x="240" y="30" width="200" height="54" rx="8" fill="#0F6E56"/>
-      <text x="340" y="49" font-size="14" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">① 開発フロー（私）</text>
-      <text x="340" y="67" font-size="12" fill="#9FE1CB" text-anchor="middle" dominant-baseline="central">実装→テスト→リリース</text>
+      <rect x="270" y="20" width="160" height="50" rx="8" fill="#0F6E56"/>
+      <text x="350" y="39" font-size="14" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">① 開発（開発者・ローカル）</text>
+      <text x="350" y="57" font-size="11" fill="#9FE1CB" text-anchor="middle" dominant-baseline="central">実装・テスト・push</text>
 
-      <rect x="60" y="196" width="180" height="54" rx="8" fill="#712B13"/>
-      <text x="150" y="215" font-size="14" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">③ 私のデプロイ</text>
-      <text x="150" y="233" font-size="12" fill="#F0997B" text-anchor="middle" dominant-baseline="central">npm run deploy（CLI）</text>
+      <rect x="250" y="110" width="200" height="54" rx="8" fill="#444441"/>
+      <text x="350" y="129" font-size="14" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">公開GitHub（開発者が所有）</text>
+      <text x="350" y="147" font-size="11" fill="#C7C5BC" text-anchor="middle" dominant-baseline="central">staging / main ＋ 利用者の fork</text>
 
-      <rect x="60" y="286" width="180" height="54" rx="8" fill="#712B13"/>
-      <text x="150" y="305" font-size="14" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">私のChoiemu本番</text>
-      <text x="150" y="323" font-size="12" fill="#F0997B" text-anchor="middle" dominant-baseline="central">自分のD1で稼働</text>
+      <rect x="30" y="222" width="200" height="84" rx="8" fill="#854F0B"/>
+      <text x="130" y="246" font-size="14" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">② 開発者のテスト環境</text>
+      <text x="130" y="268" font-size="11" fill="#FAC775" text-anchor="middle" dominant-baseline="central">staging → Workers Builds</text>
+      <text x="130" y="290" font-size="11" fill="#FAC775" text-anchor="middle" dominant-baseline="central">テストD1＋テスト用Discord</text>
 
-      <rect x="430" y="116" width="180" height="50" rx="8" fill="#444441"/>
-      <text x="520" y="134" font-size="14" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">公開GitHub</text>
-      <text x="520" y="151" font-size="12" fill="#C7C5BC" text-anchor="middle" dominant-baseline="central">リリース済みコード</text>
+      <rect x="250" y="222" width="200" height="84" rx="8" fill="#712B13"/>
+      <text x="350" y="246" font-size="14" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">③ 開発者の本番環境</text>
+      <text x="350" y="268" font-size="11" fill="#F0997B" text-anchor="middle" dominant-baseline="central">main → Workers Builds</text>
+      <text x="350" y="290" font-size="11" fill="#F0997B" text-anchor="middle" dominant-baseline="central">本番D1＋本番Choiemu</text>
 
-      <rect x="430" y="196" width="180" height="54" rx="8" fill="#3C3489"/>
-      <text x="520" y="215" font-size="14" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">② 配信フロー</text>
-      <text x="520" y="233" font-size="12" fill="#AFA9EC" text-anchor="middle" dominant-baseline="central">BOOTH→Deployボタン</text>
+      <rect x="470" y="222" width="200" height="84" rx="8" fill="#3C3489"/>
+      <text x="570" y="246" font-size="14" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">④ ユーザーの本番環境</text>
+      <text x="570" y="268" font-size="11" fill="#AFA9EC" text-anchor="middle" dominant-baseline="central">fork → Workers Builds</text>
+      <text x="570" y="290" font-size="11" fill="#AFA9EC" text-anchor="middle" dominant-baseline="central">自動生成D1＋各自Discord</text>
 
-      <rect x="430" y="286" width="180" height="54" rx="8" fill="#3C3489"/>
-      <text x="520" y="305" font-size="14" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">④ ユーザの本番</text>
-      <text x="520" y="323" font-size="12" fill="#AFA9EC" text-anchor="middle" dominant-baseline="central">ノンCLIで稼働</text>
+      <rect x="220" y="400" width="260" height="72" rx="8" fill="#444441"/>
+      <text x="350" y="424" font-size="14" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">運用・利用は全環境で同じ</text>
+      <text x="350" y="446" font-size="11" fill="#C7C5BC" text-anchor="middle" dominant-baseline="central">管理UIで設定 → Discordで回答</text>
 
-      <rect x="220" y="380" width="240" height="54" rx="8" fill="#444441"/>
-      <text x="340" y="399" font-size="14" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">管理UIで運用</text>
-      <text x="340" y="417" font-size="12" fill="#C7C5BC" text-anchor="middle" dominant-baseline="central">区分・通知を設定</text>
-
-      <rect x="220" y="458" width="240" height="54" rx="8" fill="#444441"/>
-      <text x="340" y="477" font-size="14" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">参加者が利用</text>
-      <text x="340" y="495" font-size="12" fill="#C7C5BC" text-anchor="middle" dominant-baseline="central">ボタン回答・DM受信</text>
-
-      <line x1="290" y1="84" x2="156" y2="193" stroke="#888780" stroke-width="1.5" marker-end="url(#ar1)"/>
-      <line x1="390" y1="84" x2="514" y2="114" stroke="#888780" stroke-width="1.5" marker-end="url(#ar1)"/>
-      <line x1="520" y1="166" x2="520" y2="194" stroke="#888780" stroke-width="1.5" marker-end="url(#ar1)"/>
-      <line x1="520" y1="250" x2="520" y2="284" stroke="#888780" stroke-width="1.5" marker-end="url(#ar1)"/>
-      <line x1="150" y1="250" x2="150" y2="284" stroke="#888780" stroke-width="1.5" marker-end="url(#ar1)"/>
-      <line x1="150" y1="340" x2="293" y2="378" stroke="#888780" stroke-width="1.5" marker-end="url(#ar1)"/>
-      <line x1="520" y1="340" x2="387" y2="378" stroke="#888780" stroke-width="1.5" marker-end="url(#ar1)"/>
-      <line x1="340" y1="434" x2="340" y2="456" stroke="#888780" stroke-width="1.5" marker-end="url(#ar1)"/>
+      <line x1="350" y1="70" x2="350" y2="108" stroke="#888780" stroke-width="1.5" marker-end="url(#ar1)"/>
+      <line x1="305" y1="164" x2="135" y2="220" stroke="#888780" stroke-width="1.5" marker-end="url(#ar1)"/>
+      <line x1="350" y1="164" x2="350" y2="220" stroke="#888780" stroke-width="1.5" marker-end="url(#ar1)"/>
+      <line x1="395" y1="164" x2="565" y2="220" stroke="#888780" stroke-width="1.5" marker-end="url(#ar1)"/>
+      <line x1="130" y1="306" x2="285" y2="398" stroke="#888780" stroke-width="1.5" marker-end="url(#ar1)"/>
+      <line x1="350" y1="306" x2="350" y2="398" stroke="#888780" stroke-width="1.5" marker-end="url(#ar1)"/>
+      <line x1="570" y1="306" x2="415" y2="398" stroke="#888780" stroke-width="1.5" marker-end="url(#ar1)"/>
     </svg>
-    <figcaption>番号①②③④は本文の4フローに対応（③＝赤の2箱：私のデプロイ→私のChoiemu本番）。緑=開発（私）／赤=私の本番（CLI）／紫=配信＋ユーザーの本番（ノンCLI）／灰=両者共通</figcaption>
+    <figcaption>目標構成（<a href="adr/0012-three-tier-parity.md">ADR 0012</a>・移行中）。開発者が所有する公開GitHubの staging／main ブランチと、利用者の fork が、いずれも Workers Builds で各環境へ自動デプロイ。色: 緑=開発／橙=開発者のテスト／赤=開発者の本番／紫=ユーザー本番／灰=共通。※現状は③のみローカルCLI（<code>deploy:cli</code>）で稼働、②staging は未構築。</figcaption>
   </figure>
 
   <ul>
-    <li><b>違いは「どう動かし始めるか・どう更新するか」だけ。</b> 動き出した後の運用（管理UI）と利用（Discord）は両者で同一です。</li>
-    <li><b>②配信は「届ける仕組み」</b>で、利用そのものではありません。BOOTH（入口）＋公開GitHub（Deployボタンの動力源）の二層構成（<a href="adr/0011-distribution-and-update-model.md">ADR 0011</a>）。</li>
-    <li><b>インスタンスは人ごとに別物。</b> それぞれ別のCloudflareアカウント・別のWorker・別のD1で、データは完全に独立（テナント分離ではなく各自が自己ホスト）。</li>
+    <li><b>開発者の本番（③）とテスト（②）は分離。</b> 同じ機構でも、③は本番Choiemu＋本番D1、②はテスト用Discord＋テストD1に繋がる<b>別環境</b>（データは完全に独立）。</li>
+    <li><b>3環境ともデプロイ機構は同一（parity）。</b> 公開GitHub → Workers Builds が <code>npm run deploy</code>（マイグレーション＋デプロイ）を自動実行する（<a href="adr/0008-verify-on-deployed-test-worker.md">ADR 0008</a>／<a href="adr/0012-three-tier-parity.md">ADR 0012</a>）。だから②で本番と同条件の検証ができる。</li>
+    <li><b>インスタンスは環境ごとに別物。</b> それぞれ別のWorker・別のD1で、データは独立（ユーザー環境はテナント分離ではなく各自が自己ホスト）。</li>
+    <li><b>移行中。</b> 現状は③開発者の本番のみローカルCLI（<code>npm run deploy:cli</code>）で稼働、②staging は未構築。Workers Builds 接続後に上図へ統一する（§5）。</li>
   </ul>
 
-  <h2>2. 私の利用環境 vs ユーザーの利用環境</h2>
-  <p>核心は<b>「ソースコードの居場所」と「デプロイ経路」</b>が左右で対になっている点です。私のソースの正本はローカル（PC）にあり、それを公開GitHubへ push して配布元にします。ユーザーのソースは公開GitHubを fork した「ユーザー自身のGitHub上のコピー」で、ローカルには持ちません。</p>
+  <h2>2. 3つの環境（開発者のテスト・開発者の本番・ユーザー本番）</h2>
+  <p>3つの環境はすべて <b>「公開GitHub → Workers Builds」</b> という同じ仕組みで動きます（＝デプロイ機構が同一＝<b>parity</b>。<a href="adr/0012-three-tier-parity.md">ADR 0012</a>）。開発者のソースの正本はローカル（PC）にあり、それを公開GitHubへ push して<b>全環境の起点</b>にします。各環境の違いは <b>「どのブランチ/forkを見るか」</b>（②=<code>staging</code>／③=<code>main</code>／④=利用者の fork）と、<b>「どのDiscord・データに繋がるか」</b>だけです。とりわけ <b>② 開発者のテスト環境と ③ 開発者の本番環境（Choiemu）は、同じ機構でもデータ・接続先が完全に独立した別環境</b>として分離します。</p>
 
   <figure>
-    <svg viewBox="0 0 680 480" role="img" aria-label="私の利用環境とユーザの利用環境の比較図">
+    <svg viewBox="0 0 700 450" role="img" aria-label="3つの環境（開発者のテスト・開発者の本番・ユーザー本番）の比較図">
       <defs><marker id="ar2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#888780" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
 
-      <rect x="250" y="30" width="180" height="50" rx="8" fill="#444441"/>
-      <text x="340" y="48" font-size="14" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">公開GitHub</text>
-      <text x="340" y="66" font-size="12" fill="#C7C5BC" text-anchor="middle" dominant-baseline="central">私が所有・配布元</text>
+      <rect x="40" y="20" width="160" height="46" rx="8" fill="#0F6E56"/>
+      <text x="120" y="38" font-size="13" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">開発者のローカル（正本）</text>
+      <text x="120" y="56" font-size="11" fill="#9FE1CB" text-anchor="middle" dominant-baseline="central">実装・push</text>
 
-      <rect x="40" y="128" width="220" height="324" rx="16" fill="none" stroke="#D85A30" stroke-width="1" stroke-dasharray="6 4"/>
-      <text x="54" y="148" font-size="14" font-weight="600" class="svg-muted">私の利用環境</text>
-      <rect x="420" y="128" width="220" height="324" rx="16" fill="none" stroke="#7F77DD" stroke-width="1" stroke-dasharray="6 4"/>
-      <text x="434" y="148" font-size="14" font-weight="600" class="svg-muted">ユーザの利用環境</text>
+      <rect x="270" y="20" width="200" height="46" rx="8" fill="#444441"/>
+      <text x="370" y="38" font-size="13" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">公開GitHub（開発者が所有）</text>
+      <text x="370" y="56" font-size="11" fill="#C7C5BC" text-anchor="middle" dominant-baseline="central">staging / main / fork</text>
 
-      <rect x="55" y="162" width="190" height="52" rx="8" fill="#712B13"/>
-      <text x="150" y="181" font-size="14" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">ローカルのリポジトリ</text>
-      <text x="150" y="199" font-size="12" fill="#F0997B" text-anchor="middle" dominant-baseline="central">私のPC（ソースの正本）</text>
-      <rect x="60" y="230" width="180" height="30" rx="14" fill="#4A1B0C"/>
-      <text x="150" y="245" font-size="12" fill="#F5C4B3" text-anchor="middle" dominant-baseline="central">npm run deploy（CLI）</text>
-      <rect x="55" y="288" width="190" height="60" rx="8" fill="#712B13"/>
-      <text x="150" y="309" font-size="14" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">私のCloudflare</text>
-      <text x="150" y="327" font-size="12" fill="#F0997B" text-anchor="middle" dominant-baseline="central">Worker＋D1（自前構築）</text>
-      <rect x="55" y="388" width="190" height="52" rx="8" fill="#712B13"/>
-      <text x="150" y="407" font-size="14" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">本番Choiemu</text>
-      <text x="150" y="425" font-size="12" fill="#F0997B" text-anchor="middle" dominant-baseline="central">私のDiscordサーバー</text>
+      <line x1="200" y1="43" x2="268" y2="43" stroke="#888780" stroke-width="1.5" marker-end="url(#ar2)"/>
 
-      <rect x="435" y="162" width="190" height="52" rx="8" fill="#3C3489"/>
-      <text x="530" y="181" font-size="14" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">GitHubのfork</text>
-      <text x="530" y="199" font-size="12" fill="#AFA9EC" text-anchor="middle" dominant-baseline="central">ユーザのGitHub上</text>
-      <rect x="440" y="230" width="180" height="30" rx="14" fill="#26215C"/>
-      <text x="530" y="245" font-size="12" fill="#CECBF6" text-anchor="middle" dominant-baseline="central">Workers Builds（自動）</text>
-      <rect x="435" y="288" width="190" height="60" rx="8" fill="#3C3489"/>
-      <text x="530" y="309" font-size="14" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">ユーザのCloudflare</text>
-      <text x="530" y="327" font-size="12" fill="#AFA9EC" text-anchor="middle" dominant-baseline="central">Worker＋D1（自動生成）</text>
-      <rect x="435" y="388" width="190" height="52" rx="8" fill="#3C3489"/>
-      <text x="530" y="407" font-size="14" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">ユーザのDiscord</text>
-      <text x="530" y="425" font-size="12" fill="#AFA9EC" text-anchor="middle" dominant-baseline="central">各自のサーバー</text>
+      <rect x="18" y="92" width="445" height="338" rx="16" fill="none" stroke="#D85A30" stroke-width="1" stroke-dasharray="6 4"/>
+      <text x="32" y="111" font-size="13" font-weight="600" class="svg-muted">開発者の環境（テスト＋本番）</text>
+      <rect x="478" y="92" width="204" height="338" rx="16" fill="none" stroke="#7F77DD" stroke-width="1" stroke-dasharray="6 4"/>
+      <text x="492" y="111" font-size="13" font-weight="600" class="svg-muted">ユーザーの環境</text>
 
-      <text x="198" y="115" font-size="12" class="svg-muted" text-anchor="end">git push（公開）</text>
-      <line x1="185" y1="162" x2="266" y2="82" stroke="#888780" stroke-width="1.5" marker-end="url(#ar2)"/>
-      <text x="460" y="115" font-size="12" class="svg-muted">fork / Sync fork</text>
-      <line x1="414" y1="82" x2="488" y2="160" stroke="#888780" stroke-width="1.5" marker-end="url(#ar2)"/>
+      <rect x="33" y="128" width="190" height="46" rx="8" fill="#854F0B"/>
+      <text x="128" y="151" font-size="13" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">staging ブランチ</text>
+      <rect x="43" y="196" width="170" height="30" rx="14" fill="#5C3608"/>
+      <text x="128" y="211" font-size="11" fill="#FAC775" text-anchor="middle" dominant-baseline="central">Workers Builds（自動）</text>
+      <rect x="33" y="256" width="190" height="56" rx="8" fill="#854F0B"/>
+      <text x="128" y="277" font-size="13" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">Worker＋テストD1</text>
+      <text x="128" y="295" font-size="11" fill="#FAC775" text-anchor="middle" dominant-baseline="central">自動生成</text>
+      <rect x="33" y="342" width="190" height="46" rx="8" fill="#854F0B"/>
+      <text x="128" y="365" font-size="13" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">テスト用Discord</text>
+      <text x="128" y="412" font-size="11" class="svg-muted" text-anchor="middle">用途: 仕上げ検証</text>
 
-      <line x1="150" y1="214" x2="150" y2="228" stroke="#888780" stroke-width="1.5" marker-end="url(#ar2)"/>
-      <line x1="150" y1="260" x2="150" y2="286" stroke="#888780" stroke-width="1.5" marker-end="url(#ar2)"/>
-      <line x1="150" y1="348" x2="150" y2="386" stroke="#888780" stroke-width="1.5" marker-end="url(#ar2)"/>
-      <line x1="530" y1="214" x2="530" y2="228" stroke="#888780" stroke-width="1.5" marker-end="url(#ar2)"/>
-      <line x1="530" y1="260" x2="530" y2="286" stroke="#888780" stroke-width="1.5" marker-end="url(#ar2)"/>
-      <line x1="530" y1="348" x2="530" y2="386" stroke="#888780" stroke-width="1.5" marker-end="url(#ar2)"/>
+      <rect x="250" y="128" width="190" height="46" rx="8" fill="#712B13"/>
+      <text x="345" y="151" font-size="13" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">main ブランチ</text>
+      <rect x="260" y="196" width="170" height="30" rx="14" fill="#4A1B0C"/>
+      <text x="345" y="211" font-size="11" fill="#F0997B" text-anchor="middle" dominant-baseline="central">Workers Builds（自動）</text>
+      <rect x="250" y="256" width="190" height="56" rx="8" fill="#712B13"/>
+      <text x="345" y="277" font-size="13" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">Worker＋本番D1</text>
+      <text x="345" y="295" font-size="11" fill="#F0997B" text-anchor="middle" dominant-baseline="central">実データ</text>
+      <rect x="250" y="342" width="190" height="46" rx="8" fill="#712B13"/>
+      <text x="345" y="365" font-size="13" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">本番Choiemu</text>
+      <text x="345" y="412" font-size="11" class="svg-muted" text-anchor="middle">用途: 実運用（Choiemu）</text>
+
+      <rect x="485" y="128" width="190" height="46" rx="8" fill="#3C3489"/>
+      <text x="580" y="151" font-size="13" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">GitHubのfork</text>
+      <rect x="495" y="196" width="170" height="30" rx="14" fill="#26215C"/>
+      <text x="580" y="211" font-size="11" fill="#AFA9EC" text-anchor="middle" dominant-baseline="central">Workers Builds（自動）</text>
+      <rect x="485" y="256" width="190" height="56" rx="8" fill="#3C3489"/>
+      <text x="580" y="277" font-size="13" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">Worker＋自動生成D1</text>
+      <text x="580" y="295" font-size="11" fill="#AFA9EC" text-anchor="middle" dominant-baseline="central">自動生成</text>
+      <rect x="485" y="342" width="190" height="46" rx="8" fill="#3C3489"/>
+      <text x="580" y="365" font-size="13" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">各自のDiscord</text>
+      <text x="580" y="412" font-size="11" class="svg-muted" text-anchor="middle">用途: 利用者の実運用</text>
+
+      <line x1="330" y1="66" x2="150" y2="126" stroke="#888780" stroke-width="1.5" marker-end="url(#ar2)"/>
+      <line x1="360" y1="66" x2="345" y2="126" stroke="#888780" stroke-width="1.5" marker-end="url(#ar2)"/>
+      <line x1="420" y1="66" x2="560" y2="126" stroke="#888780" stroke-width="1.5" marker-end="url(#ar2)"/>
+
+      <line x1="128" y1="174" x2="128" y2="194" stroke="#888780" stroke-width="1.5" marker-end="url(#ar2)"/>
+      <line x1="128" y1="226" x2="128" y2="254" stroke="#888780" stroke-width="1.5" marker-end="url(#ar2)"/>
+      <line x1="128" y1="312" x2="128" y2="340" stroke="#888780" stroke-width="1.5" marker-end="url(#ar2)"/>
+      <line x1="345" y1="174" x2="345" y2="194" stroke="#888780" stroke-width="1.5" marker-end="url(#ar2)"/>
+      <line x1="345" y1="226" x2="345" y2="254" stroke="#888780" stroke-width="1.5" marker-end="url(#ar2)"/>
+      <line x1="345" y1="312" x2="345" y2="340" stroke="#888780" stroke-width="1.5" marker-end="url(#ar2)"/>
+      <line x1="580" y1="174" x2="580" y2="194" stroke="#888780" stroke-width="1.5" marker-end="url(#ar2)"/>
+      <line x1="580" y1="226" x2="580" y2="254" stroke="#888780" stroke-width="1.5" marker-end="url(#ar2)"/>
+      <line x1="580" y1="312" x2="580" y2="340" stroke="#888780" stroke-width="1.5" marker-end="url(#ar2)"/>
     </svg>
-    <figcaption>左=私の環境（ローカル正本＋CLI）／右=ユーザーの環境（fork＋自動）。上の公開GitHubが両者をつなぐ起点</figcaption>
+    <figcaption>3環境はすべて「公開GitHub → Workers Builds」で動く（機構は同一＝parity）。違いは見るブランチ/forkと、接続先Discord・データだけ。開発者のソース正本はローカルにあり push が全環境の起点。橙=開発者のテスト／赤=開発者の本番／紫=ユーザー本番。</figcaption>
   </figure>
 
   <table>
-    <thead><tr><th>軸</th><th>私の利用環境</th><th>ユーザーの利用環境</th></tr></thead>
+    <thead><tr><th>軸</th><th>② 開発者のテスト環境</th><th>③ 開発者の本番環境</th><th>④ ユーザーの本番環境</th></tr></thead>
     <tbody>
-      <tr><td>ソースの正本</td><td>ローカル（私のPC）</td><td>GitHubのfork（ユーザーのGitHub上）</td></tr>
-      <tr><td>公開GitHubとの関係</td><td>私が所有（オリジナル）・push する</td><td>オリジナルを fork して使う</td></tr>
-      <tr><td>デプロイ手段</td><td><code>npm run deploy</code>（CLI・手動）</td><td>Workers Builds（自動・ノンCLI）</td></tr>
-      <tr><td>Cloudflare</td><td>自分で <code>wrangler d1 create</code> 等で自前構築</td><td>Deployボタンで自動生成（利用者ごとに別名・名前は環境依存）</td></tr>
-      <tr><td>シークレット投入</td><td><code>wrangler secret put</code>（CLI）</td><td>Deployボタンの入力欄に貼り付け</td></tr>
-      <tr><td>マイグレーション</td><td>私がCLIで本番D1へ（<code>--remote</code>・要許可）</td><td>deployスクリプトが各自のD1へ自動適用</td></tr>
-      <tr><td>更新のきっかけ</td><td>私がもう一度 <code>npm run deploy</code></td><td>ユーザーが fork で「Sync fork」</td></tr>
-      <tr><td>Discord</td><td>本番Choiemu（私のサーバー）</td><td>ユーザー各自のサーバー</td></tr>
+      <tr><td>ソース（見る先）</td><td><code>staging</code> ブランチ（開発者の公開リポジトリ）</td><td><code>main</code> ブランチ（開発者の公開リポジトリ）</td><td>公開リポジトリの fork（利用者のGitHub）</td></tr>
+      <tr><td>ソースの正本</td><td colspan="2">開発者のローカル → 公開GitHub へ push</td><td>オリジナルは開発者。利用者が fork して取得</td></tr>
+      <tr><td>デプロイ機構</td><td colspan="3">公開GitHub → <b>Cloudflare Workers Builds</b>（<code>npm run deploy</code> を自動実行・ノンCLI）＝3環境で同一</td></tr>
+      <tr><td>Cloudflare（D1）</td><td>staging Worker＋テストD1（自動生成）</td><td>本番Worker＋本番D1</td><td>Worker＋D1（自動生成）</td></tr>
+      <tr><td>Discord 接続先</td><td>テスト用アプリ＋ダミーサーバー</td><td>本番Choiemu（開発者のサーバー）</td><td>利用者各自のサーバー</td></tr>
+      <tr><td>更新のきっかけ</td><td><code>staging</code> へ push</td><td><code>main</code> へ昇格（push）</td><td>fork で「Sync fork」</td></tr>
+      <tr><td>用途</td><td>仕上げ検証（本番と同条件のパリティ確認）</td><td>実運用（Choiemu）</td><td>利用者の実運用</td></tr>
+      <tr><td>現状（移行）</td><td>未構築（Workers Builds 接続予定）</td><td>当面ローカルCLI（<code>deploy:cli</code>）→ Workers Builds へ移行</td><td>設計どおり（空 <code>database_id</code> で自動生成）</td></tr>
     </tbody>
   </table>
+
+  <p class="lead">※ 利用者環境（④）の<b>初回だけ</b>は「Deploy to Cloudflare ボタン」で構築（D1自動生成）し、<b>更新以降</b>が Workers Builds 経由です（§3）。②③（開発者の環境）はブランチへの push が常に Workers Builds を起動します。現状は③のみ移行前でローカルCLI（<code>deploy:cli</code>）稼働中です。</p>
 
   <h2>3. ユーザーのセットアップとD1の自動構築</h2>
   <p>ユーザーが必要とするのは<b>無料の3アカウントだけ</b>。データベース（D1）はユーザーが手で作る場面が一切なく、Deployボタンが自動生成し、スキーマもマイグレーションで自動適用されます。</p>
@@ -243,30 +257,43 @@
   <p>省けますが、GitHub登録（Webフォーム1回）の代わりに<b>CLI環境一式（Node＋wrangler＋ターミナル操作）</b>を背負わせることになり、非エンジニアには逆に難しくなります。Cloudflareで「Worker＋D1＋マイグレーション」をノンCLIで立てる経路は実質Deployボタンだけで、それは公開gitリポジトリを参照するため、GitHub（またはGitLab）は原理的に外せません。さらにGitHubは「更新がSync fork 1回」も成立させているので、継続的にも効きます。<b>結論：3サービス（GitHub/Cloudflare/Discord）が最小かつ最簡。</b></p>
 
   <h2>4. リスク・要対応</h2>
-  <p>公開配布を本当に成立させる前に、以下を確認・対応する必要があります。重大度は<b>確度×影響</b>で付与（<span class="badge b-high">最優先</span>＝放置すると配布が成立しない／<span class="badge b-mid">中</span>＝品質・信頼性の問題／<span class="badge b-ok">対応済み</span>＝本変更で修正）。①②は「Cloudflare 仕様上ほぼ確実に詰まる／設定が要る」未対応項目、③（記述不整合）は対応済みです。</p>
+  <p>公開配布を本当に成立させる前に、以下を確認・対応する必要があります。重大度は<b>確度×影響</b>で付与（<span class="badge b-high">最優先</span>＝放置すると配布が成立しない／<span class="badge b-mid">中</span>＝品質・信頼性の問題／<span class="badge b-ok">対応済み</span>＝本変更で修正）。①③は本変更で対応済み（①は通し動作の最終確認のみ実デプロイで残る）、②（Workers Builds のデプロイコマンド設定）は Cloudflare ダッシュボードでの設定が要る未対応項目です。</p>
 
-  <h3><span class="badge b-high">最優先</span> ① <code>database_id</code> のベタ書き</h3>
+  <h3><span class="badge b-ok">対応済み</span> ① <code>database_id</code> のベタ書き（本変更で対応・実デプロイ確認のみ残る）</h3>
   <table>
     <tbody>
-      <tr><th>事実</th><td><code>wrangler.toml</code> に私のアカウントの実 <code>database_id</code>（<code>f6ff753c-…</code>）がベタ書きされている（<code>wrangler.toml:11</code>）。</td></tr>
-      <tr><th>影響</th><td>Cloudflareの自動プロビジョニングは「IDが書かれているバインディング＝既存リソース」とみなして<b>新規作成をスキップ</b>する（Cloudflare公式・末尾出典で確認）。そのIDはユーザーのアカウントに存在しないため、<b>デプロイが失敗する蓋然性が高い</b>（最終確認は実デプロイ）。</td></tr>
-      <tr><th>対応</th><td>配布用は <code>database_id</code> を<b>空/省略</b>にして自動プロビジョニングを発火させる。さらに、自動生成IDの書き戻しが <code>.toml</code> では行われない（issue #13632）ため、<b><code>wrangler.jsonc</code> への移行</b>が無難。マイグレーション側は PR #14275（<b>wrangler 4.102.0 で初収録</b>）でバインディング名からUUIDをAPI解決するようになり、ID空でも <code>wrangler d1 migrations apply DB --remote</code> が通る。本プロジェクトは解決版 <code>4.103.0</code> で条件を満たす。ただし宣言レンジが <code>^4.101.0</code> のままだと lockfile 再生成時に #14275 未収録の 4.101.x へ戻りうるため、<b>floor を <code>^4.102.0</code> へ引き上げるのが望ましい（要対応）</b>。※ <code>package.json</code> 変更時は <code>@emnapi</code> ピン留め（Deployビルド対策）を崩さないよう、<b>lockfile を npm10 で再生成</b>して <code>npm ci</code> 整合を保つこと。</td></tr>
-      <tr><th>留意</th><td>同じ <code>wrangler.toml</code> をローカルでも使うため、<code>database_id</code> を空にすると<b>私のローカル <code>npm run deploy</code> も自動プロビジョニングで別のD1を作り、本番Choiemuと違うDBに繋がってしまう</b>（＝本番データから切り離される）。回避策は2つ — (a) §5の3層案で<b>本番もWorkers Builds経路に寄せ、ローカルからのリモートデプロイ自体を廃止</b>する（推奨。これなら矛盾が消える）／(b) ローカルだけ <code>database_id</code> を含む別設定（例 <code>wrangler.local.toml</code>）で上書きデプロイする。</td></tr>
-      <tr><th>出典との関係</th><td>ADR 0011／dev-and-release-flow.md が「未検証・初回実デプロイで確認」としているのは<b>「Deployボタン配布時のD1別名生成＋マイグレーション自動適用の通し動作」</b>であって、<code>database_id</code> の空化や <code>jsonc</code> 化には触れていません。<b>本リスク①は、その通し検証を成立させる前提として本ガイドが新たに指摘する論点</b>です。</td></tr>
+      <tr><th>事実（旧）</th><td>旧 <code>wrangler.toml</code> に開発者のアカウントの実 <code>database_id</code>（<code>f6ff753c-…</code>）がベタ書きされていた。</td></tr>
+      <tr><th>影響</th><td>Cloudflareの自動プロビジョニングは「IDが書かれているバインディング＝既存リソース」とみなして<b>新規作成をスキップ</b>する（Cloudflare公式・末尾出典で確認）。そのIDはユーザーのアカウントに存在しないため、放置すれば<b>ユーザーのデプロイが失敗する蓋然性が高い</b>。</td></tr>
+      <tr><th>対応（実施済み）</th><td><b>本変更で対応済み</b>: ①設定を <code>wrangler.toml</code> → <b><code>wrangler.jsonc</code> へ移行</b>し（自動生成IDの書き戻しが <code>.toml</code> で行われない issue #13632 を回避）、②<code>database_id</code> を<b>空</b>にして自動プロビジョニングを発火させ、③<code>package.json</code> の <code>wrangler</code> 下限を <b><code>^4.102.0</code></b>（PR #14275 初収録版）に引き上げた（空IDでもバインディング名 <code>DB</code> からUUIDをAPI解決して <code>wrangler d1 migrations apply DB --remote</code> が通る）。lockfile は解決版 <code>4.103.0</code> のまま・スペック文字列のみ手修正し、<code>@emnapi</code> ピン留め（Deployビルド対策）と <code>npm ci</code> 整合を維持。ローカル全87テストが通過することを確認済み。</td></tr>
+      <tr><th>保守者の落とし穴と対応</th><td>同じ空ID設定をローカルでも使うと、開発者のローカル <code>wrangler deploy</code> も自動プロビジョニングで<b>別のD1を作り本番Choiemuデータから切り離される</b>。対応として、実 <code>database_id</code> を持つ <code>wrangler.local.jsonc</code>（gitignore済み・配布しない）を <code>--config</code> 指定する <code>npm run deploy:cli</code> を追加した。素の <code>npm run deploy</code> は Workers Builds／Deployボタン用、本番への CLI デプロイは <code>deploy:cli</code> を使う。これは §5 の本番 Workers Builds 移行までの<b>移行措置</b>で、移行後は撤去する。</td></tr>
+      <tr><th>残課題</th><td>Deployボタン配布時の<b>「D1自動生成＋マイグレーション自動適用＋デプロイコマンド」の通し動作</b>の最終確認は、§5 の②検証環境（Workers Builds）または初回実デプロイで行う（<a href="adr/0011-distribution-and-update-model.md">ADR 0011</a> が「未検証」とする項目）。本ガイドはこの通し検証を成立させる前提として <code>database_id</code> 空化・<code>jsonc</code> 化・floor 引き上げを行った。</td></tr>
     </tbody>
   </table>
 
   <h3><span class="badge b-high">最優先</span> ② Workers Builds のデプロイコマンド設定</h3>
-  <p>ADR 0011・dev-and-release-flow.md は「Workers Builds は本番ブランチへの push ごとに <b>deploy コマンド</b>を実行する」前提に立っていますが、その<b>既定コマンドは <code>npx wrangler deploy</code>（マイグレーションを実行しない）</b>です（Cloudflare公式・末尾出典）。本プロジェクトはマイグレーション込みの <code>npm run deploy</code>（<code>package.json:9</code>）を走らせる必要があるため、<b>Workers Builds のビルド設定でデプロイコマンドを <code>npm run deploy</code> に上書き</b>しなければなりません。未設定だと Sync fork してもスキーマ更新が走らず不整合になります（確定事実なので①と同格・最優先）。</p>
+  <p>ADR 0011・dev-and-release-flow.md は「Workers Builds は本番ブランチへの push ごとに <b>deploy コマンド</b>を実行する」前提に立っていますが、その<b>既定コマンドは <code>npx wrangler deploy</code>（マイグレーションを実行しない）</b>です（Cloudflare公式・末尾出典）。本プロジェクトはマイグレーション込みの <code>npm run deploy</code>（<code>package.json:9</code>）を走らせる必要があるため、<b>Workers Builds のビルド設定でデプロイコマンドを <code>npm run deploy</code> に上書き</b>しなければなりません。未設定だと Sync fork してもスキーマ更新が走らず不整合になります（確定事実なので①と同格・最優先）。これは②開発者のテスト環境・③開発者の本番環境・④ユーザー本番のすべてで必要な設定です。</p>
 
   <h3><span class="badge b-ok">対応済み</span> ③ <code>setup.html</code> の「用意するもの」にGitHubが無い（修正済み）</h3>
   <p>「用意するもの」が Discord・Cloudflare の2つだけで GitHub を欠いていた（同ファイルの更新手順では fork の Sync fork を要求しており自己矛盾）。<b>本変更で <code>setup.html</code>・<code>README.md</code>・<code>docs/dev/dev-and-release-flow.md</code>・<code>.claude/rules/dev-and-release.md</code> を「Discord・Cloudflare・GitHub の3つ」に統一修正済み</b>（GitHub＝fork作成と更新に使う・無料）。</p>
 
-  <h2>5. 今後の検討（提案）：3層構成で dev/prod parity</h2>
-  <p>「私の本番も、ユーザーと同じ <b>GitHub→Cloudflare（Workers Builds）</b> 経路で動かす」案。さらに<b>②検証環境も同じ Workers Builds 経路にして、検証と本番のデプロイ機構を完全に一致</b>させます。これにより「ローカルでは通るのに本番だけ落ちる」という<b>環境差由来のエラーが消え</b>、リスク①②（自動プロビジョニング・マイグレーション・デプロイコマンド）を<b>本番に触れずに②で先に踏んで潰せます</b>。現在のローカルからのリモートデプロイ（<code>npm run deploy --remote</code> 相当）は廃止され、ローカルは論理検証（<code>vitest</code>／sealed <code>wrangler dev</code>）専用になります。</p>
+  <h2>5. 採用方針：3層構成で dev/prod parity（<a href="adr/0012-three-tier-parity.md">ADR 0012</a>）</h2>
+  <div class="callout good">
+    <p class="t">この方針は採用済み（2026-06-20）／実装は段階移行中</p>
+    <p>配布用設定の <code>database_id</code> 空化・<code>wrangler.jsonc</code> 化・<code>wrangler</code> 下限引き上げ・<code>deploy:cli</code> 移行措置は<b>導入済み</b>（§4①）。残りは staging／本番を Workers Builds に接続する Cloudflare ダッシュボード作業で、本番が Workers Builds に乗り次第 <code>deploy:cli</code> は撤去します。決定の根拠と却下案は <a href="adr/0012-three-tier-parity.md">ADR 0012</a> に記録。</p>
+  </div>
+  <p><b>§1・§2 との対応。</b> ここでの3層は開発者側の開発パイプラインの視点で、<b>① ローカル開発＝§1/§2 の「開発者のローカル」</b>、<b>② 検証(staging)＝「開発者のテスト環境」</b>、<b>③ 本番(prod)＝「開発者の本番環境（Choiemu）」</b>に対応します。ユーザーの本番環境（④）は③と同じ Workers Builds 機構を、利用者の fork で動かしたものです。</p>
+  <p><b>動機（なぜ必要か）。</b> これまでは<b>②検証＝ローカルCLI（<code>wrangler deploy</code>）／④ユーザー本番＝Workers Builds</b> とデプロイ機構が分かれていました。機構が違うと、その差に起因するエラー——自動プロビジョニング（空 <code>database_id</code> からのD1生成）・Workers Builds 上でのマイグレーション実行・デプロイコマンド設定——が<b>検証をすり抜けて本番で初めて出ます</b>。そこで「開発者の本番も、ユーザーと同じ <b>GitHub→Cloudflare（Workers Builds）</b> 経路で動かす」。さらに<b>②検証も同じ Workers Builds 経路にして、検証と本番のデプロイ機構を完全に一致</b>させます。</p>
+  <p><b>なぜ良いか（4つの効果）。</b></p>
+  <ul>
+    <li><b>環境差由来のエラーを②で先に潰せる。</b>「Workers Builds が <code>npm run deploy</code> を実行 → D1自動生成 → マイグレーション自動適用」という一連が②で本番と同条件で回るため。</li>
+    <li><b><code>database_id</code> 空化が②で実証される。</b><a href="adr/0011-distribution-and-update-model.md">ADR 0011</a> 唯一の「未検証」項目（配布時のD1別名生成＋マイグレーション自動適用の通し動作）が、<b>本番に触れずに</b>検証される。</li>
+    <li><b>ローカルからの本番リモートデプロイ（毎回ユーザー許可が要る本番操作＝<code>deploy:cli</code>）が不要になる。</b>リモートへのデプロイが全部 Workers Builds 経由になり、運用が簡素化される。</li>
+    <li><b><a href="adr/0008-verify-on-deployed-test-worker.md">ADR 0008</a> の安全目的をより完全に満たす。</b>Workers Builds は Cloudflare CI 上で走りシークレットはダッシュボード管理（ローカル <code>.env</code> を読まない）なので、ADR 0008 が恐れた「本番値混入による誤投稿」の経路自体が消える。</li>
+  </ul>
+  <p>現在のローカルからのリモートデプロイ（<code>npm run deploy:cli</code>）は最終的に廃止され、ローカルは論理検証（<code>vitest</code>／sealed <code>wrangler dev</code>）専用になります。</p>
 
   <figure>
-    <svg viewBox="0 0 680 165" role="img" aria-label="提案する3層構成の図">
+    <svg viewBox="0 0 680 165" role="img" aria-label="3層構成の図">
       <defs><marker id="ar4" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#888780" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
       <rect x="40" y="40" width="170" height="66" rx="8" fill="#0F6E56"/>
       <text x="125" y="63" font-size="14" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">① ローカル開発</text>
@@ -282,20 +309,36 @@
       <line x1="210" y1="73" x2="248" y2="73" stroke="#888780" stroke-width="1.5" marker-end="url(#ar4)"/>
       <line x1="420" y1="73" x2="458" y2="73" stroke="#888780" stroke-width="1.5" marker-end="url(#ar4)"/>
     </svg>
-    <figcaption>②と③はデプロイ機構が同一（Workers Builds＋D1自動生成＋migrations自動適用）。違いは接続先Discordアプリとデータだけ＝環境差が出ない</figcaption>
+    <figcaption>②と③はデプロイ機構が同一（Workers Builds＋D1自動生成＋migrations自動適用）。違いは接続先Discordアプリとデータだけ＝環境差が出ない（①＝§1/§2 の開発者のローカル、②＝開発者のテスト環境、③＝開発者の本番環境）</figcaption>
   </figure>
 
-  <p><b>①は残します</b>（降格するのは「ローカルからのCLIリモートデプロイ経路」だけで、ローカルでの開発・テストはむしろ速い反復の主役）。②は <code>staging</code> ブランチ（または検証用fork）に専用の staging Worker を Workers Builds で接続し、テスト用Discordアプリ＋自動生成D1に向けます。<a href="adr/0008-verify-on-deployed-test-worker.md">ADR 0008</a> の「検証はデプロイ済みテスト機で」の精神は維持しつつ、手段をCLIから Workers Builds に更新するため<b>ADR 0008 の追補（または新ADR）が必要</b>です。なお Workers Builds はローカル <code>.env</code> を読まずシークレットをダッシュボード管理にするため、ADR 0008 が恐れた「本番値混入による誤投稿」リスクはむしろ<b>より完全に解消</b>されます。</p>
-  <p>守るべき規律：<b>「②で検証 → <code>main</code> へ昇格（③へ反映）」「DB変更ありの前にD1バックアップ」「③が追うブランチは安定版に保つ」</b>。複数イベント（Choiemu・他）は<b>1インスタンスのマルチサーバー</b>（<code>guild_id</code>・<a href="adr/0004-multi-server.md">ADR 0004</a>）で共存でき、イベントごとにデプロイを分ける必要はありません。</p>
+  <h3>具体的な形</h3>
+  <ul>
+    <li><b>② 検証(staging)</b> … <code>staging</code> ブランチ（または検証用fork）に専用の staging Worker を Workers Builds で接続。テスト用Discordアプリ＋自動生成D1＋テストデータに向ける。</li>
+    <li><b>③ 本番(prod)</b> … <code>main</code>（または本番fork）を本番 Worker に Workers Builds で接続。実Choiemu＋他イベントは<b>1インスタンスのマルチサーバー</b>（<code>guild_id</code>・<a href="adr/0004-multi-server.md">ADR 0004</a>）で共存。</li>
+    <li><b>②③とも</b> デプロイコマンドを <b><code>npm run deploy</code></b> に設定 → 機構は同一。Workers Builds の既定は <code>npx wrangler deploy</code>（マイグレーションを実行しない）なので<b>必ず上書きが必要</b>（リスク②）。違いは接続先Discordアプリとデータだけ。</li>
+    <li><b>① ローカル開発は残す</b>（降格するのは「ローカルからのCLIリモートデプロイ経路」＝<code>deploy:cli</code> だけ。ローカルの開発・テストはむしろ速い反復の主役）。</li>
+  </ul>
+  <p><b>昇格パイプライン：</b> ①ローカルで実装・<code>npm test</code> → <code>staging</code> へ push → ②で Workers Builds が自動デプロイ・検証 → <code>main</code> へ昇格（③へ反映）。</p>
+
+  <h3>正直な注意点</h3>
+  <ul>
+    <li><b>フィードバックが遅くなる</b>（push→ビルド→デプロイ）。だから①ローカル（<code>vitest</code>／sealed <code>wrangler dev</code>）は残し、速い反復は①、②は最終パリティ確認に限定する。3層はそれぞれ役割が違う（①速さ・②忠実さ・③本番）。</li>
+    <li><b>ADR 0008 の改定が必要</b>（「検証はデプロイ済みテスト機で」の精神は維持しつつ手段をCLI→Workers Buildsへ）。<b>本変更で <a href="adr/0008-verify-on-deployed-test-worker.md">ADR 0008</a> に追補済み</b>。</li>
+    <li><b>初期構築コスト</b>。staging Worker＋ブランチ＋Workers Builds設定（デプロイコマンドの上書きを含む）＋②用シークレットのダッシュボード投入が一度必要。</li>
+    <li><b>依存順序</b>。リスク①（<code>database_id</code> 空化＆<code>jsonc</code> 化）は②を成立させる<b>前提として先に必要</b>で、これは本変更で対応済み。</li>
+    <li><b>移行期の二重管理</b>。本番が Workers Builds に乗るまでは <code>wrangler.local.jsonc</code>／<code>deploy:cli</code> を維持（<code>wrangler.jsonc</code> 変更時は追従させる。<code>--config</code> は設定を置き換えるため内容がドリフトしうる）。</li>
+  </ul>
+  <p>守るべき規律：<b>「②で検証 → <code>main</code> へ昇格（③へ反映）」「DB変更ありの前にD1バックアップ」「③が追うブランチは安定版に保つ」</b>。複数イベント（Choiemu・他）はマルチサーバーで共存でき、イベントごとにデプロイを分ける必要はありません。</p>
 
   <hr>
 
   <h2>出典</h2>
   <h3>本リポジトリ</h3>
   <ul class="src">
-    <li><code>wrangler.toml</code>（D1バインディング・cron・assets）／ <code>package.json</code>（deployスクリプト・cloudflare.bindings）</li>
+    <li><code>wrangler.jsonc</code>（D1バインディング・cron・assets。<code>database_id</code> は空＝自動プロビジョニング用）／ <code>wrangler.local.jsonc</code>（保守者ローカル専用・gitignore）／ <code>package.json</code>（deploy・deploy:cli スクリプト・cloudflare.bindings）</li>
     <li><code>setup.html</code>（用意するもの・Deployボタン・Sync fork手順）／ <code>.dev.vars.example</code>（4シークレット）</li>
-    <li><a href="adr/0011-distribution-and-update-model.md">ADR 0011 配布・更新モデル</a>／ <a href="adr/0008-verify-on-deployed-test-worker.md">ADR 0008 検証はデプロイ済みテスト機で</a>／ <a href="adr/0004-multi-server.md">ADR 0004 マルチサーバー</a></li>
+    <li><a href="adr/0012-three-tier-parity.md">ADR 0012 3層構成と dev/prod parity</a>／ <a href="adr/0011-distribution-and-update-model.md">ADR 0011 配布・更新モデル</a>／ <a href="adr/0008-verify-on-deployed-test-worker.md">ADR 0008 検証はデプロイ済みテスト機で</a>／ <a href="adr/0004-multi-server.md">ADR 0004 マルチサーバー</a></li>
     <li><a href="dev-and-release-flow.md">dev-and-release-flow.md</a>（開発・配信・更新フローの詳細ランブック）</li>
   </ul>
   <h3>Cloudflare 公式（D1自動プロビジョニング関連）</h3>

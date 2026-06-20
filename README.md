@@ -81,7 +81,7 @@ tests/              vitest（D1 含む）
 
 ## 🕐 Cron
 
-`wrangler.toml` の `crons = ["0 12 * * *"]`（**UTC** = JST 21:00）に日次チェックを実行。
+`wrangler.jsonc` の `triggers.crons = ["0 12 * * *"]`（**UTC** = JST 21:00）に日次チェックを実行。
 
 ## 📚 ドキュメント
 
