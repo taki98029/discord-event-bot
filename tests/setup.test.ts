@@ -40,8 +40,8 @@ describe('getSetupStatus', () => {
 });
 
 describe('COMMAND_DEFINITIONS（コマンド定義の単一ソース）', () => {
-  it('5 つの管理者コマンドを公開している', () => {
+  it('現行のコマンドを公開している（recruit / help / manage）', () => {
     const names = COMMAND_DEFINITIONS.map((c) => c.name).sort();
-    expect(names).toEqual(['assign', 'members', 'pause', 'recruit', 'resume']);
+    expect(names).toEqual(['help', 'manage', 'recruit']);
   });
 });

@@ -5,34 +5,12 @@
     "default_member_permissions": "8"
   },
   {
-    "name": "assign",
-    "description": "最新開催回に番号を割り当てます (管理者用)",
+    "name": "help",
+    "description": "Bot の使い方とコマンド一覧を表示します"
+  },
+  {
+    "name": "manage",
+    "description": "管理画面の URL を表示します (管理者用)",
     "default_member_permissions": "8"
-  },
-  {
-    "name": "pause",
-    "description": "メンバーを区分ごとに「休止中」に設定します (管理者用)",
-    "default_member_permissions": "8",
-    "options": [
-      { "name": "user", "description": "休止中にするメンバー", "type": 6, "required": true },
-      { "name": "segment_id", "description": "対象の区分ID（未指定で所属が1つなら自動選択）", "type": 4, "required": false }
-    ]
-  },
-  {
-    "name": "resume",
-    "description": "メンバーの区分ごとの「休止中」を解除します (管理者用)",
-    "default_member_permissions": "8",
-    "options": [
-      { "name": "user", "description": "休止中を解除するメンバー", "type": 6, "required": true },
-      { "name": "segment_id", "description": "対象の区分ID（未指定で所属が1つなら自動選択）", "type": 4, "required": false }
-    ]
-  },
-  {
-    "name": "members",
-    "description": "メンバー一覧を表示します (管理者用)",
-    "default_member_permissions": "8",
-    "options": [
-      { "name": "segment_id", "description": "対象の区分ID（未指定で全メンバー）", "type": 4, "required": false }
-    ]
   }
 ]

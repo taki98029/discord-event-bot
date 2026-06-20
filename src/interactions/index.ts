@@ -1,20 +1,17 @@
 import { verifyKey, InteractionType, InteractionResponseType } from 'discord-interactions';
 import type { Env } from '../env';
 import type { Notification } from '../db/types';
-import { ensureMember, updateMemberDisplayName, getAllMembers } from '../db/members';
+import { ensureMember, updateMemberDisplayName } from '../db/members';
 import { getNotification, listNotificationsByChannel } from '../db/notifications';
-import { getOccurrence, getLatestScheduledOccurrence, listScheduledOccurrences } from '../db/occurrences';
+import { getOccurrence, listScheduledOccurrences } from '../db/occurrences';
 import {
   getSegment,
   getActiveSegmentMembers,
   addSegmentMember,
   listSegmentMembers,
-  listSegmentsForMember,
-  setSegmentMemberStatus,
 } from '../db/segments';
 import { upsertResponse, getStatusBuckets } from '../db/responses';
-import { assignNumbers } from '../db/assignments';
-import { sendChannelMessage, buildStatusMessage, buildAllStatusMessage } from '../discord/rest';
+import { buildStatusMessage, buildAllStatusMessage } from '../discord/rest';
 import { roleGateAllows } from '../discord/syncSegment';
 import { formatOccurrenceLabel } from '../lib/date';
 import { recruitNotificationNow } from '../cron/dailyCheck';
@@ -66,14 +63,6 @@ const STATUS_MAP: Record<string, string> = {
   undecided: '未定',
 };
 
-/** スラッシュコマンドの option を名前で引く */
-function getOption(
-  interaction: DiscordInteraction,
-  name: string,
-): { name: string; value: string | number; type: number } | undefined {
-  return interaction.data?.options?.find((o) => o.name === name);
-}
-
 /** POST /interactions のエントリ */
 export async function handleInteraction(
   request: Request,
@@ -94,6 +83,7 @@ export async function handleInteraction(
   }
 
   const interaction = JSON.parse(rawBody) as DiscordInteraction;
+  const origin = new URL(request.url).origin;
 
   // PING
   if (interaction.type === InteractionType.PING) {
@@ -102,7 +92,7 @@ export async function handleInteraction(
 
   // スラッシュコマンド
   if (interaction.type === InteractionType.APPLICATION_COMMAND) {
-    return json(await handleCommand(interaction, env));
+    return json(await handleCommand(interaction, env, origin));
   }
 
   // ボタン
@@ -116,36 +106,20 @@ export async function handleInteraction(
 async function handleCommand(
   interaction: DiscordInteraction,
   env: Env,
+  origin: string,
 ): Promise<InteractionResponse> {
-  const db = env.DB;
   const name = interaction.data?.name;
-
-  // user option（pause/resume の対象 User）を解決
-  const resolveUserOption = (): { id: string; name: string } | null => {
-    const opt = getOption(interaction, 'user');
-    if (!opt) return null;
-    const id = String(opt.value);
-    const u = interaction.data?.resolved?.users?.[id];
-    return { id, name: u?.global_name || u?.username || id };
-  };
 
   try {
     switch (name) {
       case 'recruit':
         return await handleRecruit(interaction, env);
 
-      case 'assign':
-        return await handleAssign(interaction, env);
+      case 'help':
+        return handleHelp(origin);
 
-      case 'pause':
-      case 'resume': {
-        const target = resolveUserOption();
-        if (!target) return ephemeral('❌ 対象ユーザーを指定してください。');
-        return await handlePauseResume(db, interaction, target, name === 'pause');
-      }
-
-      case 'members':
-        return await handleMembers(db, interaction);
+      case 'manage':
+        return handleManage(origin);
 
       default:
         return ephemeral('❌ 不明なコマンドです');
@@ -186,118 +160,36 @@ async function handleRecruit(
   return ephemeral((r.ok ? '✅ ' : '❌ ') + r.message);
 }
 
-/** /assign notification_id — 最新の予定回に assignNumbers し、結果を公開投稿＋実行者へ要約 */
-async function handleAssign(
-  interaction: DiscordInteraction,
-  env: Env,
-): Promise<InteractionResponse> {
-  const db = env.DB;
-  const resolved = await resolveNotification(db, interaction);
-  if (isEphemeralResponse(resolved)) return resolved;
-  const n = resolved;
-
-  const occ = await getLatestScheduledOccurrence(db, n.id);
-  if (!occ) return ephemeral('❌ 割り当て対象の開催回（予定）がありません。');
-
-  const { assigned, all } = await assignNumbers(db, occ.id);
-
-  // 結果一覧を Notification のチャンネルへ公開投稿（投稿可否を実行者に伝える）
-  let postNote = '';
-  if (all.length > 0) {
-    let message = `🎲 **割り当て結果** (${occ.occurrence_date})\n\n`;
-    message += all.map((a) => `#${a.number} ${a.name}`).join('\n');
-    const posted = await sendChannelMessage(env, n.channel_id, message);
-    if (!posted) {
-      postNote = '\n⚠️ ただし結果のチャンネル投稿に失敗しました（Bot権限・channel_id を確認してください）。';
-    }
-  } else {
-    postNote = '\n（参加者がいないため公開投稿はありません）';
-  }
-
-  // 実行者へは ephemeral で要約
-  return ephemeral(
-    `✅ **${occ.occurrence_date}** の番号割り当てを実行しました。\n` +
-      `新規: ${assigned.length}名 / 合計: ${all.length}名` +
-      postNote,
-  );
+/** /help — Bot 概要とコマンド一覧を ephemeral で返す */
+function handleHelp(origin: string): InteractionResponse {
+  const content = [
+    '📖 **EventMasterBot — コマンド一覧**',
+    '',
+    '**誰でも使える**',
+    '`/help` — このヘルプを表示',
+    '',
+    '**管理者用**',
+    '`/recruit` — 募集メッセージを今すぐ送信',
+    '`/manage` — 管理画面の URL を表示',
+    '',
+    '💡 出欠の **参加/不参加/未定** は募集メッセージのボタンから操作してください。',
+    '💡 メンバー管理・割り当て・休止設定などの細かい操作は管理画面（`/manage`）で行います。',
+    '',
+    `🔗 管理画面: ${origin}/`,
+  ].join('\n');
+  return ephemeral(content);
 }
 
-/** /pause /resume — segment 指定 or 所属から自動選択して休止/解除 */
-async function handlePauseResume(
-  db: D1Database,
-  interaction: DiscordInteraction,
-  target: { id: string; name: string },
-  pause: boolean,
-): Promise<InteractionResponse> {
-  const segOpt = getOption(interaction, 'segment_id');
-  let segmentId: number;
-
-  if (segOpt !== undefined) {
-    segmentId = Number(segOpt.value);
-    if (!Number.isInteger(segmentId)) return ephemeral('❌ segment_id が不正です。');
-  } else {
-    // 未指定: 所属区分が 1 つならそれ、複数なら区分指定を促す、0 なら未所属
-    const segments = await listSegmentsForMember(db, target.id);
-    if (segments.length === 0) {
-      return ephemeral(`❌ **${target.name}** はどの区分にも所属していません。`);
-    }
-    if (segments.length > 1) {
-      const list = segments.map((s) => `- #${s.id} ${s.name}`).join('\n');
-      return ephemeral(
-        `⚠️ **${target.name}** は複数の区分に所属しています。\`segment_id\` を指定してください。\n\n${list}`,
-      );
-    }
-    segmentId = segments[0].id;
-  }
-
-  const status = pause ? '休止中' : '';
-  const found = await setSegmentMemberStatus(db, segmentId, target.id, status);
-  if (!found) {
-    return ephemeral(`❌ **${target.name}** は区分 #${segmentId} に所属していません。`);
-  }
-  return pause
-    ? ephemeral(`⏸️ **${target.name}** を区分 #${segmentId} で休止中に設定しました。`)
-    : ephemeral(`▶️ **${target.name}** の区分 #${segmentId} の休止中を解除しました。`);
-}
-
-/** /members — segment 指定で区分メンバー一覧、未指定で全メンバー一覧（所属区分付き） */
-async function handleMembers(
-  db: D1Database,
-  interaction: DiscordInteraction,
-): Promise<InteractionResponse> {
-  const segOpt = getOption(interaction, 'segment_id');
-
-  if (segOpt !== undefined) {
-    const segmentId = Number(segOpt.value);
-    if (!Number.isInteger(segmentId)) return ephemeral('❌ segment_id が不正です。');
-    const segment = await getSegment(db, segmentId);
-    if (!segment) return ephemeral(`❌ 区分 #${segmentId} が見つかりません。`);
-
-    const members = await listSegmentMembers(db, segmentId);
-    if (members.length === 0) return ephemeral(`📋 区分 **${segment.name}** にメンバーはいません。`);
-
-    let message = `📋 **${segment.name} のメンバー (${members.length}名)**\n\n`;
-    for (const m of members) {
-      const icon = m.status ? '⏸️' : '🟢';
-      const statusText = m.status || 'アクティブ';
-      const name = m.display_name || m.user_name || m.user_id;
-      message += `${icon} **${name}** (${m.user_name ?? ''}) - ${statusText}\n`;
-    }
-    return ephemeral(message);
-  }
-
-  // 未指定: 全メンバー一覧（所属区分も表示）
-  const members = await getAllMembers(db);
-  if (members.length === 0) return ephemeral('📋 登録メンバーはいません。');
-
-  let message = `📋 **全メンバー一覧 (${members.length}名)**\n\n`;
-  for (const m of members) {
-    const segments = await listSegmentsForMember(db, m.user_id);
-    const name = m.display_name || m.user_name || m.user_id;
-    const segText = segments.length > 0 ? segments.map((s) => s.name).join(', ') : '(所属なし)';
-    message += `🟢 **${name}** (${m.user_name ?? ''}) - ${segText}\n`;
-  }
-  return ephemeral(message);
+/** /manage — 管理画面の URL を ephemeral で返す（管理者のみ） */
+function handleManage(origin: string): InteractionResponse {
+  const content = [
+    '🔧 **管理画面**',
+    '',
+    `${origin}/`,
+    '',
+    'ブラウザで開いて **ADMIN_TOKEN** でログインしてください。',
+  ].join('\n');
+  return ephemeral(content);
 }
 
 async function handleButton(
