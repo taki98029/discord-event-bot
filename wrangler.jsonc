@@ -3,7 +3,10 @@
   // このファイルを読む。JSON 形式なのは、自動生成された database_id の「書き戻し」が
   // .toml では行われない問題（workers-sdk issue #13632）を避けるため。
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "discord-event-bot",
+  // ⚠️ このブランチ(staging)専用の隔離: 本番(Choiemu)と衝突させないため name と
+  //    database_name を *-staging に変更している。main/配布用は discord-event-bot /
+  //    choiemu-event-bot-db のまま。このブランチを main へマージしないこと（②検証専用）。
+  "name": "discord-event-bot-staging",
   "main": "src/index.ts",
   "compatibility_date": "2024-12-30",
   "compatibility_flags": ["nodejs_compat"],
@@ -18,7 +21,7 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "choiemu-event-bot-db",
+      "database_name": "choiemu-event-bot-db-staging",
       "database_id": "",
       "migrations_dir": "migrations"
     }
