@@ -6,7 +6,8 @@
   "main": "src/index.ts",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "npm run db:migrate:remote && wrangler deploy",
+    "deploy": "wrangler deploy && npm run db:migrate:remote",
+    "deploy:cli": "wrangler d1 migrations apply DB --remote --config wrangler.local.jsonc && wrangler deploy --config wrangler.local.jsonc",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -24,7 +25,7 @@
     "dotenv": "^17.3.1",
     "typescript": "^5.7.0",
     "vitest": "^4.1.9",
-    "wrangler": "^4.101.0"
+    "wrangler": "^4.102.0"
   },
   "engines": {
     "node": ">=18.0.0"

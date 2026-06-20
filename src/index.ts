@@ -21,7 +21,7 @@ export default {
     return env.ASSETS.fetch(request);
   },
 
-  // 日次 cron（wrangler.toml の triggers.crons: 0 12 * * * UTC = JST 21:00）
+  // 日次 cron（wrangler.jsonc の triggers.crons: 0 12 * * * UTC = JST 21:00）
   async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(mainDailyCheck(env));
   },

@@ -144,7 +144,7 @@
       <p>discord-event-bot を動かすための初期設定を、画面の案内に沿って進めます。所要時間 15〜20 分・ターミナル操作は不要です。</p>
       <div class="progress">
         <div class="bar"><i id="bar"></i></div>
-        <div class="bar-label"><span id="doneCount">0</span> / <span id="totalCount">6</span> ステップ完了</div>
+        <div class="bar-label"><span id="doneCount">0</span> / <span id="totalCount">7</span> ステップ完了</div>
       </div>
     </div>
   </header>
@@ -159,13 +159,14 @@
     <details class="step" id="s0" open>
       <summary>
         <span class="num"><span>0</span></span>
-        <span class="summary-txt"><h2>用意するもの</h2><span class="sub">登録は Discord と Cloudflare の2つだけ・どちらも無料</span></span>
+        <span class="summary-txt"><h2>用意するもの</h2><span class="sub">登録は Discord・Cloudflare・GitHub の3つ・すべて無料</span></span>
         <span class="chev">▶</span>
       </summary>
       <div class="body">
         <ul>
           <li><b>Discord アカウント</b>と、Bot を入れたい<b>サーバーの管理権限</b></li>
           <li><b>Cloudflare アカウント</b>（無料。クレジットカード不要）</li>
+          <li><b>GitHub アカウント</b>（無料。リポジトリの複製（fork）と、更新時の「Sync fork」に使います）</li>
         </ul>
         <p>このアシスタントでは、設定に必要な「合言葉」を順に集めていきます。各欄に貼り付けると、次の手順で<b>自動的に使い回します</b>（招待リンクの生成・コピー用の値など）。</p>
         <label class="done-toggle"><input type="checkbox" data-done="0"> 準備できた</label>
@@ -254,32 +255,43 @@
     <details class="step" id="s3">
       <summary>
         <span class="num"><span>3</span></span>
-        <span class="summary-txt"><h2>Cloudflare にデプロイする</h2><span class="sub">ボタンを押して進めるだけ・4つの合言葉はここで入力</span></span>
+        <span class="summary-txt"><h2>GitHub で複製して Cloudflare に接続する</h2><span class="sub">fork → Cloudflare に接続 → 4つの合言葉を設定</span></span>
         <span class="chev">▶</span>
       </summary>
       <div class="body">
+        <p>更新を「ボタン1つ」で受け取れるように、まず公開リポジトリを<b>自分の GitHub に複製（fork）</b>し、それを Cloudflare に接続します。<b>ターミナルは使いません。</b></p>
         <ol>
-          <li>下の <b>「Deploy to Cloudflare」</b> ボタンを押し、Cloudflare にログイン（初めてなら無料登録）して画面の指示どおり進めます。データベース（D1）は自動で作られます。</li>
-          <li>途中で <b>4つの合言葉（シークレット）の入力欄</b>が出ます。下の値をそれぞれ「コピー」して貼り付けてください。</li>
-          <li>デプロイが完了すると <b>あなたの Bot の URL</b>（<span class="pill">https://◯◯◯.workers.dev</span>）が表示されます。下の欄に貼り付け。</li>
+          <li><b>① リポジトリを fork</b>：下の「リポジトリを fork する」を開き、GitHub にログインして <b>「Create fork」</b>。あなたの GitHub にコピーができます。</li>
+          <li><b>② Cloudflare に接続</b>：下の「Cloudflare ダッシュボードを開く」→ <b>Workers &amp; Pages</b> → <b>「Create」</b> → タブ <b>「Import a repository」</b> の <b>「Get started」</b>（初回は GitHub 連携を許可）→ 一覧から<b>さっき作った fork を選択</b>。</li>
+          <li><b>③ デプロイコマンドを設定</b>：接続画面の<b>ビルド設定</b>（作成後は Worker の <b>Settings → Build</b>）にある <b>「Deploy command」</b> を下の値に変更（既定のままだとデータベースの更新が走りません）。</li>
+          <li><b>④ デプロイ</b>：そのまま <b>「Save and Deploy」</b> を実行。<b>データベース（D1）は自動で作られ、表も自動で用意</b>されます。</li>
+          <li><b>⑤ 4つの合言葉を設定</b>：作成された Worker の <b>「Settings」→「Variables and Secrets」</b> で、下の4つを追加（接続時に入力欄が出た場合はそこでもOK）。</li>
+          <li><b>⑥ URL を控える</b>：Worker の画面に出る <b>https://◯◯◯.workers.dev</b> を下の欄に貼り付け。</li>
         </ol>
         <div class="actions">
-          <a class="linkbtn" href="https://deploy.workers.cloudflare.com/?url=https://github.com/taki98029/discord-event-bot" target="_blank" rel="noopener">
-            <button class="btn-primary" type="button">🚀 Deploy to Cloudflare を開く</button>
+          <a class="linkbtn" href="https://github.com/taki98029/discord-event-bot/fork" target="_blank" rel="noopener">
+            <button class="btn-primary" type="button">🍴 リポジトリを fork する</button>
+          </a>
+          <a class="linkbtn" href="https://dash.cloudflare.com/?to=/:account/workers-and-pages" target="_blank" rel="noopener">
+            <button class="btn-ghost" type="button">☁️ Cloudflare ダッシュボードを開く</button>
           </a>
         </div>
 
-        <p style="margin-top:18px;"><b>デプロイ画面に貼り付ける4つの値：</b></p>
+        <p style="margin-top:18px;"><b>③ Deploy command に設定する値：</b></p>
+        <div class="copybox"><span class="cap">Deploy command</span><code id="v_deploycmd">npm run deploy</code><button class="btn-copy" type="button" data-copy="v_deploycmd">コピー</button></div>
+
+        <p style="margin-top:14px;"><b>⑤ 設定する4つの合言葉（シークレット）：</b></p>
         <div class="copybox"><span class="cap">DISCORD_PUBLIC_KEY</span><code id="v_pk">（手順1で入力）</code><button class="btn-copy" type="button" data-copyval="publicKey">コピー</button></div>
         <div class="copybox"><span class="cap">DISCORD_APPLICATION_ID</span><code id="v_app">（手順1で入力）</code><button class="btn-copy" type="button" data-copyval="appId">コピー</button></div>
         <div class="copybox"><span class="cap">DISCORD_BOT_TOKEN</span><code id="v_bot">（手順1で入力）</code><button class="btn-copy" type="button" data-copyval="botToken">コピー</button></div>
         <div class="copybox"><span class="cap">ADMIN_TOKEN</span><code id="v_adm">（手順2で生成）</code><button class="btn-copy" type="button" data-copyval="adminToken">コピー</button></div>
 
-        <label class="fld" for="workerUrl">あなたの Bot の URL <span class="hint">— デプロイ完了画面に出る https://◯◯◯.workers.dev</span></label>
+        <label class="fld" for="workerUrl">あなたの Bot の URL <span class="hint">— Worker の画面に出る https://◯◯◯.workers.dev</span></label>
         <div class="row">
           <input type="text" id="workerUrl" autocomplete="off" spellcheck="false" placeholder="https://◯◯◯.workers.dev" />
         </div>
         <div class="err-text" id="workerUrlErr" hidden>https:// で始まる URL を貼り付けてください。</div>
+        <div class="step-tip">💡 4つの合言葉は後から追加してもOK（追加すると即反映されます）。合言葉が未設定だと Bot は反応しません。</div>
         <label class="done-toggle"><input type="checkbox" data-done="3"> デプロイが完了し、Bot の URL を控えた</label>
       </div>
     </details>
@@ -355,16 +367,17 @@
     <details class="step" id="ref-update">
       <summary>
         <span class="num">🔄</span>
-        <span class="summary-txt"><h2>アップデートのしかた</h2><span class="sub">新バージョンが出たら「Sync fork」を押すだけ</span></span>
+        <span class="summary-txt"><h2>アップデートのしかた</h2><span class="sub">新バージョンが出たら GitHub の fork で「Sync fork」を押すだけ</span></span>
         <span class="chev">▶</span>
       </summary>
       <div class="body">
-        <p>新しいバージョンが出たら、<b>自分の GitHub の fork ページ</b>を開いて <b>「Sync fork」</b> ボタンを押すだけです。</p>
+        <p>新しいバージョンが出たら、<b>自分の GitHub の fork ページ</b>（手順3 で作ったコピー）を開いて <b>「Sync fork」</b> ボタンを押すだけです。</p>
         <ol>
           <li>Cloudflare が変更を検知して<b>自動で再デプロイ</b>します。</li>
           <li><b>データベースも自動で最新化</b>されます（手作業のマイグレーションは不要）。</li>
         </ol>
         <div class="step-tip">💡 「DB変更あり」と書かれたリリースでも、やることは同じ <b>「Sync fork」</b> だけ。必要なデータベースの更新も自動で適用されます。<b>ターミナル操作は不要</b>です。</div>
+        <div class="step-tip">⚠️ この自動更新は、手順3 ③の <b>Deploy command が <span class="pill">npm run deploy</span> のまま</b>であることに依存します（素の <span class="pill">wrangler deploy</span> に変えると、データベースの自動更新が止まります）。<b>同じ Worker に更新する限り、これまでのデータ（メンバー・回答など）は保持</b>されます。</div>
       </div>
     </details>
 
@@ -383,6 +396,7 @@
           <li><b>募集メッセージが投稿されない</b><br>Bot にそのチャンネルへの送信権限があるか／通知の投稿チャンネル設定。</li>
           <li><b>@ロールのメンションが飛ばない</b><br>招待時に <b>Mention Everyone</b> 権限を付けたか／対象ロールが「メンション可能」か。</li>
           <li><b>管理画面にログインできない</b><br><span class="pill">ADMIN_TOKEN</span>（手順2）が一致しているか／管理画面の「⚙️ セットアップ」で「設定済み」か。</li>
+          <li><b>更新後にデータが消えたように見える</b><br>同じ Worker に更新していればデータは保持されます。Cloudflare の Worker → <b>Settings → Bindings</b> で <span class="pill">DB</span>（D1）の紐付けを確認。別の Worker を新規作成すると別のデータベースになります。</li>
         </ul>
       </div>
     </details>

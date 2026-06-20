@@ -1,6 +1,6 @@
 /**
  * D1 行・ドメイン型（Server[guild_id] ＞ Notification → Segment ＞ Occurrence）。
- * 用語の定義は CONTEXT.md、スキーマは migrations/0002 + 0003(guild_id) + 0004(Event 廃止) を参照。
+ * 用語の定義は docs/dev/CONTEXT.md、スキーマは migrations/0002 + 0003(guild_id) + 0004(Event 廃止) を参照。
  * 最上位スコープの Server は Discord API（bot の参加サーバー）から取得し DB には永続化しない（ADR 0004）。
  */
 

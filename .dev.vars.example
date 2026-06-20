@@ -2,8 +2,8 @@
 # このファイルを .dev.vars にコピーして実値を設定してください。
 # .dev.vars は .gitignore 済み（コミットされません）。
 #
-# ※ このファイルに並ぶシークレット名は「Deploy to Cloudflare」ボタンの
-#    デプロイ時入力プロンプトの元にもなります（package.json の説明文つきで表示）。
+# ※ このファイルに並ぶシークレット名は、利用者が fork を Cloudflare Workers Builds に
+#    接続して設定するシークレット（Worker の Variables and Secrets）と一致します。
 #    実際に必要な4つだけを記載してください。
 
 # Discord アプリの公開鍵（General Information の PUBLIC KEY）

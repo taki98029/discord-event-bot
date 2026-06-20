@@ -1,4 +1,4 @@
--- discord-event-bot D1 初期スキーマ（旧スキーマ。0002 以降で現行モデルに再構築）
+-- ChoiemuEventBot D1 初期スキーマ
 -- 旧 Google Sheets（Config / Member_DB / Event_Log）を D1 テーブル化したもの。
 
 -- 設定（旧 Config シート）: キー・バリュー型
