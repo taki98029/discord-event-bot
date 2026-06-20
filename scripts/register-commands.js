@@ -45,7 +45,7 @@ const response = await fetch(url, {
   headers: {
     Authorization: `Bot ${BOT_TOKEN}`,
     'Content-Type': 'application/json',
-    'User-Agent': 'DiscordBot (https://github.com/discord-event-bot, 7.0.0)',
+    'User-Agent': 'DiscordBot (https://github.com/taki98029/discord-event-bot, 7.1.0)',
   },
   body: JSON.stringify(commands),
 });

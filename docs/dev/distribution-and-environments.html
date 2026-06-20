@@ -59,13 +59,13 @@
 <body>
 <div class="wrap">
 
-  <p class="meta">discord-event-bot ／ 作成 2026-06-20 ／ 対象バージョン v7.0.1</p>
+  <p class="meta">discord-event-bot ／ 作成 2026-06-20 ／ 対象バージョン v7.1.0</p>
   <h1>配信と利用環境ガイド</h1>
   <p class="lead">「<b>開発者のテスト環境（staging）</b>」「<b>開発者の本番環境（Choiemu）</b>」「<b>ユーザーの本番環境</b>」の3つがどう違い・どうつながるのか、ユーザーがどうセットアップするのか、データベース（D1）はどう立つのかを、図とともに要点解説する文書です。3環境はいずれも「公開GitHub → Cloudflare Workers Builds」で動きます（<a href="adr/0012-three-tier-parity.md">ADR 0012</a>）。出典は本リポジトリの設定ファイル・ADR と Cloudflare 公式ドキュメント（末尾に一覧）。Cloudflare の挙動に関する記述は公式ドキュメント・GitHub で確認したものですが、配布の通し挙動の最終確認は実デプロイで行う前提です。</p>
 
   <div class="callout warn">
     <p class="t">この文書の更新状況（2026-06-20）</p>
-    <p>ユーザーの初回セットアップ手段を <b>「Deploy to Cloudflare ボタン」から「公開リポジトリを Fork → Cloudflare Workers Builds に接続」へ変更</b>しました（案B・<a href="adr/0011-distribution-and-update-model.md">ADR 0011 追補</a>）。理由は、Deploy ボタンが作るのは fork ではなく clone で、更新の「Sync fork」が使えないためです。<b>本文の §2・§3 は旧（Deploy ボタン前提）の記述が残っており、別途改訂予定（タスク B-6）</b>です。最新の正は <code>setup.html</code>・<a href="adr/0011-distribution-and-update-model.md">ADR 0011 追補</a> を参照してください。</p>
+    <p>ユーザーの初回セットアップ手段を <b>「Deploy to Cloudflare ボタン」から「公開リポジトリを Fork → Cloudflare Workers Builds に接続」へ変更</b>しました（案B・<a href="adr/0011-distribution-and-update-model.md">ADR 0011 追補</a>）。理由は、Deploy ボタンが作るのは fork ではなく clone で、更新の「Sync fork」が使えないためです。<b>本文の §2・§3 は旧（Deploy ボタン前提）の記述が残っており、別途改訂予定（タスク B-6）</b>です。最新の正は <code>setup.html</code>・<a href="adr/0011-distribution-and-update-model.md">ADR 0011 追補</a> を参照してください。<b>2026-06-20 に②staging と③本番が Workers Builds で稼働開始（P-2 完了）。§4 リスク①②も対応済みに更新済み。残るは §2・§3 の図表全面改訂（B-6）。</b></p>
   </div>
 
   <h2>1. 全体像：開発と3つの環境</h2>
@@ -117,7 +117,7 @@
     <li><b>開発者の本番（③）とテスト（②）は分離。</b> 同じ機構でも、③は本番Choiemu＋本番D1、②はテスト用Discord＋テストD1に繋がる<b>別環境</b>（データは完全に独立）。</li>
     <li><b>3環境ともデプロイ機構は同一（parity）。</b> 公開GitHub → Workers Builds が <code>npm run deploy</code>（マイグレーション＋デプロイ）を自動実行する（<a href="adr/0008-verify-on-deployed-test-worker.md">ADR 0008</a>／<a href="adr/0012-three-tier-parity.md">ADR 0012</a>）。だから②で本番と同条件の検証ができる。</li>
     <li><b>インスタンスは環境ごとに別物。</b> それぞれ別のWorker・別のD1で、データは独立（ユーザー環境はテナント分離ではなく各自が自己ホスト）。</li>
-    <li><b>移行中。</b> 現状は③開発者の本番のみローカルCLI（<code>npm run deploy:cli</code>）で稼働、②staging は未構築。Workers Builds 接続後に上図へ統一する（§5）。</li>
+    <li><b>移行中。</b> 2026-06-20 に②staging と③本番の両方が Workers Builds で稼働開始。3 環境とも同一機構の上図通りに統一済み。<code>deploy:cli</code> は緊急時フォールバックとして残置、しばらく観察後に撤去（P-5）。</li>
   </ul>
 
   <h2>2. 3つの環境（開発者のテスト・開発者の本番・ユーザー本番）</h2>
@@ -202,11 +202,11 @@
       <tr><td>Discord 接続先</td><td>テスト用アプリ＋ダミーサーバー</td><td>本番Choiemu（開発者のサーバー）</td><td>利用者各自のサーバー</td></tr>
       <tr><td>更新のきっかけ</td><td><code>staging</code> へ push</td><td><code>main</code> へ昇格（push）</td><td>fork で「Sync fork」</td></tr>
       <tr><td>用途</td><td>仕上げ検証（本番と同条件のパリティ確認）</td><td>実運用（Choiemu）</td><td>利用者の実運用</td></tr>
-      <tr><td>現状（移行）</td><td>未構築（Workers Builds 接続予定）</td><td>当面ローカルCLI（<code>deploy:cli</code>）→ Workers Builds へ移行</td><td>設計どおり（<code>database_id</code> 省略で自動生成）</td></tr>
+      <tr><td>現状（移行）</td><td>Workers Builds 接続済み（2026-06-20）。同名 D1 自動生成＋migrations 0001-0009 適用を実機確認</td><td>Workers Builds 接続済み（2026-06-20）。auto-provisioning が同名既存 D1 を再利用＝本番データ保持で移行成功</td><td>設計どおり（<code>database_id</code> 省略で自動生成）</td></tr>
     </tbody>
   </table>
 
-  <p class="lead">※ 利用者環境（④）の<b>初回だけ</b>は「Deploy to Cloudflare ボタン」で構築（D1自動生成）し、<b>更新以降</b>が Workers Builds 経由です（§3）。②③（開発者の環境）はブランチへの push が常に Workers Builds を起動します。現状は③のみ移行前でローカルCLI（<code>deploy:cli</code>）稼働中です。</p>
+  <p class="lead">※ 利用者環境（④）の<b>初回だけ</b>は「Deploy to Cloudflare ボタン」で構築（D1自動生成）し、<b>更新以降</b>が Workers Builds 経由です（§3）。②③（開発者の環境）はブランチへの push が常に Workers Builds を起動します。2026-06-20 に③本番も Workers Builds 接続完了し、すべての環境（②③④）が同一機構で稼働中です。</p>
 
   <h2>3. ユーザーのセットアップとD1の自動構築</h2>
   <p>ユーザーが必要とするのは<b>無料の3アカウントだけ</b>。データベース（D1）はユーザーが手で作る場面が一切なく、Deployボタンが自動生成し、スキーマもマイグレーションで自動適用されます。</p>
@@ -271,20 +271,20 @@
       <tr><th>影響</th><td>Cloudflareの自動プロビジョニングは「IDが書かれているバインディング＝既存リソース」とみなして<b>新規作成をスキップ</b>する（Cloudflare公式・末尾出典で確認）。そのIDはユーザーのアカウントに存在しないため、放置すれば<b>ユーザーのデプロイが失敗する蓋然性が高い</b>。</td></tr>
       <tr><th>対応（実施済み）</th><td><b>本変更で対応済み</b>: ①設定を <code>wrangler.toml</code> → <b><code>wrangler.jsonc</code> へ移行</b>し（自動生成IDの書き戻しが <code>.toml</code> で行われない issue #13632 を回避）、②<code>database_id</code> を<b>記載しない（省略する）</b>ことで自動プロビジョニングを発火させ、③<code>package.json</code> の <code>wrangler</code> 下限を <b><code>^4.102.0</code></b>（PR #14275 初収録版）に引き上げた（id 省略でもバインディング名 <code>DB</code> からUUIDをAPI解決して <code>wrangler d1 migrations apply DB --remote</code> が通る）。lockfile は解決版 <code>4.103.0</code> のまま・スペック文字列のみ手修正し、<code>@emnapi</code> ピン留め（Deployビルド対策）と <code>npm ci</code> 整合を維持。ローカル全87テストが通過することを確認済み。</td></tr>
       <tr><th>保守者の落とし穴と対応</th><td>同じ <code>database_id</code> 省略設定をローカルでも使うと、開発者のローカル <code>wrangler deploy</code> も自動プロビジョニングで<b>別のD1を作り本番Choiemuデータから切り離される</b>。対応として、実 <code>database_id</code> を持つ <code>wrangler.local.jsonc</code>（gitignore済み・配布しない）を <code>--config</code> 指定する <code>npm run deploy:cli</code> を追加した。素の <code>npm run deploy</code> は Workers Builds／Deployボタン用、本番への CLI デプロイは <code>deploy:cli</code> を使う。これは §5 の本番 Workers Builds 移行までの<b>移行措置</b>で、移行後は撤去する。</td></tr>
-      <tr><th>残課題</th><td>Deployボタン配布時の<b>「D1自動生成＋マイグレーション自動適用＋デプロイコマンド」の通し動作</b>の最終確認は、§5 の②検証環境（Workers Builds）または初回実デプロイで行う（<a href="adr/0011-distribution-and-update-model.md">ADR 0011</a> が「未検証」とする項目）。本ガイドはこの通し検証を成立させる前提として <code>database_id</code> 空化・<code>jsonc</code> 化・floor 引き上げを行った。</td></tr>
+      <tr><th>クローズ済み</th><td>クローズ（2026-06-20）。②staging で D1 自動生成＋migrations 0001-0009 適用＋再デプロイでデータ保持を実機検証済み。さらに③本番接続時には Cloudflare の auto-provisioning が「同名既存 D1 を再利用」する挙動を確認（接続後の D1 binding UUID が既存本番 D1 と一致）し、本番データを保持して移行完了。この「同名既存再利用」は公式 docs 未明文化だが、workers-sdk PR #14275 の <code>getDatabaseByNameOrBinding</code> ロジック（name から control plane API で UUID 解決）が deploy にも効くため、運用上「同名既存があれば再利用される」と判断できる（<a href="adr/0011-distribution-and-update-model.md">ADR 0011</a> 追補に詳述）。</td></tr>
     </tbody>
   </table>
 
-  <h3><span class="badge b-high">最優先</span> ② Workers Builds のデプロイコマンド設定</h3>
-  <p>ADR 0011・dev-and-release-flow.md は「Workers Builds は本番ブランチへの push ごとに <b>deploy コマンド</b>を実行する」前提に立っていますが、その<b>既定コマンドは <code>npx wrangler deploy</code>（マイグレーションを実行しない）</b>です（Cloudflare公式・末尾出典）。本プロジェクトはマイグレーション込みの <code>npm run deploy</code>（<code>package.json:9</code>）を走らせる必要があるため、<b>Workers Builds のビルド設定でデプロイコマンドを <code>npm run deploy</code> に上書き</b>しなければなりません。未設定だと Sync fork してもスキーマ更新が走らず不整合になります（確定事実なので①と同格・最優先）。これは②開発者のテスト環境・③開発者の本番環境・④ユーザー本番のすべてで必要な設定です。</p>
+  <h3><span class="badge b-ok">対応済み</span> ② Workers Builds のデプロイコマンド設定</h3>
+  <p>ADR 0011・dev-and-release-flow.md は「Workers Builds は本番ブランチへの push ごとに <b>deploy コマンド</b>を実行する」前提に立っていますが、その<b>既定コマンドは <code>npx wrangler deploy</code>（マイグレーションを実行しない）</b>です（Cloudflare公式・末尾出典）。本プロジェクトはマイグレーション込みの <code>npm run deploy</code>（<code>package.json:9</code>）を走らせる必要があるため、<b>Workers Builds のビルド設定でデプロイコマンドを <code>npm run deploy</code> に上書き</b>しなければなりません。未設定だと Sync fork してもスキーマ更新が走らず不整合になります（確定事実なので①と同格・最優先）。これは②開発者のテスト環境・③開発者の本番環境・④ユーザー本番のすべてで必要な設定です。<b>（対応済み・2026-06-20）：②staging（Worker <code>discord-event-bot-staging</code>）・③本番（Worker <code>discord-event-bot</code>）ともに Deploy command を <code>npm run deploy</code> に上書き設定済み。利用者の fork 接続時にも <code>setup.html</code> で同じ手順を案内済み。</b></p>
 
   <h3><span class="badge b-ok">対応済み</span> ③ <code>setup.html</code> の「用意するもの」にGitHubが無い（修正済み）</h3>
   <p>「用意するもの」が Discord・Cloudflare の2つだけで GitHub を欠いていた（同ファイルの更新手順では fork の Sync fork を要求しており自己矛盾）。<b>本変更で <code>setup.html</code>・<code>README.md</code>・<code>docs/dev/dev-and-release-flow.md</code>・<code>.claude/rules/dev-and-release.md</code> を「Discord・Cloudflare・GitHub の3つ」に統一修正済み</b>（GitHub＝fork作成と更新に使う・無料）。</p>
 
   <h2>5. 採用方針：3層構成で dev/prod parity（<a href="adr/0012-three-tier-parity.md">ADR 0012</a>）</h2>
   <div class="callout good">
-    <p class="t">この方針は採用済み（2026-06-20）／実装は段階移行中</p>
-    <p>配布用設定の <code>database_id</code> 空化・<code>wrangler.jsonc</code> 化・<code>wrangler</code> 下限引き上げ・<code>deploy:cli</code> 移行措置は<b>導入済み</b>（§4①）。残りは staging／本番を Workers Builds に接続する Cloudflare ダッシュボード作業で、本番が Workers Builds に乗り次第 <code>deploy:cli</code> は撤去します。決定の根拠と却下案は <a href="adr/0012-three-tier-parity.md">ADR 0012</a> に記録。</p>
+    <p class="t">この方針は採用済み（2026-06-20）／②staging と③本番ともに Workers Builds 接続完了</p>
+    <p>配布用設定の <code>database_id</code> 空化・<code>wrangler.jsonc</code> 化・<code>wrangler</code> 下限引き上げ・<code>deploy:cli</code> 移行措置は<b>導入済み</b>（§4①）。残るは <code>deploy:cli</code> の撤去のみ（P-5・しばらく観察後）。決定の根拠と却下案は <a href="adr/0012-three-tier-parity.md">ADR 0012</a> に記録。</p>
   </div>
   <p><b>§1・§2 との対応。</b> ここでの3層は開発者側の開発パイプラインの視点で、<b>① ローカル開発＝§1/§2 の「開発者のローカル」</b>、<b>② 検証(staging)＝「開発者のテスト環境」</b>、<b>③ 本番(prod)＝「開発者の本番環境（Choiemu）」</b>に対応します。ユーザーの本番環境（④）は③と同じ Workers Builds 機構を、利用者の fork で動かしたものです。</p>
   <p><b>動機（なぜ必要か）。</b> これまでは<b>②検証＝ローカルCLI（<code>wrangler deploy</code>）／④ユーザー本番＝Workers Builds</b> とデプロイ機構が分かれていました。機構が違うと、その差に起因するエラー——自動プロビジョニング（空 <code>database_id</code> からのD1生成）・Workers Builds 上でのマイグレーション実行・デプロイコマンド設定——が<b>検証をすり抜けて本番で初めて出ます</b>。そこで「開発者の本番も、ユーザーと同じ <b>GitHub→Cloudflare（Workers Builds）</b> 経路で動かす」。さらに<b>②検証も同じ Workers Builds 経路にして、検証と本番のデプロイ機構を完全に一致</b>させます。</p>
@@ -295,7 +295,7 @@
     <li><b>ローカルからの本番リモートデプロイ（毎回ユーザー許可が要る本番操作＝<code>deploy:cli</code>）が不要になる。</b>リモートへのデプロイが全部 Workers Builds 経由になり、運用が簡素化される。</li>
     <li><b><a href="adr/0008-verify-on-deployed-test-worker.md">ADR 0008</a> の安全目的をより完全に満たす。</b>Workers Builds は Cloudflare CI 上で走りシークレットはダッシュボード管理（ローカル <code>.env</code> を読まない）なので、ADR 0008 が恐れた「本番値混入による誤投稿」の経路自体が消える。</li>
   </ul>
-  <p>現在のローカルからのリモートデプロイ（<code>npm run deploy:cli</code>）は最終的に廃止され、ローカルは論理検証（<code>vitest</code>／sealed <code>wrangler dev</code>）専用になります。</p>
+  <p>2026-06-20 時点で本番が Workers Builds 経由で稼働中のため、<code>deploy:cli</code> は緊急時フォールバック用途で残置。しばらくの安定運用観察後に撤去予定（P-5）。撤去後はローカルは論理検証（<code>vitest</code>／sealed <code>wrangler dev</code>）専用となる。</p>
 
   <figure>
     <svg viewBox="0 0 680 165" role="img" aria-label="3層構成の図">

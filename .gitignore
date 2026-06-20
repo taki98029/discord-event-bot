@@ -36,3 +36,6 @@ secrets*.json
 # 検証アーティファクト（Playwright スクショ等・コミット不要）
 .playwright-mcp/
 verify-*.png
+
+# 本番 D1 のローカルバックアップ（PII含む・コミット禁止）
+.backups/

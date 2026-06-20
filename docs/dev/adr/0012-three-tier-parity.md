@@ -2,7 +2,7 @@
 
 開発・検証・本番を **①ローカル開発 ／ ②検証(staging) ／ ③本番(prod)** の3層に分け、**②と③のデプロイ機構を Cloudflare Workers Builds（GitHub→Cloudflare）に統一**する。保守者のローカルからの CLI リモートデプロイは段階的に撤去する。あわせて、利用者が必要とする外部アカウントを **Discord・Cloudflare・GitHub の3つ**と明文化する。
 
-> ステータス: **採用（2026-06-20）／実装は段階移行中**。配布用設定の `database_id` 省略・`wrangler.jsonc` 化・`wrangler` 下限引き上げ・`deploy:cli` 移行措置は導入済み。staging／本番の Workers Builds 接続は未構築（Cloudflare ダッシュボード作業）。本番が Workers Builds に乗り次第、`deploy:cli` は撤去する。
+> ステータス: **採用・実装完了（2026-06-20）**。配布用設定の `database_id` 省略・`wrangler.jsonc` 化・`wrangler` 下限引き上げ・`deploy:cli` 移行措置は導入済み。**②staging（`discord-event-bot-staging`）／③本番（`discord-event-bot`）ともに Workers Builds 接続完了（2026-06-20）**。②③とも Deploy command を `npm run deploy` に上書き済み。`deploy:cli` はしばらく観察期間を置いた上で撤去予定（P-5）。「同名既存 D1 再利用」の実機検証結果は [ADR 0011 追補 2](0011-distribution-and-update-model.md) を参照。
 
 ## 文脈
 

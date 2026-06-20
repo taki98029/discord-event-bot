@@ -83,7 +83,7 @@ npm run deploy:cli
 
 `deploy:cli` も**本番 D1 へマイグレーションを適用してからデプロイ**する。本番 Choiemu 操作にあたるため、実行前に必ずユーザーの明示的な許可を得ること（詳細は[npm run deploy / deploy:cli の本番マイグレーション挙動](#npm-run-deploy--deploycli-の本番マイグレーション挙動要ユーザー許可)）。出力される URL（例 `https://discord-event-bot.<account>.workers.dev`）を控える。
 
-> **方針（[ADR 0012](adr/0012-three-tier-parity.md)）**: 本番も検証も最終的には GitHub→Cloudflare（Workers Builds）経路に寄せ、ローカルからの CLI リモートデプロイ（`deploy:cli`）は撤去する。`deploy:cli` は Workers Builds 本番が立ち上がるまでの**移行措置**である。
+> **方針（[ADR 0012](adr/0012-three-tier-parity.md)）**: 本番も検証も GitHub→Cloudflare（Workers Builds）経路に寄せ、ローカルからの CLI リモートデプロイ（`deploy:cli`）は撤去する。**2026-06-20 に本番 Worker（`discord-event-bot`）の Workers Builds 接続が完了し、staging（`discord-event-bot-staging`）も同日にスモークテスト＋シークレット投入＋スラッシュコマンド登録まで完了済み**。`deploy:cli` は緊急時フォールバックとしてしばらく残置し、観察期間を経て撤去予定（タスク P-5）。
 
 ### 7. Discord 側の設定
 
@@ -243,7 +243,7 @@ deploy スクリプト（npm run deploy）が自動実行:
 
 - 配布用 `wrangler.jsonc` の `d1_databases[]` には `database_id` フィールドを**記載しない（省略する）**。Cloudflare の自動プロビジョニング（2025-10-24〜）は「id の無いバインディング＝新規作成」とみなし、利用者の fork を接続した Workers Builds が利用者のアカウントに D1 を自動生成する。実 `database_id` をベタ書きすると、そのリソースは利用者のアカウントに存在しないため自動生成がスキップされ、**利用者のデプロイが失敗する**。
 - 自動生成された id の「書き戻し」が `.toml` では行われない（workers-sdk issue #13632）ため、設定ファイルは **`wrangler.jsonc`（JSON 形式）** にしている。
-- **保守者の落とし穴**: 同じ `database_id` 省略の設定をローカルでも使うと、ローカルからの `wrangler deploy` も自動プロビジョニングで**本番とは別の D1 を作ってしまう**。保守者が本番 Choiemu へ CLI デプロイするときは、実 `database_id` を持つ `wrangler.local.jsonc`（gitignore 済み）を `--config` で指定する **`npm run deploy:cli`** を使う。
+- **保守者の落とし穴**: 同じ `database_id` 省略の設定をローカルから `wrangler deploy` で実行すると、自動プロビジョニングで**本番とは別の D1 を作ってしまう**ように見える点に注意。ただし **2026-06-20 の P-2 実機検証で、Cloudflare の auto-provisioning は「同名（`database_name`）の既存 D1 が同一アカウントに存在すれば、それを再利用してバインドする」挙動を取ることが確認された**（配布用 `wrangler.jsonc` に `database_id` が無く `database_name = "choiemu-event-bot-db"` のみの状態で本番 Worker を Workers Builds に接続したところ、Bindings タブで既存本番 D1 の UUID `f6ff753c-bf29-4eb5-83ec-317631743cfc` がそのまま割り当てられた）。これは workers-sdk PR #14275 の `getDatabaseByNameOrBinding` が control plane API で name→UUID を解決するロジックが deploy 経路にも効くと推認できる（公式 docs は未明文化）。詳細は [ADR 0011 追補](adr/0011-distribution-and-update-model.md) を参照。なお、ローカル CLI から本番 Choiemu へ直接デプロイする緊急時は、実 `database_id` を持つ `wrangler.local.jsonc`（gitignore 済み）を `--config` で指定する **`npm run deploy:cli`** を使う（フォールバック用途・タスク P-5 で観察後に撤去予定）。
 
 ### npm run deploy / deploy:cli の本番マイグレーション挙動（要ユーザー許可）
 
@@ -255,17 +255,19 @@ deploy スクリプト（npm run deploy）が自動実行:
 ### バインディング名 DB を指定する理由（issue #13632 → PR #14275）
 
 - マイグレーションコマンドは「データベース名」ではなく「**バインディング名 `DB`**」で指定している（`wrangler d1 migrations apply DB --remote` / `--local`）。
-- 理由: 利用者が fork を Workers Builds に接続してデプロイすると、各利用者の D1 は**自動生成**される（名前は環境依存）。データベース名で指定すると利用者ごとに名前が異なって動かないが、**バインディング名は全環境で `DB` に揃う**ため、同じスクリプトがそのまま動く。これは Cloudflare 公式推奨の方式である。関連 PR #14275 で `d1 migrations apply` は config 内の id からバインディング名を解決できるようになったが、**未作成の DB を自動生成はしない**。よって `wrangler deploy` を先に実行して D1 を自動プロビジョニング（id を `wrangler.jsonc` に書き戻し）し、その後で `migrations apply` が成功する（2026-06-20 実機検証）。
+- 理由: 利用者が fork を Workers Builds に接続してデプロイすると、各利用者の D1 は**自動生成**される（名前は環境依存）。データベース名で指定すると利用者ごとに名前が異なって動かないが、**バインディング名は全環境で `DB` に揃う**ため、同じスクリプトがそのまま動く。これは Cloudflare 公式推奨の方式である。関連 PR #14275 で `d1 migrations apply` は config 内の id（または name）からバインディング名を解決できるようになったが、**未作成の DB を自動生成はしない**。よって `wrangler deploy` を先に実行して D1 を自動プロビジョニング（同名既存 D1 があれば再利用、無ければ新規作成）し、その後で `migrations apply` が成功する（2026-06-20 P-2 で実機検証・本番では既存同名 D1 が再利用された）。
 - `database_id` を省略してもバインディング名 `DB` から UUID を API 解決して `wrangler d1 migrations apply DB --remote` が通るのは PR #14275（**wrangler 4.102.0 で初収録**）以降。このため `package.json` の `wrangler` 下限は **`^4.102.0`** に固定している（4.101.x へ戻ると id 省略時にマイグレーションが解決できない）。`package.json` を変更する際は `@emnapi` ピン留め（Deploy ビルド対策）を崩さないよう、lockfile は npm10 で扱うこと。
 
 ### 利用者のシークレット入力（fork 接続）
 
 - 利用者は fork を Workers Builds に接続後、Worker の **Settings → Variables and Secrets** で4つのシークレット（`DISCORD_PUBLIC_KEY` / `DISCORD_APPLICATION_ID` / `DISCORD_BOT_TOKEN` / `ADMIN_TOKEN`・`.dev.vars.example` と一致）を設定する（接続フローで環境変数欄が出ればそこでも可）。`package.json` の `cloudflare.bindings` は各シークレットの説明文の出所。
 
-### 案Bの実挙動は実機スモークテストで最終確認
+### 案Bの実挙動は実機検証済み（2026-06-20）
 
-- fork 接続経由での「**D1 自動生成＋マイグレーション自動適用＋Sync fork での再デプロイ＋既存 D1 の再利用（データ保全）**」の通し動作は、捨てデータでの**実機スモークテスト**（または初回公開デプロイ）で締める。詳細は [タスクリスト.md](タスクリスト.md) の B-1。
-- 文書上の成立はバインディング名 `DB` 解決・自動プロビジョニングの「紐付け維持」・純正 Sync fork 仕様から確認済み（出典は [distribution-and-environments.html](distribution-and-environments.html) 末尾）。残るは上記の実地確認のみ。
+- fork 接続経由での「**D1 自動生成＋マイグレーション自動適用＋Sync fork での再デプロイ＋既存 D1 の再利用（データ保全）**」の通し動作は、**2026-06-20 に staging（`discord-event-bot-staging` / `choiemu-event-bot-db-staging`）でのスモークテスト、および本番 Worker（`discord-event-bot`）の Workers Builds 接続で実機検証完了**（タスク P-2）。
+- 特に「**同名既存 D1 の再利用**」は、本番接続時に Bindings タブで既存本番 D1 の UUID（`f6ff753c-bf29-4eb5-83ec-317631743cfc`）が再割り当てされたことを実機で確認済み。本番データを保持したまま Workers Builds 化に成功した。
+- staging・本番とも Deploy command を `npm run deploy` に上書き設定済み（タスク P-2 のリスク②対応）。
+- 文書上の成立はバインディング名 `DB` 解決・自動プロビジョニングの「紐付け維持」・純正 Sync fork 仕様から既に確認済み（出典は [distribution-and-environments.html](distribution-and-environments.html) 末尾）。実地確認も上記で完了。
 
 ---
 

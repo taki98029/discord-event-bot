@@ -4,7 +4,7 @@ import { setDmChannelId } from '../db/members';
 
 const API = 'https://discord.com/api/v10';
 /** Discord API への User-Agent（バージョンは package.json と同期）。コマンド登録でも共用。 */
-export const USER_AGENT = 'DiscordBot (https://github.com/discord-event-bot, 7.0.0)';
+export const USER_AGENT = 'DiscordBot (https://github.com/taki98029/discord-event-bot, 7.1.0)';
 
 type MessagePayload = { content: string; components?: unknown[]; allowed_mentions?: unknown };
 
