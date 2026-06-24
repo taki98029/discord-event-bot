@@ -16,43 +16,43 @@
         --panel: #1e1f22;
         --panel2: #2b2d31;
         --elevated: #313338;
-
+      
         /* --- 境界線 (borders) --- */
         --border: #3f4147;
         --border2: #484b52;
         --border-hover: #4e5058;
-
+      
         /* --- テキスト --- */
         --text: #dbdee1;
         --muted: #b5bac1;
         --text-placeholder: #87898c;
-
+      
         /* --- アクセント (Discord blurple 系) --- */
         --accent: #5865f2;
         --accent-hover: #4752c4;
         --accent-soft: rgba(88, 101, 242, .15);
-
+      
         /* --- 状態色 (semantic) --- */
         --danger: #f23f43;
         --danger-hover: #da373c;
         --ok: #23a559;
         --warn: #f0b232;
-
+      
         /* --- ボタン hover (darken パターン) --- */
         --btn-secondary-hover: #3a3c41;
         --btn-danger-hover: #a12d31;
-
+      
         /* --- コンポーネント固有テキスト --- */
         --pill-ok-text: #2dc770;
         --nav-active-text: #f2f3f5;
         --avatar-text: #c9cdfb;
-
+      
         /* --- オーバーレイ --- */
         --backdrop: rgba(0, 0, 0, .7);
-
+      
         /* --- フォーカスリング --- */
         --ring: 0 0 0 2px rgba(88, 101, 242, .4);
-
+      
         /* --- 角丸・影・余白 --- */
         --r: 8px;
         --r-sm: 4px;
@@ -68,7 +68,7 @@
        * tokens.css（Discord 2025 ダーク）の var(--*) に全面配線。
        * index.css 経由で読み込む。
        * ============================================================= */
-
+      
       /* ---------- Reset / Base ---------- */
       * { box-sizing: border-box; }
       body {
@@ -81,7 +81,7 @@
       h3 { font-size: 15px; margin: 0 0 8px; }
       a { color: var(--accent); }
       code { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 2px 6px; font-size: 12.5px; }
-
+      
       /* ---------- Form controls ---------- */
       label { display: block; color: var(--muted); margin: 12px 0 5px; font-size: 12.5px; font-weight: 600; letter-spacing: .01em; }
       input, select, textarea {
@@ -97,7 +97,7 @@
       .field-error { color: var(--danger); font-size: 12px; margin-top: 4px; min-height: 0; }
       label.inline { display: inline-flex; align-items: center; gap: 8px; margin: 8px 14px 0 0; color: var(--text); font-weight: 500; cursor: pointer; }
       label.inline input { width: auto; accent-color: var(--accent); }
-
+      
       /* ---------- Buttons ---------- */
       button.btn {
         background: var(--accent); color: #fff; border: 1px solid transparent;
@@ -123,7 +123,7 @@
         border: 2px solid rgba(255, 255, 255, .5); border-top-color: #fff; border-radius: 50%; animation: spin .6s linear infinite;
       }
       @keyframes spin { to { transform: rotate(360deg); } }
-
+      
       /* ---------- Table ---------- */
       table { width: 100%; border-collapse: collapse; }
       th, td { text-align: left; padding: 9px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
@@ -132,7 +132,7 @@
       .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--r-sm); }
       .row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp); }
       .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--sp); }
-
+      
       /* ---------- Feedback: toast / pill / summary / empty ---------- */
       .toast {
         position: fixed; bottom: 20px; right: 20px; padding: 12px 16px; border-radius: var(--r-sm);
@@ -152,7 +152,7 @@
         text-align: center; color: var(--muted); padding: 28px 16px; border: 1px dashed var(--border2);
         border-radius: var(--r); background: var(--panel);
       }
-
+      
       /* ---------- Settings patterns (Discord 設定画面風) ---------- */
       /* Switch (トグル) */
       .switch { position: relative; display: inline-flex; flex: none; width: 40px; height: 24px; cursor: pointer; }
@@ -163,7 +163,7 @@
       .switch input:checked + .switch-slider::before { transform: translateX(16px); }
       .switch input:focus-visible + .switch-slider { box-shadow: var(--ring); }
       .switch input:disabled + .switch-slider { opacity: .5; cursor: not-allowed; }
-
+      
       /* Radio (タイトル＋説明つき) */
       .radio-group { display: flex; flex-direction: column; gap: 2px; }
       .radio-option { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; cursor: pointer; }
@@ -175,7 +175,7 @@
       .radio-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
       .radio-title { color: var(--text); font-weight: 600; font-size: 14px; }
       .radio-desc { color: var(--muted); font-size: 12.5px; }
-
+      
       /* SettingRow (ラベル＋説明 / 右にコントロール) */
       .setting-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--border); }
       .setting-row:last-child { border-bottom: none; }
@@ -183,7 +183,7 @@
       .setting-row-title { color: var(--text); font-weight: 600; font-size: 14px; }
       .setting-row-desc { color: var(--muted); font-size: 12.5px; }
       .setting-row-control { flex: none; display: flex; align-items: center; gap: 8px; }
-
+      
       /* NavRow (アイコン＋タイトル＋説明＋シェブロンの遷移行) */
       .nav-row { display: flex; align-items: center; gap: 12px; padding: 13px 8px; cursor: pointer; border-radius: var(--r-sm); transition: background .12s ease; }
       .nav-row:hover { background: var(--panel2); }
@@ -193,10 +193,10 @@
       .nav-row-title { color: var(--text); font-weight: 600; font-size: 14px; }
       .nav-row-desc { color: var(--muted); font-size: 12.5px; }
       .nav-row-chevron { flex: none; color: var(--muted); font-size: 18px; line-height: 1; }
-
+      
       /* Divider (汎用の区切り線) */
       .divider { height: 1px; border: none; background: var(--border); margin: 16px 0; }
-
+      
       /* Alert (情報/警告/危険のコールアウト) */
       .alert { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: var(--r-sm); font-size: 13.5px; color: var(--text); border: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 9%, transparent); }
       .alert-icon { flex: none; display: flex; color: var(--accent); margin-top: 1px; }
@@ -206,7 +206,7 @@
       .alert.danger .alert-icon { color: var(--danger); }
       .alert.ok { border-color: var(--ok); background: color-mix(in srgb, var(--ok) 9%, transparent); }
       .alert.ok .alert-icon { color: var(--ok); }
-
+      
       /* SubTabs (設定ページ内の縦サブタブ・active は左に accent バー) */
       .subtabs { display: flex; flex-direction: column; gap: 2px; }
       .subtab {
@@ -222,7 +222,7 @@
         width: 3px; height: 20px; border-radius: 0 3px 3px 0; background: var(--accent);
       }
       .subtab:focus-visible { outline: none; box-shadow: var(--ring); }
-
+      
       /* DropdownButton (アイコン＋値＋キャレットの選択トリガ。native select の見た目寄せ版) */
       .dropdown-btn {
         display: inline-flex; align-items: center; gap: 8px; padding: 7px 11px;
@@ -236,16 +236,16 @@
       .dropdown-btn-label { flex: 1; text-align: left; white-space: nowrap; }
       .dropdown-btn-caret { flex: none; color: var(--muted); font-size: 14px; line-height: 1; transition: transform .15s ease; }
       .dropdown-btn[aria-expanded="true"] .dropdown-btn-caret { transform: rotate(180deg); }
-
+      
       /* ---------- Utilities ---------- */
       .hidden { display: none !important; }
       .muted { color: var(--muted); }
       .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-
+      
       /* ---------- Containers: fieldset ---------- */
       fieldset { border: 1px solid var(--border); border-radius: var(--r); margin: 14px 0; padding: 14px 16px; background: var(--panel); }
       legend { color: var(--text); padding: 0 8px; font-weight: 600; }
-
+      
       /* ---------- App shell: topbar / sidebar / main / cards ---------- */
       .shell { display: grid; grid-template-columns: 210px 1fr; min-height: calc(100vh - 57px); }
       .side { border-right: 1px solid var(--border); padding: 14px 10px; background: var(--panel); }
@@ -263,8 +263,9 @@
       .srv { display: flex; align-items: center; gap: 10px; min-width: 0; }
       .ava {
         width: 34px; height: 34px; border-radius: 9px; display: flex; align-items: center; flex: none;
-        justify-content: center; font-weight: 700; background: var(--accent-soft); color: var(--avatar-text);
+        justify-content: center; font-weight: 700; background: var(--accent-soft); color: var(--avatar-text); overflow: hidden;
       }
+      .ava img { width: 100%; height: 100%; object-fit: cover; display: block; }
       main { padding: 22px; max-width: 940px; }
       .card {
         background: var(--panel); border: 1px solid var(--border); border-radius: var(--r);
@@ -283,7 +284,7 @@
         display: flex; align-items: center; justify-content: space-between; gap: 10px;
         padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-sm); margin-bottom: 6px; background: var(--panel2);
       }
-
+      
       /* ---------- Server rail (Discord 風・最左のサーバー切替列) ---------- */
       .server-rail {
         display: flex; flex-direction: column; align-items: center; gap: 8px;
@@ -296,7 +297,7 @@
         font-weight: 700; font-size: 16px; font-family: inherit; cursor: pointer; user-select: none;
         transition: border-radius .15s ease, background .15s ease, color .15s ease;
       }
-      .server-rail-item img { width: 100%; height: 100%; object-fit: cover; }
+      .server-rail-item img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
       /* 左端の白インジケータ（hover で伸び、active で最大） */
       .server-rail-item::before {
         content: ""; position: absolute; left: -10px; top: 50%; transform: translateY(-50%);
@@ -310,7 +311,7 @@
       .server-rail-item.add:hover { background: var(--ok); color: #fff; }
       .server-rail-item:focus-visible { outline: none; box-shadow: var(--ring); }
       .server-rail-divider { flex: none; width: 32px; height: 2px; border-radius: 1px; background: var(--border2); margin: 2px 0; }
-
+      
       /* ---------- App-specific: 単発候補スロット (one-off slots) ---------- */
       .slotgroup { border: 1px solid var(--border2); border-radius: var(--r-sm); padding: 12px; margin-bottom: 10px; background: var(--panel2); }
       .slotgroup-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -319,7 +320,7 @@
       .timechip { display: inline-flex; align-items: center; gap: 4px; background: var(--bg); border: 1px solid var(--border2); border-radius: 999px; padding: 3px 6px 3px 10px; }
       .timechip input[type=time] { width: auto; border: none; background: none; padding: 2px 0; }
       .timechip input[type=time]:focus { box-shadow: none; }
-
+      
       /* ---------- Modal / dialog ---------- */
       .backdrop {
         position: fixed; inset: 0; background: var(--backdrop); display: flex; align-items: center;
@@ -330,7 +331,7 @@
       .modal h3 { margin: 0 0 8px; }
       .modal p { margin: 0 0 16px; color: var(--text); }
       .modal .actions { justify-content: flex-end; }
-
+      
       /* ---------- Responsive ---------- */
       @media (max-width: 720px) {
         .shell { grid-template-columns: 1fr; min-height: 0; }
@@ -354,17 +355,17 @@
        * sync-ui.mjs が tokens.css + components.css と連結して
        * ui/index.html の <style> に注入する。
        * ============================================================= */
-
+      
       /* ---- ワークスペース全体: 最左の server-rail ＋ 本体（topbar + shell） ---- */
       .ws-layout { display: flex; align-items: stretch; min-height: 100vh; }
       .ws-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-
+      
       /* server-rail は左に固定（本体をスクロールしても残す） */
       .ws-layout > .server-rail {
         position: sticky; top: 0; align-self: flex-start; height: 100vh;
         border-right: 1px solid var(--border);
       }
-
+      
       /* ---- 狭幅: rail を上部の横スクロール帯へ ---- */
       @media (max-width: 720px) {
         .ws-layout { flex-direction: column; }
@@ -534,14 +535,22 @@
         let guilds = [];
         try { guilds = await fetchGuilds(); } catch (e) { toast(e.message, true); }
         $('#guildCards').innerHTML = guilds.length
-          ? guilds.map((g) => `<div class="card" data-gid="${esc(g.id)}" data-gname="${esc(g.name)}">
-              <div class="srv"><div class="ava">${esc((g.name || '?').slice(0, 1))}</div>
+          ? guilds.map((g) => {
+              const u = guildIconUrl(g);
+              const ava = u ? `<img src="${esc(u)}" alt="" loading="lazy" onerror="this.remove()">` : esc((g.name || '?').slice(0, 1));
+              return `<div class="card" data-gid="${esc(g.id)}" data-gname="${esc(g.name)}">
+              <div class="srv"><div class="ava">${ava}</div>
               <div><div style="font-weight:600">${esc(g.name)}</div>
-              <div class="muted" style="font-size:12px">ID: ${esc(g.id)}</div></div></div></div>`).join('')
+              <div class="muted" style="font-size:12px">ID: ${esc(g.id)}</div></div></div></div>`;
+            }).join('')
           : '<p class="muted">参加サーバーが取得できませんでした。bot トークン / 権限を確認してください。</p>';
         document.querySelectorAll('#guildCards .card').forEach((c) => {
           c.onclick = () => selectGuild({ id: c.dataset.gid, name: c.dataset.gname });
         });
+      }
+      // サーバーアイコンの CDN URL（icon ハッシュがあれば。無ければ null → 頭文字フォールバック）
+      function guildIconUrl(g) {
+        return g && g.icon ? 'https://cdn.discordapp.com/icons/' + g.id + '/' + g.icon + '.png?size=96' : null;
       }
       // Discord 風の最左サーバー列。workspace で現在サーバーを強調しつつ、クリックで切替。
       async function renderServerRail() {
@@ -552,8 +561,14 @@
         const cur = guild && guild.id;
         rail.innerHTML = guilds.map((g) => {
           const on = g.id === cur;
-          return `<button class="server-rail-item${on ? ' active' : ''}" data-gid="${esc(g.id)}" data-gname="${esc(g.name)}" title="${esc(g.name)}" aria-label="${esc(g.name)}"${on ? ' aria-current="true"' : ''}>${esc((g.name || '?').slice(0, 1))}</button>`;
+          const u = guildIconUrl(g);
+          const letter = esc((g.name || '?').slice(0, 1));
+          const img = u ? `<img src="${esc(u)}" alt="" loading="lazy" onerror="this.remove()">` : '';
+          return `<button class="server-rail-item${on ? ' active' : ''}" data-gid="${esc(g.id)}" data-gname="${esc(g.name)}" title="${esc(g.name)}" aria-label="${esc(g.name)}"${on ? ' aria-current="true"' : ''}>${letter}${img}</button>`;
         }).join('');
+        // 現在サーバーのアイコンを上部バーのアバターにも反映（あれば。無ければ頭文字のまま）
+        const curUrl = guildIconUrl(guilds.find((g) => g.id === cur));
+        if (curUrl) $('#wsAva').innerHTML = `<img src="${esc(curUrl)}" alt="" loading="lazy" onerror="this.remove()">`;
         rail.querySelectorAll('.server-rail-item').forEach((b) => {
           b.onclick = () => {
             if (b.dataset.gid === (guild && guild.id)) return;
