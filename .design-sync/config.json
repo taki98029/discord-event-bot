@@ -1,0 +1,13 @@
+{
+  "pkg": "@eventbot/design-system",
+  "globalName": "EventBotDS",
+  "projectId": "07b48dd4-d390-491a-887d-a5cb32e57c9f",
+  "shape": "package",
+  "buildCmd": "npm --prefix design-system run build",
+  "srcDir": "design-system/src",
+  "cssEntry": "dist/styles/index.bundle.css",
+  "readmeHeader": ".design-sync/conventions.md",
+  "overrides": {
+    "Modal": { "cardMode": "single", "primaryStory": "Confirm" }
+  }
+}

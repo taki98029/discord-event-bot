@@ -50,6 +50,9 @@ function oneoffInput(
     message_title: '単発テスト',
     message_body: null,
     active: 1,
+    response_deadline_hours: null,
+    change_alert_channel_id: null,
+    send_hour: 21,
     ...over,
   };
 }

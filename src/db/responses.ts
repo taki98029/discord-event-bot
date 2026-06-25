@@ -13,19 +13,36 @@ export async function upsertResponse(
   userId: string,
   userName: string | null,
   status: string,
+  /** 締切後の変更として記録する場合 true（ADR 0014）。一度立つと sticky（MAX で保持）。 */
+  postDeadlineChange = false,
 ): Promise<void> {
   const ts = new Date().toISOString();
+  const flag = postDeadlineChange ? 1 : 0;
   await db
     .prepare(
-      `INSERT INTO responses (occurrence_id, user_id, user_name, status, updated_at)
-       VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO responses (occurrence_id, user_id, user_name, status, updated_at, post_deadline_change)
+       VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(occurrence_id, user_id) DO UPDATE SET
          status = excluded.status,
          user_name = excluded.user_name,
-         updated_at = excluded.updated_at`,
+         updated_at = excluded.updated_at,
+         post_deadline_change = MAX(responses.post_deadline_change, excluded.post_deadline_change)`,
     )
-    .bind(occurrenceId, userId, userName ?? null, status, ts)
+    .bind(occurrenceId, userId, userName ?? null, status, ts, flag)
     .run();
+}
+
+/** 単一ユーザの現在の回答ステータスを取得（未回答なら null）。締切後変更の検知に使う（ADR 0014）。 */
+export async function getResponseStatus(
+  db: D1Database,
+  occurrenceId: number,
+  userId: string,
+): Promise<string | null> {
+  const row = await db
+    .prepare('SELECT status FROM responses WHERE occurrence_id = ? AND user_id = ?')
+    .bind(occurrenceId, userId)
+    .first<{ status: string }>();
+  return row?.status ?? null;
 }
 
 /** 開催回の回答を userId → 行 で取得（旧 getEventLogsForDate） */
@@ -139,7 +156,7 @@ export async function listRecentResponses(
 > {
   const { results } = await db
     .prepare(
-      `SELECT r.occurrence_id, r.user_id, r.user_name, r.status, r.updated_at,
+      `SELECT r.occurrence_id, r.user_id, r.user_name, r.status, r.updated_at, r.post_deadline_change,
               o.occurrence_date AS occurrence_date, o.start_time AS occurrence_time,
               n.name AS notification_name
          FROM responses r
@@ -152,5 +169,72 @@ export async function listRecentResponses(
     .all<
       Response & { occurrence_date: string; occurrence_time: string; notification_name: string }
     >();
+  return results;
+}
+
+/**
+ * 未回答リマインドの「未送信ターゲット」を直接取得する（ADR 0013 ペース配信）。
+ * 区分アクティブメンバー − 既回答者 − 当日すでに送信済み（send_log）。LIMIT で予算分だけ取る。
+ * これにより毎ティックで全員を claim し直す無駄（D1 書き込みスパム）を避ける。
+ */
+export async function remainingUnansweredTargets(
+  db: D1Database,
+  segmentId: number,
+  occurrenceId: number,
+  notificationId: number,
+  sendDate: string,
+  limit: number,
+): Promise<Member[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT m.user_id, m.user_name, m.display_name, m.dm_channel_id, m.created_at
+         FROM segment_members sm
+         JOIN members m ON m.user_id = sm.user_id
+        WHERE sm.segment_id = ? AND sm.status = ''
+          AND NOT EXISTS (
+            SELECT 1 FROM responses r WHERE r.occurrence_id = ? AND r.user_id = m.user_id
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM send_log s
+             WHERE s.notification_id = ? AND s.occurrence_id = ? AND s.user_id = m.user_id
+               AND s.kind = 'remind_unanswered' AND s.send_date = ?
+          )
+        ORDER BY sm.joined_at
+        LIMIT ?`,
+    )
+    .bind(segmentId, occurrenceId, notificationId, occurrenceId, sendDate, limit)
+    .all<Member>();
+  return results;
+}
+
+/**
+ * 未定リマインドの「未送信ターゲット」を直接取得する（ADR 0013 ペース配信）。
+ * 区分アクティブメンバーのうち当該回に「未定」回答済み − 当日すでに送信済み。LIMIT で予算分だけ。
+ */
+export async function remainingUndecidedTargets(
+  db: D1Database,
+  segmentId: number,
+  occurrenceId: number,
+  notificationId: number,
+  sendDate: string,
+  limit: number,
+): Promise<Member[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT m.user_id, m.user_name, m.display_name, m.dm_channel_id, m.created_at
+         FROM responses r
+         JOIN segment_members sm ON sm.user_id = r.user_id AND sm.segment_id = ? AND sm.status = ''
+         JOIN members m ON m.user_id = r.user_id
+        WHERE r.occurrence_id = ? AND r.status = '未定'
+          AND NOT EXISTS (
+            SELECT 1 FROM send_log s
+             WHERE s.notification_id = ? AND s.occurrence_id = ? AND s.user_id = m.user_id
+               AND s.kind = 'remind_undecided' AND s.send_date = ?
+          )
+        ORDER BY sm.joined_at
+        LIMIT ?`,
+    )
+    .bind(segmentId, occurrenceId, notificationId, occurrenceId, sendDate, limit)
+    .all<Member>();
   return results;
 }

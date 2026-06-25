@@ -6,6 +6,7 @@ const COLS =
   'duration_minutes, recruit_days_before, remind_start_days, remind_undecided_days, ' +
   'quota_enabled, quota_interval_days, assignment_enabled, mention_enabled, mention_mode, ' +
   'requires_response, message_title, message_body, active, ' +
+  'response_deadline_hours, change_alert_channel_id, send_hour, ' +
   'decided_occurrence_id, created_at';
 
 /** 一覧表示用の集計列（候補数・確定回の日時）。COLS に続けて付与する。 */
@@ -37,6 +38,12 @@ export interface NotificationInput {
   message_title: string;
   message_body: string | null;
   active: number;
+  /** 回答締切（開始の N 時間前・null=なし・ADR 0014） */
+  response_deadline_hours: number | null;
+  /** 締切後変更の通知先チャンネル（null=投稿チャンネルにフォールバック・ADR 0014） */
+  change_alert_channel_id: string | null;
+  /** cron 駆動送信を送る JST 時（0〜23・既定 21・ADR 0013） */
+  send_hour: number;
 }
 
 /** 全 Notification 取得（作成順・一覧用の集計列付き） */
@@ -102,8 +109,9 @@ export async function createNotification(
          guild_id, segment_id, name, channel_id, type, rrule, one_off_date, anchor_date, start_time,
          duration_minutes, recruit_days_before, remind_start_days, remind_undecided_days,
          quota_enabled, quota_interval_days, assignment_enabled, mention_mode, requires_response,
-         message_title, message_body, active
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         message_title, message_body, active,
+         response_deadline_hours, change_alert_channel_id, send_hour
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       input.guild_id,
@@ -127,6 +135,9 @@ export async function createNotification(
       input.message_title,
       input.message_body ?? null,
       input.active,
+      input.response_deadline_hours ?? null,
+      input.change_alert_channel_id ?? null,
+      input.send_hour,
     )
     .run();
   const id = res.meta.last_row_id as number;
@@ -158,7 +169,8 @@ export async function updateNotification(
          recruit_days_before = ?, remind_start_days = ?,
          remind_undecided_days = ?, quota_enabled = ?, quota_interval_days = ?,
          assignment_enabled = ?, mention_mode = ?, requires_response = ?,
-         message_title = ?, message_body = ?, active = ?
+         message_title = ?, message_body = ?, active = ?,
+         response_deadline_hours = ?, change_alert_channel_id = ?, send_hour = ?
        WHERE id = ?`,
     )
     .bind(
@@ -183,6 +195,9 @@ export async function updateNotification(
       patch.message_title,
       patch.message_body ?? null,
       patch.active,
+      patch.response_deadline_hours ?? null,
+      patch.change_alert_channel_id ?? null,
+      patch.send_hour,
       id,
     )
     .run();

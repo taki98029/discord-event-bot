@@ -16,5 +16,8 @@ beforeEach(async () => {
     env.DB.prepare('DELETE FROM segment_members'),
     env.DB.prepare('DELETE FROM members'),
     env.DB.prepare('DELETE FROM segments'),
+    // オーバーホールで追加（migration 0010）。テスト間で送信ログ/設定が漏れないよう毎回クリアする。
+    env.DB.prepare('DELETE FROM send_log'),
+    env.DB.prepare('DELETE FROM config'),
   ]);
 });

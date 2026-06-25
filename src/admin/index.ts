@@ -12,6 +12,7 @@ import {
   addSegmentMember,
   setSegmentMemberStatus,
   removeSegmentMember,
+  getActiveSegmentMembers,
 } from '../db/segments';
 import { syncSegmentFromRole } from '../discord/syncSegment';
 import { getAllMembers, upsertMember, deleteMember } from '../db/members';
@@ -36,6 +37,8 @@ import {
 } from '../db/occurrences';
 import { getResponsesForOccurrence, getStatusBuckets, listRecentResponses } from '../db/responses';
 import { getAssignments, assignNumbers } from '../db/assignments';
+import { listSendLog } from '../db/sendLog';
+import { getAllConfig, setConfig, getSendBudget } from '../db/config';
 import { sendChannelMessage, createButtonComponents } from '../discord/rest';
 import { recruitNotificationNow } from '../cron/dailyCheck';
 import { formatTimeRange } from '../lib/date';
@@ -169,6 +172,22 @@ function toNotificationInput(b: Record<string, unknown>): NotificationInput | nu
         ? null
         : String(b.message_body).trim().slice(0, 1500),
     active: b.active === undefined ? 1 : b.active ? 1 : 0,
+    // ① 回答締切（ADR 0014）。announce-only は回答が無いので締切も無効（null）。
+    //    開始の N 時間前。空/不正は null（締切なし）。0=開始時刻ちょうど。
+    response_deadline_hours:
+      announceOnly ||
+      b.response_deadline_hours == null ||
+      b.response_deadline_hours === '' ||
+      !Number.isFinite(Number(b.response_deadline_hours))
+        ? null
+        : Math.max(0, Math.floor(Number(b.response_deadline_hours))),
+    // ① 締切後変更の通知先チャンネル。空は null（投稿チャンネルにフォールバック）。
+    change_alert_channel_id:
+      typeof b.change_alert_channel_id === 'string' && b.change_alert_channel_id
+        ? b.change_alert_channel_id
+        : null,
+    // ③ 送信時刻（JST 時・0〜23）。既定 21。
+    send_hour: Math.min(23, Math.max(0, Math.floor(num(b.send_hour, 21)))),
   };
 }
 
@@ -192,6 +211,9 @@ function toNotificationInput(b: Record<string, unknown>): NotificationInput | nu
  * - GET        /occurrences/:id/assignments
  * - POST       /occurrences/:id/assign        (assignNumbers 実行)
  * - GET        /responses?limit=
+ * - GET        /send-log[?notification_id=&limit=]   (リマインド送信履歴・④可視化)
+ * - GET/PUT    /config                                (送信予算など実行時設定・⑦)
+ * - GET        /send-estimate[?guild_id=]             (推奨上限の推定・⑦)
  */
 export async function handleAdmin(request: Request, env: Env): Promise<Response> {
   if (!authorized(request, env)) {
@@ -522,6 +544,62 @@ export async function handleAdmin(request: Request, env: Env): Promise<Response>
     if (path === '/responses' && method === 'GET') {
       const limit = parseLimit(url.searchParams.get('limit'), 200);
       return json(await listRecentResponses(db, limit));
+    }
+
+    // ============ send-log（リマインド送信履歴・④可視化）============
+    if (path === '/send-log' && method === 'GET') {
+      const limit = parseLimit(url.searchParams.get('limit'), 300);
+      const nid = url.searchParams.get('notification_id');
+      return json(await listSendLog(db, { limit, notificationId: nid ? Number(nid) : undefined }));
+    }
+
+    // ============ config（送信予算など実行時設定・⑦）============
+    if (path === '/config') {
+      if (method === 'GET') return json(await getAllConfig(db));
+      if (method === 'PUT') {
+        const b = (await request.json()) as { key?: string; value?: string };
+        if (!b.key || b.value == null) return json({ error: 'key and value required' }, 400);
+        await setConfig(db, b.key, String(b.value));
+        return json({ ok: true });
+      }
+    }
+
+    // ============ send-estimate（推奨上限の推定・⑦）============
+    if (path === '/send-estimate' && method === 'GET') {
+      const guildId = url.searchParams.get('guild_id');
+      const notifs = guildId
+        ? await listNotificationsByGuild(db, guildId)
+        : await listNotifications(db);
+      const budget = await getSendBudget(db);
+      const memberCache = new Map<number, number>();
+      const perHour: Record<string, number> = {};
+      for (const n of notifs) {
+        if (!n.active) continue;
+        let cnt = memberCache.get(n.segment_id);
+        if (cnt == null) {
+          cnt = (await getActiveSegmentMembers(db, n.segment_id)).length;
+          memberCache.set(n.segment_id, cnt);
+        }
+        // ピーク = その通知が 1 日に投げうる最大送信数（全員未回答で DM）。回答不要(通知のみ)は募集1件。
+        const peak = n.requires_response ? cnt : 1;
+        perHour[String(n.send_hour)] = (perHour[String(n.send_hour)] ?? 0) + peak;
+      }
+      const dailyTotal = Object.values(perHour).reduce((a, b) => a + b, 0);
+      const maxWindow = Object.values(perHour).reduce((a, b) => Math.max(a, b), 0);
+      const hardCeiling = budget * 1440; // 毎分 cron × 予算 = 1 日のハード上限
+      const recommendedDaily = Math.round(hardCeiling * 0.15); // 安全マージン込みの推奨日次
+      const recommendedPerWindow = budget * 55; // 1 送信時刻を約 55 分以内に流し切れる量
+      return json({
+        budget,
+        perHour,
+        dailyTotal,
+        maxWindow,
+        hardCeiling,
+        recommendedDaily,
+        recommendedPerWindow,
+        overDaily: dailyTotal > recommendedDaily,
+        overWindow: maxWindow > recommendedPerWindow,
+      });
     }
 
     return json({ error: 'Not found' }, 404);

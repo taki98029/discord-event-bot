@@ -10,10 +10,10 @@ import {
   addSegmentMember,
   listSegmentMembers,
 } from '../db/segments';
-import { upsertResponse, getStatusBuckets } from '../db/responses';
-import { buildStatusMessage, buildAllStatusMessage } from '../discord/rest';
+import { upsertResponse, getResponseStatus, getStatusBuckets } from '../db/responses';
+import { buildStatusMessage, buildAllStatusMessage, sendChannelMessage } from '../discord/rest';
 import { roleGateAllows } from '../discord/syncSegment';
-import { formatOccurrenceLabel } from '../lib/date';
+import { formatOccurrenceLabel, responseDeadline, getJSTNow } from '../lib/date';
 import { recruitNotificationNow } from '../cron/dailyCheck';
 
 const EPHEMERAL = 64;
@@ -285,7 +285,33 @@ async function handleButton(
       );
     }
 
-    await upsertResponse(db, occ.id, userId, userName, status);
+    // 回答締切（ADR 0014）: 締切後の変更（未回答→回答の初回を含む）を検知し、印を残して管理者へ通知。
+    const oldStatus = await getResponseStatus(db, occ.id, userId);
+    const dl = responseDeadline(occ.occurrence_date, occ.start_time || n.start_time, n.response_deadline_hours);
+    // 回答不要(announce-only)は締切対象外（response_deadline_hours も null だが二重で守る）。
+    const postDeadlineChange =
+      !!n.requires_response && dl != null && getJSTNow().getTime() >= dl.getTime() && status !== oldStatus;
+
+    await upsertResponse(db, occ.id, userId, userName, status, postDeadlineChange);
+
+    if (postDeadlineChange) {
+      // 変更通知（メンションなし・change_alert_channel_id / 未指定は投稿チャンネル）。
+      // 応答を遅らせないよう投げっぱなし（ctx.waitUntil）。
+      const alertChannel = n.change_alert_channel_id || n.channel_id;
+      const occLabel = formatOccurrenceLabel(
+        occ.occurrence_date,
+        occ.start_time || n.start_time,
+        n.duration_minutes,
+      );
+      const verb = oldStatus ? `**${oldStatus}** → **${status}** に変更` : `**${status}** で新規回答`;
+      const alert = `⚠️ **締切後の回答変更**\n${displayName} さんが ${verb}しました（開催: ${occLabel}）。`;
+      ctx.waitUntil(
+        sendChannelMessage(env, alertChannel, alert, null, { parse: [] }).catch((e) =>
+          console.error('[Button] change alert failed:', (e as Error).message),
+        ),
+      );
+    }
+
     // 表示名の自動更新は返答に不要なので投げっぱなし
     ctx.waitUntil(
       updateMemberDisplayName(db, userId, displayName, userName).catch((e) =>

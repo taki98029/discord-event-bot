@@ -85,7 +85,7 @@
       /* ---------- Form controls ---------- */
       label { display: block; color: var(--muted); margin: 12px 0 5px; font-size: 12.5px; font-weight: 600; letter-spacing: .01em; }
       input, select, textarea {
-        width: 100%; padding: 9px 11px; background: var(--bg);
+        width: 100%; padding: 9px 11px; background: var(--panel);
         border: 1px solid var(--border2); border-radius: var(--r-sm); color: var(--text);
         color-scheme: dark; /* ネイティブの日付/時刻ピッカーのアイコン・カレンダーを暗背景向けに明色化 */
         font-family: inherit; font-size: 14px; transition: border-color .17s ease, box-shadow .17s ease, background .17s ease;
@@ -113,8 +113,10 @@
       button.btn.secondary:hover { background: var(--btn-secondary-hover); }
       button.btn.danger { background: var(--danger); }
       button.btn.danger:hover { background: var(--btn-danger-hover); }
-      button.btn.ghost { background: none; border: 1px solid var(--border2); color: var(--muted); }
-      button.btn.ghost:hover { background: var(--elevated); color: var(--text); }
+      button.btn.ghost { background: rgba(255, 255, 255, .04); border: 1px solid transparent; color: var(--muted); }
+      button.btn.ghost:hover { background: rgba(255, 255, 255, .09); color: var(--text); }
+      button.btn.ghost.danger { background: rgba(255, 255, 255, .04); border-color: transparent; color: var(--muted); }
+      button.btn.ghost.danger:hover { background: color-mix(in srgb, var(--danger) 16%, transparent); border-color: transparent; color: var(--danger); }
       button.btn.sm { padding: 5px 11px; font-size: 13px; }
       button.btn.xs { padding: 3px 8px; font-size: 12px; border-radius: 6px; }
       button.btn.busy { position: relative; color: transparent !important; pointer-events: none; }
@@ -141,9 +143,9 @@
       }
       .toast.show { opacity: 1; transform: translateY(0); }
       .toast.err { background: var(--danger); }
-      .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; border: 1px solid var(--border2); color: var(--muted); }
+      .pill { display: inline-block; padding: 1px 7px; border-radius: var(--r-sm); font-size: 11px; font-weight: 600; border: 1px solid transparent; background: rgba(255, 255, 255, .06); color: var(--muted); }
       .pill.on { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--pill-ok-text); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
-      .pill.off { color: var(--muted); }
+      .pill.off { background: rgba(255, 255, 255, .05); color: var(--muted); }
       .summary {
         display: flex; align-items: center; gap: 8px; padding: 11px 13px; margin: 14px 0;
         background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); border-radius: var(--r-sm); font-size: 14px; font-weight: 500;
@@ -198,13 +200,13 @@
       .divider { height: 1px; border: none; background: var(--border); margin: 16px 0; }
       
       /* Alert (情報/警告/危険のコールアウト) */
-      .alert { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: var(--r-sm); font-size: 13.5px; color: var(--text); border: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 9%, transparent); }
+      .alert { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: 0 var(--r-sm) var(--r-sm) 0; font-size: 13.5px; color: var(--text); border: none; border-left: 3px solid color-mix(in srgb, var(--accent) 80%, var(--panel2)); background: color-mix(in srgb, var(--accent) 8%, var(--panel2)); }
       .alert-icon { flex: none; display: flex; color: var(--accent); margin-top: 1px; }
-      .alert.warn { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 9%, transparent); }
+      .alert.warn { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 8%, var(--panel2)); }
       .alert.warn .alert-icon { color: var(--warn); }
-      .alert.danger { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 9%, transparent); }
+      .alert.danger { border-left-color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, var(--panel2)); }
       .alert.danger .alert-icon { color: var(--danger); }
-      .alert.ok { border-color: var(--ok); background: color-mix(in srgb, var(--ok) 9%, transparent); }
+      .alert.ok { border-left-color: var(--ok); background: color-mix(in srgb, var(--ok) 8%, var(--panel2)); }
       .alert.ok .alert-icon { color: var(--ok); }
       
       /* SubTabs (設定ページ内の縦サブタブ・active は左に accent バー) */
@@ -242,6 +244,21 @@
       .muted { color: var(--muted); }
       .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
       
+      /* ---------- Form: 必須マーク / 折りたたみ / サブ見出し（通知オーバーホール）---------- */
+      .req { color: var(--danger); margin-left: 2px; font-weight: 700; }
+      .subhead { color: var(--text); font-weight: 700; font-size: 13px; margin: 18px 0 4px; letter-spacing: .02em; }
+      details.section { border: 1px solid var(--border); border-radius: var(--r); background: var(--panel); margin: 14px 0; }
+      details.section > summary {
+        list-style: none; cursor: pointer; padding: 12px 14px; font-weight: 700; color: var(--text);
+        display: flex; align-items: center; gap: 8px; user-select: none; border-radius: var(--r);
+      }
+      details.section > summary::-webkit-details-marker { display: none; }
+      details.section > summary::before { content: "▶"; color: var(--muted); font-size: 11px; transition: transform .15s ease; }
+      details.section[open] > summary::before { transform: rotate(90deg); }
+      details.section > summary:hover { background: var(--panel2); }
+      details.section > summary:focus-visible { outline: none; box-shadow: var(--ring); }
+      details.section > .section-body { padding: 2px 14px 14px; }
+      
       /* ---------- Containers: fieldset ---------- */
       fieldset { border: 1px solid var(--border); border-radius: var(--r); margin: 14px 0; padding: 14px 16px; background: var(--panel); }
       legend { color: var(--text); padding: 0 8px; font-weight: 600; }
@@ -251,33 +268,36 @@
       .side { border-right: 1px solid var(--border); padding: 14px 10px; background: var(--panel); }
       .side .navitem {
         display: flex; align-items: center; gap: 9px; padding: 10px 12px; border-radius: var(--r-sm);
-        color: var(--muted); cursor: pointer; margin-bottom: 3px; font-weight: 600; user-select: none;
+        color: var(--muted); cursor: pointer; margin-bottom: 3px; font-weight: 500; user-select: none;
         border: 1px solid transparent; transition: background .17s ease, color .17s ease;
       }
-      .side .navitem:hover { background: var(--elevated); color: var(--text); }
-      .side .navitem.active { background: var(--accent-soft); color: var(--nav-active-text); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+      .side .navitem:hover { background: var(--panel2); color: var(--text); }
+      .side .navitem.active { background: var(--elevated); color: var(--nav-active-text); border-color: transparent; font-weight: 600; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .04); }
+      .side .navitem.active:hover { background: color-mix(in srgb, #fff 4%, var(--elevated)); }
       .topbar {
         display: flex; align-items: center; justify-content: space-between; gap: 12px;
         padding: 11px 18px; border-bottom: 1px solid var(--border); background: var(--panel); position: sticky; top: 0; z-index: 20;
+        box-shadow: 0 1px 0 var(--border), 0 2px 8px rgba(0, 0, 0, .18);
       }
       .srv { display: flex; align-items: center; gap: 10px; min-width: 0; }
       .ava {
         width: 34px; height: 34px; border-radius: 9px; display: flex; align-items: center; flex: none;
-        justify-content: center; font-weight: 700; background: var(--accent-soft); color: var(--avatar-text); overflow: hidden;
+        justify-content: center; font-weight: 700; background: var(--accent); color: #fff; overflow: hidden;
       }
       .ava img { width: 100%; height: 100%; object-fit: cover; display: block; }
       main { padding: 22px; max-width: 940px; }
       .card {
-        background: var(--panel); border: 1px solid var(--border); border-radius: var(--r);
+        background: var(--elevated); border: 1px solid transparent; border-radius: var(--r);
         padding: 15px 16px; margin-bottom: 10px; cursor: pointer; transition: border-color .17s ease, background .17s ease, transform .04s;
       }
-      .card:hover { border-color: var(--border2); background: var(--panel2); }
+      .card:hover { background: color-mix(in srgb, #fff 4%, var(--elevated)); }
       .card:active { transform: translateY(1px); }
       .listrow {
         display: flex; align-items: center; justify-content: space-between; gap: 12px;
-        padding: 13px 14px; border: 1px solid var(--border); border-radius: var(--r); margin-bottom: 8px; background: var(--panel);
+        padding: 14px 16px; border: 1px solid transparent; border-radius: var(--r); margin-bottom: 8px; background: var(--elevated);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, .3);
       }
-      .listrow:hover { border-color: var(--border2); }
+      .listrow:hover { background: color-mix(in srgb, #fff 4%, var(--elevated)); }
       .grid-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
       .search { position: relative; }
       .pickrow {
@@ -332,6 +352,64 @@
       .modal p { margin: 0 0 16px; color: var(--text); }
       .modal .actions { justify-content: flex-end; }
       
+      /* ネイティブ <dialog> を使う小さな確認（破棄ガード等）。div 版 .modal と衝突しないよう dialog セレクタで限定 */
+      dialog.modal { margin: auto; }
+      dialog.modal::backdrop { background: var(--backdrop); animation: fade .15s ease; }
+      
+      /* 大きいフォーム用モーダル（ネイティブ <dialog>）。背景は2トーンのみ:
+         サーフェス=--panel2（面・詳細セクション）／ リセス=--panel（入力欄・番号ノード）。Discord 設定ダイアログ準拠の沈んだ2トーン。
+         ヘッダ/フッタ固定・ボディのみスクロール。 */
+      dialog.modal-lg {
+        width: min(820px, calc(100vw - 32px)); max-height: min(90vh, 940px);
+        padding: 0; margin: auto; overflow: hidden;
+        background: var(--panel2); color: var(--text);
+        border: 1px solid var(--border2); border-radius: var(--r-lg); box-shadow: var(--shadow);
+      }
+      dialog.modal-lg[open] { display: flex; flex-direction: column; }
+      dialog.modal-lg::backdrop { background: var(--backdrop); animation: fade .15s ease; }
+      .modal-head { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 17px 24px; border-bottom: 1px solid var(--border); background: var(--panel2); }
+      .modal-head h3 { margin: 0; font-size: 16px; font-weight: 700; }
+      .modal-close { flex: none; width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; border: none; background: none; color: var(--muted); border-radius: var(--r-sm); cursor: pointer; font-size: 16px; transition: background .15s ease, color .15s ease; }
+      .modal-close:hover { background: rgba(255, 255, 255, .06); color: var(--text); }
+      .modal-close:focus-visible { outline: none; box-shadow: var(--ring); }
+      .modal-body { flex: 1 1 auto; overflow-y: auto; padding: 10px 24px 18px; }
+      .modal-foot { flex: none; display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 14px 24px; border-top: 1px solid var(--border); background: var(--panel2); }
+      
+      /* ダークモード用スクロールバー（フォームモーダル本体）。サーフェス色のボーダーで inset 表現 */
+      .modal-body { scrollbar-width: thin; scrollbar-color: var(--border2) transparent; }
+      .modal-body::-webkit-scrollbar { width: 12px; }
+      .modal-body::-webkit-scrollbar-track { background: transparent; }
+      .modal-body::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 999px; border: 3px solid var(--panel2); background-clip: padding-box; }
+      .modal-body::-webkit-scrollbar-thumb:hover { background: var(--border-hover); border: 3px solid var(--panel2); background-clip: padding-box; }
+      
+      /* 2トーン徹底（ダイアログ内のみ上書き）: プレビュー=リセス、詳細セクションは面に溶かしフラット化 */
+      dialog.modal-lg .summary { background: var(--panel); border: 1px solid var(--border); color: var(--text); }
+      dialog.modal-lg details.section { background: transparent; border: 1px solid var(--border); }
+      dialog.modal-lg details.section > summary:hover { background: rgba(255, 255, 255, .03); }
+      
+      /* セクション見出し＋アクション（例: 通知見出し横の「＋新規通知」） */
+      .sec-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+      .sec-head h2 { margin: 0; }
+      
+      /* 配信タイムライン（通知フォーム ②案B）: 縦コネクタ線＋アクセント縁取りの番号ノード */
+      .tl { position: relative; margin: 8px 0 2px; }
+      .tl::before { content: ""; position: absolute; left: 13px; top: 24px; bottom: 24px; width: 2px; background: var(--border); border-radius: 2px; }
+      .tl-step { position: relative; display: flex; gap: 13px; padding: 11px 0; }
+      .tl-badge {
+        position: relative; z-index: 1; flex: none; width: 26px; height: 26px; border-radius: 50%;
+        background: var(--panel); border: 1.5px solid var(--accent); color: var(--accent);
+        display: inline-flex; align-items: center; justify-content: center;
+        font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;
+        box-shadow: 0 0 0 4px var(--panel2);
+      }
+      .tl-main { flex: 1 1 auto; min-width: 0; padding-top: 2px; }
+      .tl-title { color: var(--text); font-weight: 600; font-size: 13.5px; }
+      .tl-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 5px; }
+      .tl-row .pre, .tl-row .post { color: var(--muted); font-size: 13px; }
+      .tl-row input[type=number] { width: 76px; }
+      .tl-send { font-size: 13px; margin: 10px 0 2px; }
+      .tl-warn { color: var(--warn); font-size: 12.5px; margin-top: 6px; }
+      
       /* ---------- Responsive ---------- */
       @media (max-width: 720px) {
         .shell { grid-template-columns: 1fr; min-height: 0; }
@@ -358,7 +436,7 @@
       
       /* ---- ワークスペース全体: 最左の server-rail ＋ 本体（topbar + shell） ---- */
       .ws-layout { display: flex; align-items: stretch; min-height: 100vh; }
-      .ws-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+      .ws-body { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--panel2); }
       
       /* server-rail は左に固定（本体をスクロールしても残す） */
       .ws-layout > .server-rail {
@@ -378,6 +456,7 @@
         .ws-layout > .server-rail .server-rail-divider { width: 2px; height: 32px; margin: 0 2px; }
       }
     </style>
+  <script src="/eventbot-tables.js"></script>
   </head>
   <body>
     <!-- トークンゲート -->
@@ -422,12 +501,14 @@
           <div class="navitem active" data-sec="notifications">🔔 通知</div>
           <div class="navitem" data-sec="segments">👥 メンバー区分</div>
           <div class="navitem" data-sec="records">🗒 回答履歴</div>
+          <div class="navitem" data-sec="sendlog">📤 送信履歴</div>
           <div class="navitem" data-sec="setup">⚙️ セットアップ</div>
         </nav>
         <main>
           <section id="sec-notifications"></section>
           <section id="sec-segments" class="hidden"></section>
           <section id="sec-records" class="hidden"></section>
+          <section id="sec-sendlog" class="hidden"></section>
           <section id="sec-setup" class="hidden"></section>
         </main>
       </div>
@@ -585,7 +666,7 @@
 
       // ================= ナビ =================
       const SECTIONS = ['notifications', 'segments', 'records', 'setup'];
-      const LOADERS = { notifications: loadNotifications, segments: loadSegments, records: loadRecords, setup: loadSetup };
+      const LOADERS = { notifications: loadNotifications, segments: loadSegments, records: loadRecords, sendlog: loadSendLog, setup: loadSetup };
       function switchSection(sec) {
         document.querySelectorAll('.side .navitem').forEach((x) => x.classList.toggle('active', x.dataset.sec === sec));
         SECTIONS.forEach((s) => $('#sec-' + s).classList.toggle('hidden', s !== sec));
@@ -794,6 +875,17 @@
 
       // ================= 通知 =================
       let cacheChannels = [], cacheSegments = [], cacheNotifs = [];
+      function estimateBanner(est) {
+        const over = est.overDaily || est.overWindow;
+        return `<div class="alert ${over ? 'warn' : ''}" style="margin-bottom:14px">
+          <div class="alert-icon">${over ? '⚠️' : '📊'}</div>
+          <div><div style="font-weight:600">送信量の目安（無料枠の推奨上限）</div>
+          <div class="muted" style="font-size:12.5px;margin-top:2px">
+            推定ピーク: <b>${est.dailyTotal}</b> 件/日（同一送信時刻 最大 <b>${est.maxWindow}</b> 件）／
+            推奨: 日次 ≤ ${est.recommendedDaily}・同一時刻 ≤ ${est.recommendedPerWindow}（送信予算 ${est.budget}/分）。
+            ${over ? '<b style="color:var(--warn)">推奨上限を超えています。</b>送信時刻を分散するか、Paid 化のうえ送信予算を上げてください。' : ''}
+          </div></div></div>`;
+      }
       async function loadNotifications() {
         const g = guild.id;
         let segs = [], notifs = [], channels = [];
@@ -805,6 +897,8 @@
           ]);
         } catch (e) { toast(e.message, true); }
         cacheSegments = segs; cacheNotifs = notifs; cacheChannels = channels;
+        let est = null;
+        try { est = await api('/send-estimate?guild_id=' + encodeURIComponent(g)); } catch (_) {}
         const segName = (id) => { const s = segs.find((x) => x.id === id); return s ? s.name : '?'; };
         const chName = (id) => { const c = channels.find((x) => x.id === id); return c ? '#' + c.name : id; };
 
@@ -827,26 +921,32 @@
                 ${sched} ・ ${esc(chName(n.channel_id))}</div></div>
             <div class="actions">
               <span class="pill ${n.active ? 'on' : 'off'}">${n.active ? '有効' : '無効'}</span>
-              <button class="btn sm secondary" data-nrecruit="${n.id}">📣 募集</button>
-              <button class="btn sm secondary" data-nedit="${n.id}">編集</button>
+              <button class="btn sm ghost" data-nrecruit="${n.id}">📣 募集</button>
+              <button class="btn sm ghost" data-nedit="${n.id}">編集</button>
               <button class="btn sm ghost" data-nocc="${n.id}">開催回</button>
-              <button class="btn sm danger" data-ndel="${n.id}">削除</button>
+              <button class="btn sm ghost danger" data-ndel="${n.id}">削除</button>
             </div></div>`;
         }).join('');
 
-        $('#sec-notifications').innerHTML = `<h2>通知 (${notifs.length})</h2>
-          ${notifs.length ? rows : '<div class="empty">まだ通知がありません。<br>下のフォームから最初の通知を作成しましょう。</div>'}
+        $('#sec-notifications').innerHTML = `${est ? estimateBanner(est) : ''}
+          <div class="sec-head"><h2>通知 (${notifs.length})</h2>
+            <button class="btn" id="nNewBtn"${segs.length ? '' : ' disabled'}>＋ 新規通知</button></div>
+          ${segs.length ? '' : '<p class="muted">※ 先に「メンバー区分」を作成してください（通知の対象になります）。</p>'}
+          ${notifs.length ? rows : '<div class="empty">まだ通知がありません。<br>「＋ 新規通知」から最初の通知を作成しましょう。</div>'}
           <dialog class="modal-lg" id="occDialog" aria-labelledby="occTitle">
             <div class="modal-head"><h3 id="occTitle">開催回</h3>
               <button type="button" class="modal-close" data-occ-close aria-label="閉じる">✕</button></div>
             <div class="modal-body" id="occBox"></div>
             <div class="modal-foot"><button type="button" class="btn ghost" data-occ-close>閉じる</button></div>
           </dialog>
-          ${segs.length ? notifForm() : '<p class="muted" style="margin-top:16px">※ 先に「メンバー区分」を作成してください（通知の対象になります）。</p>'}`;
+          ${segs.length ? notifForm() : ''}`;
 
-        if (segs.length) { bindNotifForm(); }
+        if (segs.length) {
+          bindNotifForm();
+          $('#nNewBtn').onclick = () => openNotifModal(null);
+        }
         document.querySelectorAll('[data-nedit]').forEach((b) => {
-          b.onclick = () => fillNotifForm(cacheNotifs.find((x) => x.id === Number(b.dataset.nedit)));
+          b.onclick = () => openNotifModal(cacheNotifs.find((x) => x.id === Number(b.dataset.nedit)));
         });
         document.querySelectorAll('[data-nocc]').forEach((b) => {
           b.onclick = () => loadOccurrences(Number(b.dataset.nocc));
@@ -885,31 +985,39 @@
           ? cacheChannels.map((c) => `<option value="${esc(c.id)}">#${esc(c.name)}</option>`).join('')
           : '<option value="">（チャンネルを取得できませんでした）</option>';
         const wdOpts = WEEKDAYS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
-        return `<fieldset><legend id="nFormTitle">新規通知</legend>
+        const hourOpts = Array.from({ length: 24 }, (_, h) =>
+          `<option value="${h}"${h === 21 ? ' selected' : ''}>${String(h).padStart(2, '0')}:00</option>`).join('');
+        // 単発(oneoff)UI は撤去し recurring 専用。type は hidden で固定（oneoff の JS/バックエンドは休眠残置）。
+        // 案B: ネイティブ <dialog> モーダル。ヘッダ/フッタ固定・ボディのみスクロール。openNotifModal() で開く。
+        return `<dialog class="modal-lg" id="nDialog" aria-labelledby="nFormTitle">
           <input type="hidden" id="nId" value="" />
-          <div class="row">
-            <div><label>名前</label><input id="nName" placeholder="例: 土曜定例・キャスト出欠" /></div>
-            <div><label>投稿チャンネル</label><select id="nChannel">${chOpts}</select></div>
+          <input type="hidden" id="nType" value="recurring" />
+
+          <div class="modal-head">
+            <h3 id="nFormTitle">新規通知</h3>
+            <button type="button" class="modal-close" id="nClose" aria-label="閉じる">✕</button>
           </div>
-          <div class="row">
-            <div><label>対象区分（メンバー区分）</label><select id="nSegment">${segOpts}</select></div>
-            <div><label>開催時間（分）<span class="muted">（任意・空欄で開始時刻のみ表示）</span></label>
-              <input id="nDuration" type="number" min="0" placeholder="例: 120（2時間）" /></div>
-          </div>
-          <label>見出し <span class="muted">（投稿の1行目・必須）</span></label>
-          <input id="nTitle" maxlength="100" placeholder="例: 第1・3・5日曜キャスト 開催のお知らせ" />
-          <label>本文 <span class="muted">（任意・複数行可。日時と回答ボタンは自動で付きます）</span></label>
-          <textarea id="nBody" rows="3" maxlength="1500" placeholder="補足メッセージ（任意）"></textarea>
-          <label>種別</label>
-          <select id="nType"><option value="recurring">繰り返し</option><option value="oneoff">単発</option></select>
-          <div id="nRecurBox">
-            <div style="max-width:280px"><label>開始時刻</label><input id="nStartTime" type="time" value="21:00" /></div>
+
+          <div class="modal-body">
+            <div class="subhead">通知の基本</div>
             <div class="row">
-              <div><label>繰り返し</label><select id="nMode">
+              <div><label>通知名 <span class="req">✱</span></label><input id="nName" placeholder="例: 土曜定例・キャスト出欠" /></div>
+              <div><label>対象区分 <span class="req">✱</span></label><select id="nSegment">${segOpts}</select></div>
+            </div>
+            <label>投稿チャンネル <span class="req">✱</span></label><select id="nChannel">${chOpts}</select>
+            <label>見出し <span class="req">✱</span> <span class="muted">（投稿の1行目）</span></label>
+            <input id="nTitle" maxlength="100" placeholder="例: 第1・3・5日曜キャスト 開催のお知らせ" />
+            <label>本文 <span class="muted">（任意・複数行可。日時と回答ボタンは自動で付きます）</span></label>
+            <textarea id="nBody" rows="3" maxlength="1500" placeholder="補足メッセージ（任意）"></textarea>
+
+            <div class="subhead">開催スケジュール</div>
+            <div class="row">
+              <div><label>繰り返し <span class="req">✱</span></label><select id="nMode">
                 <option value="weekly">毎週</option><option value="biweekly">隔週</option><option value="monthly">毎月第N曜</option>
               </select></div>
-              <div id="nWeekdayBox"><label>曜日</label><select id="nWeekday">${wdOpts}</select></div>
+              <div><label>イベント開始時刻 <span class="req">✱</span></label><input id="nStartTime" type="time" value="21:00" /></div>
             </div>
+            <div id="nWeekdayBox"><label>曜日</label><select id="nWeekday">${wdOpts}</select></div>
             <div id="nMonthlyBox" class="hidden">
               <label>開催日（第N × 曜日・複数可）</label>
               <div id="nMonthlyRules" class="timechips"></div>
@@ -918,41 +1026,102 @@
             </div>
             <div id="nNextBox"><label>次にこの通知で開催する日 <span class="muted">（隔週の起点）</span></label>
               <select id="nNext"></select></div>
+            <div class="row">
+              <div><label>開催時間（分）<span class="muted">（任意・空欄で開始時刻のみ表示）</span></label>
+                <input id="nDuration" type="number" min="0" placeholder="例: 120（2時間）" /></div>
+              <div></div>
+            </div>
+
+            <div class="subhead">配信タイムライン</div>
+            <div class="setting-row" id="nResponseRow">
+              <div class="setting-row-main">
+                <div class="setting-row-title">回答を集める（参加/不参加/未定）</div>
+                <div class="setting-row-desc">オフ＝告知のみ。募集と開催だけになり、リマインド・締切・ノルマ・番号は無効になります。</div>
+              </div>
+              <div class="setting-row-control"><label class="switch"><input type="checkbox" id="nRequireResponse" checked aria-label="回答を集める（参加/不参加/未定）" /><span class="switch-slider"></span></label></div>
+            </div>
+
+            <div class="tl">
+              <div class="tl-step" id="nRecruitStep">
+                <span class="tl-badge">1</span>
+                <div class="tl-main">
+                  <div class="tl-title" id="nRecruitLabel">募集を投稿</div>
+                  <div class="tl-row"><span class="pre">開催の</span><input id="nRecruit" type="number" min="0" value="7" /><span class="post">日前</span></div>
+                </div>
+              </div>
+              <div class="tl-step" id="nRemindStartBox">
+                <span class="tl-badge">2</span>
+                <div class="tl-main">
+                  <div class="tl-title">未回答者へリマインド</div>
+                  <div class="tl-row"><span class="pre">開催の</span><input id="nRemindStart" type="number" min="0" value="3" /><span class="post">日前から毎日</span></div>
+                </div>
+              </div>
+              <div class="tl-step" id="nRemindUndecidedBox">
+                <span class="tl-badge">3</span>
+                <div class="tl-main">
+                  <div class="tl-title">未定者へリマインド</div>
+                  <div class="tl-row"><span class="pre">開催の</span><input id="nRemindUndecided" type="number" min="0" value="1" /><span class="post">日前に1回</span></div>
+                </div>
+              </div>
+              <div class="tl-step" id="nDeadlineBox">
+                <span class="tl-badge">4</span>
+                <div class="tl-main">
+                  <div class="tl-title">回答を締め切る <span class="muted">（任意）</span></div>
+                  <div class="tl-row"><span class="pre">開始の</span><input id="nDeadlineHours" type="number" min="0" placeholder="—" /><span class="post">時間前　※空欄＝締切なし</span></div>
+                  <div class="muted" style="font-size:12px;margin-top:2px">締切後の変更通知先は「詳細設定」で変更できます。</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="tl-send muted" id="nSendLine">🕘 通知配信時刻
+              <select id="nSendHour" style="display:inline-block;width:auto">${hourOpts}</select>（JST）</div>
+
+            <div id="nWarn"></div>
+
+            <details class="section" id="nAdvanced">
+              <summary>詳細設定（必要に応じて）</summary>
+              <div class="section-body">
+
+                <div class="subhead">投稿の見せ方</div>
+                <label>メンション方法</label>
+                <select id="nMention">
+                  <option value="role">ロール（区分のロール / @everyone）</option>
+                  <option value="members">バイネーム（メンバーを個別に呼ぶ）</option>
+                  <option value="none">なし</option>
+                </select>
+                <p id="nMentionWarn" class="muted hidden" style="font-size:12px;color:var(--warn);margin-top:6px">⚠️ @everyone 区分でバイネームは全員への個別メンションになり、人数が多いと「ほかN名」で省略されます。</p>
+
+                <div class="subhead">締切後の変更通知</div>
+                <div id="nAlertRow"><label>変更通知チャンネル <span class="muted">（締切後の変更を投稿・空欄＝投稿チャンネル）</span></label>
+                  <select id="nAlertChannel"><option value="">（投稿チャンネルと同じ）</option>${chOpts}</select>
+                  <p class="muted" style="font-size:12px;margin-top:6px">締切後に回答が変更されると、上のチャンネルへメンションなしで記録投稿し、回答履歴に「締切後変更」として残ります。</p></div>
+
+                <div class="subhead">機能</div>
+                <div class="setting-row" id="nQuotaRow">
+                  <div class="setting-row-main"><div class="setting-row-title">ノルマ（参加間隔の督促）</div><div class="setting-row-desc">前回参加から指定日数を超えたメンバーへ DM で参加を促します。</div></div>
+                  <div class="setting-row-control"><label class="switch"><input type="checkbox" id="nQuota" aria-label="ノルマ（参加間隔の督促）" /><span class="switch-slider"></span></label></div>
+                </div>
+                <div id="nQuotaBox" class="hidden" style="max-width:280px"><label>ノルマ間隔（日数）</label><input id="nQuotaInterval" type="number" placeholder="例: 30" /></div>
+                <div class="setting-row" id="nAssignmentRow">
+                  <div class="setting-row-main"><div class="setting-row-title">番号割り当て</div><div class="setting-row-desc">参加者に連番 1..N をランダムに割り当てます（個室・座席等）。</div></div>
+                  <div class="setting-row-control"><label class="switch"><input type="checkbox" id="nAssignment" aria-label="番号割り当て" /><span class="switch-slider"></span></label></div>
+                </div>
+
+                <div class="subhead">状態</div>
+                <div class="setting-row">
+                  <div class="setting-row-main"><div class="setting-row-title">有効</div><div class="setting-row-desc">オフにすると cron 送信の対象外になります。</div></div>
+                  <div class="setting-row-control"><label class="switch"><input type="checkbox" id="nActive" checked aria-label="有効（cron 送信の対象）" /><span class="switch-slider"></span></label></div>
+                </div>
+              </div>
+            </details>
           </div>
-          <div id="nOneoffBox" class="hidden">
-            <label>開催候補（日付ごとに時刻を複数）</label>
-            <div id="nOneoffDates"></div>
-            <button type="button" class="btn sm secondary" id="nOneoffAdd" style="margin-top:8px">＋ 候補日を追加</button>
-            <p class="muted" style="font-size:12px;margin-top:8px">参加者は「候補日＋時刻」のスロットごとに出欠を回答できます。集計後に「開催回」から1つを確定できます。</p>
+
+          <div class="modal-foot">
+            <span id="nFormErr" class="muted" style="color:var(--danger);margin-right:auto"></span>
+            <button type="button" class="btn ghost" id="nCancel">キャンセル</button>
+            <button type="button" class="btn" id="nSave">保存</button>
           </div>
-          <div class="summary">📅 <span id="nSummary">—</span></div>
-          <div class="row">
-            <div id="nRecruitBox"><label id="nRecruitLabel">開始 N 日前に募集を投稿</label><input id="nRecruit" type="number" value="7" /></div>
-            <div id="nRemindStartBox"><label>N 日前から未回答者へリマインド <span class="muted">（一度も押していない人・毎日）</span></label><input id="nRemindStart" type="number" value="3" /></div>
-          </div>
-          <div class="row" id="nRemindUndecidedBox">
-            <div><label>N 日前に未定者へリマインド <span class="muted">（「未定」回答者へ確定を促す・1回）</span></label><input id="nRemindUndecided" type="number" value="1" min="0" /></div>
-          </div>
-          <p id="nOneoffRecruitNote" class="muted hidden" style="font-size:12px;margin-top:6px">
-            単発は自動募集しません。各通知の「📣 募集」ボタン（通知一覧／開催回）から好きなタイミングで送信できます。</p>
-          <label>メンション方法</label>
-          <select id="nMention">
-            <option value="role">ロール（区分のロール / @everyone）</option>
-            <option value="members">バイネーム（メンバーを個別に呼ぶ）</option>
-            <option value="none">なし</option>
-          </select>
-          <p id="nMentionWarn" class="muted hidden" style="font-size:12px;color:var(--warn);margin-top:6px">⚠️ @everyone 区分でバイネームは全員への個別メンションになり、人数が多いと「ほかN名」で省略されます。</p>
-          <div class="actions" style="margin-top:12px">
-            <label class="inline" id="nResponseLabel"><input type="checkbox" id="nRequireResponse" checked /> 回答を集める（参加/不参加/未定）</label>
-            <label class="inline" id="nQuotaLabel"><input type="checkbox" id="nQuota" /> ノルマ</label>
-            <label class="inline" id="nAssignmentLabel"><input type="checkbox" id="nAssignment" /> 番号割り当て</label>
-            <label class="inline"><input type="checkbox" id="nActive" checked /> 有効</label>
-          </div>
-          <div id="nQuotaBox" class="hidden" style="max-width:280px"><label>ノルマ間隔（日数）</label><input id="nQuotaInterval" type="number" placeholder="例: 30" /></div>
-          <div class="actions" style="margin-top:14px">
-            <button class="btn" id="nSave">保存</button>
-            <button class="btn secondary hidden" id="nReset">新規入力に戻す</button>
-          </div></fieldset>`;
+        </dialog>`;
       }
 
       function refreshNextOptions(keep) {
@@ -963,88 +1132,130 @@
         if (keep) $('#nNext').value = keep;
       }
       function syncNotifUI() {
-        const t = $('#nType').value, mode = $('#nMode').value;
-        $('#nRecurBox').classList.toggle('hidden', t !== 'recurring');
-        $('#nOneoffBox').classList.toggle('hidden', t !== 'oneoff');
-        // 毎月は (第N×曜日) ルール編集を出し単一「曜日」を隠す。毎週/隔週は単一曜日。
-        const monthly = t === 'recurring' && mode === 'monthly';
+        const mode = $('#nMode').value;
+        const monthly = mode === 'monthly';
         $('#nMonthlyBox').classList.toggle('hidden', !monthly);
         $('#nWeekdayBox').classList.toggle('hidden', monthly);
-        $('#nNextBox').classList.toggle('hidden', !(t === 'recurring' && mode === 'biweekly'));
-        // 回答要否は recurring 専用（単発は常に回答あり）。回答不要=通知のみ（ADR 0010）。
-        const requireResp = $('#nRequireResponse').checked;
-        const announceOnly = t === 'recurring' && !requireResp;
-        $('#nResponseLabel').classList.toggle('hidden', t !== 'recurring');
-        // 単発／回答不要はノルマ非対応（参加間隔の督促は回答前提の概念）。隠してオフ固定。
-        if (t === 'oneoff' || announceOnly) $('#nQuota').checked = false;
-        $('#nQuotaLabel').classList.toggle('hidden', t === 'oneoff' || announceOnly);
-        $('#nQuotaBox').classList.toggle('hidden', t === 'oneoff' || announceOnly || !$('#nQuota').checked);
-        // 回答不要は番号割り当て・未回答/未定リマインドも対象外（回答が無いため）。
-        if (announceOnly) $('#nAssignment').checked = false;
-        $('#nAssignmentLabel').classList.toggle('hidden', announceOnly);
+        $('#nNextBox').classList.toggle('hidden', mode !== 'biweekly');
+        // 回答不要(通知のみ)は回答依存の機能（リマインド/ノルマ/番号/締切）を隠す（ADR 0010/0014）。
+        const announceOnly = !$('#nRequireResponse').checked;
+        if (announceOnly) { $('#nQuota').checked = false; $('#nAssignment').checked = false; }
+        $('#nQuotaRow').classList.toggle('hidden', announceOnly);
+        $('#nQuotaBox').classList.toggle('hidden', announceOnly || !$('#nQuota').checked);
+        $('#nAssignmentRow').classList.toggle('hidden', announceOnly);
         $('#nRemindStartBox').classList.toggle('hidden', announceOnly);
         $('#nRemindUndecidedBox').classList.toggle('hidden', announceOnly);
-        // 募集日数(nRecruit)は投稿タイミングとして残す。回答不要ならラベルを「告知」に。
-        $('#nRecruitLabel').textContent = announceOnly ? '開始 N 日前に告知を投稿' : '開始 N 日前に募集を投稿';
-        // 単発は手動募集のため「開始N日前に募集」を隠し、代わりに注記を出す
-        $('#nRecruitBox').classList.toggle('hidden', t === 'oneoff');
-        $('#nOneoffRecruitNote').classList.toggle('hidden', t !== 'oneoff');
+        $('#nDeadlineBox').classList.toggle('hidden', announceOnly);
+        $('#nAlertRow').classList.toggle('hidden', announceOnly);
+        $('#nRecruitLabel').textContent = announceOnly ? '告知を投稿' : '募集を投稿';
         // バイネーム × @everyone 区分は全員個別メンションになるため警告を出す。
         const seg = cacheSegments.find((s) => String(s.id) === $('#nSegment').value);
         const warn = $('#nMention').value === 'members' && !!seg && seg.mention_role_id === '@everyone';
         $('#nMentionWarn').classList.toggle('hidden', !warn);
-        $('#nSummary').textContent = scheduleSummary();
+        // 配信タイムラインの整合性警告（プレビュー文は廃止し、警告のみ表示）
+        $('#nWarn').innerHTML = notifPreview().warns.map((w) => `<div class="tl-warn">⚠️ ${esc(w)}</div>`).join('');
       }
+      // 配信タイムラインの自然文プレビューと整合性警告を組み立てる。
+      // 空欄は NaN として「—」表示し、NaN は比較が常に false なので誤警告も出ない。
+      function notifPreview() {
+        const respond = $('#nRequireResponse').checked;
+        const num = (id) => { const v = $('#' + id).value.trim(); return v === '' ? NaN : Number(v); };
+        const show = (n) => (isFinite(n) ? n : '—');
+        const recruit = num('nRecruit'), rs = num('nRemindStart'), ru = num('nRemindUndecided');
+        const dh = $('#nDeadlineHours').value.trim();
+        const sh = String($('#nSendHour').value).padStart(2, '0');
+        const sched = scheduleSummary();
+        const send = `毎日 ${sh}:00 に配信`;
+        const warns = [];
+        if (!respond) {
+          return { text: `${show(recruit)}日前に告知 → 🎉 開催（${sched}）／${send}`, warns };
+        }
+        const parts = [`${show(recruit)}日前に募集`, `${show(rs)}日前から毎日 未回答へ催促`, `${show(ru)}日前に未定へ`];
+        if (dh !== '') parts.push(`開始${Number(dh)}時間前に締切`);
+        parts.push(`🎉 開催（${sched}）`);
+        if (isFinite(rs) && isFinite(recruit) && rs > recruit) warns.push('未回答リマインド開始が募集より前です（募集前に催促が飛びます）。');
+        if (isFinite(ru) && isFinite(rs) && ru > rs) warns.push('未定リマインドが未回答リマインド開始より前です。');
+        if (dh !== '' && isFinite(recruit) && Number(dh) > recruit * 24) warns.push('締切が募集より前になっています。');
+        return { text: parts.join(' → ') + `／${send}`, warns };
+      }
+      // 空欄は既定値、0 は 0 のまま（|| は 0 を既定で潰すため使わない）。
+      function numOrDefault(id, dflt) { const v = $('#' + id).value.trim(); return v === '' ? dflt : Number(v); }
+      let formDirty = false;
+      function markDirty() { formDirty = true; }
       function bindNotifForm() {
         refreshNextOptions();
-        renderOneoffSlots([]);
         renderMonthlyRules([]);
-        ['nType', 'nMode', 'nStartTime', 'nNext', 'nDuration', 'nRequireResponse', 'nMention', 'nSegment'].forEach((id) => { $('#' + id).onchange = syncNotifUI; });
+        ['nMode', 'nStartTime', 'nNext', 'nDuration', 'nRequireResponse', 'nMention', 'nSegment', 'nSendHour'].forEach((id) => { $('#' + id).onchange = syncNotifUI; });
+        ['nRecruit', 'nRemindStart', 'nRemindUndecided', 'nDeadlineHours'].forEach((id) => { $('#' + id).oninput = syncNotifUI; });
         $('#nWeekday').onchange = () => { refreshNextOptions(); syncNotifUI(); };
         $('#nQuota').onchange = syncNotifUI;
-        $('#nOneoffAdd').onclick = addOneoffGroup;
         $('#nMonthlyAdd').onclick = addMonthlyRule;
         $('#nSave').onclick = (e) => withBusy(e.currentTarget, saveNotif);
-        $('#nReset').onclick = resetNotifForm;
+        // モーダル開閉・破棄ガード（dirty 時のみ確認）。ESC/背景クリックも同経路。
+        const dlg = $('#nDialog');
+        $('#nClose').onclick = attemptCloseNotif;
+        $('#nCancel').onclick = attemptCloseNotif;
+        dlg.addEventListener('input', markDirty);
+        dlg.addEventListener('change', markDirty);
+        dlg.addEventListener('cancel', (e) => { e.preventDefault(); attemptCloseNotif(); });
+        dlg.addEventListener('click', (e) => { if (e.target === dlg) attemptCloseNotif(); });
         syncNotifUI();
       }
+      // 新規=空で開く／編集=流し込んで開く。値はプログラム設定なので input/change は発火せず dirty は立たない。
+      function openNotifModal(n) {
+        const dlg = $('#nDialog'); if (!dlg) return;
+        if (n && n.type === 'oneoff') { toast('単発通知の編集は現在無効です。', true); return; }
+        resetNotifForm();
+        if (n) fillNotifForm(n);
+        $('#nFormErr').textContent = '';
+        formDirty = false;
+        dlg.showModal();
+        const first = $('#nName'); if (first) first.focus(); // 開いた直後は✕でなく先頭入力へ
+      }
+      async function attemptCloseNotif() {
+        if (formDirty && !(await confirmDiscardNotif())) return;
+        $('#nDialog').close();
+      }
+      // フォームモーダルは top-layer のため、確認も <dialog>（div の confirmDialog は下に隠れる）。
+      function confirmDiscardNotif() {
+        return new Promise((resolve) => {
+          const d = document.createElement('dialog');
+          d.className = 'modal';
+          d.innerHTML = `<h3>編集中の内容を破棄しますか？</h3>
+            <p>保存していない変更は失われます。</p>
+            <div class="actions">
+              <button class="btn ghost" data-cancel>編集に戻る</button>
+              <button class="btn danger" data-ok>破棄して閉じる</button>
+            </div>`;
+          document.body.appendChild(d);
+          const done = (v) => { d.close(); d.remove(); resolve(v); };
+          d.querySelector('[data-cancel]').onclick = () => done(false);
+          d.querySelector('[data-ok]').onclick = () => done(true);
+          d.addEventListener('cancel', (e) => { e.preventDefault(); done(false); });
+          d.addEventListener('click', (e) => { if (e.target === d) done(false); }); // 背景クリック=編集に戻る（既存 confirmDialog 規約に合わせる）
+          d.showModal();
+          d.querySelector('[data-ok]').focus();
+        });
+      }
       function resetNotifForm() {
-        $('#nId').value = ''; $('#nFormTitle').textContent = '新規通知'; $('#nReset').classList.add('hidden');
+        $('#nId').value = ''; $('#nFormTitle').textContent = '新規通知';
         $('#nName').value = ''; $('#nTitle').value = ''; $('#nBody').value = '';
-        $('#nType').value = 'recurring'; $('#nMode').value = 'weekly';
-        $('#nWeekday').value = 'SA'; renderMonthlyRules([]); renderOneoffSlots([]);
+        $('#nMode').value = 'weekly';
+        $('#nWeekday').value = 'SA'; renderMonthlyRules([]);
         $('#nStartTime').value = '21:00'; $('#nDuration').value = ''; $('#nRecruit').value = '7';
         $('#nRemindStart').value = '3'; $('#nRemindUndecided').value = '1';
         $('#nQuotaInterval').value = '';
         $('#nQuota').checked = false; $('#nAssignment').checked = false;
         $('#nMention').value = 'role'; $('#nRequireResponse').checked = true; $('#nActive').checked = true;
+        $('#nSendHour').value = '21'; $('#nDeadlineHours').value = ''; $('#nAlertChannel').value = '';
+        if ($('#nAdvanced')) $('#nAdvanced').open = false;
         refreshNextOptions(); syncNotifUI();
       }
-      async function fillNotifForm(n) {
+      function fillNotifForm(n) {
         if (!n || !$('#nId')) return;
-        // 単発は候補スロットを先に取得する。取得失敗時はトーストして編集を中断
-        // （半端なフォームのまま保存して既存スロットを消すのを防ぐ）。
-        let oneoffGroups = [];
-        if (n.type === 'oneoff') {
-          try {
-            const occs = await api('/notifications/' + n.id + '/occurrences');
-            const byDate = new Map();
-            occs.filter((o) => o.status === 'scheduled')
-              .sort((a, b) => (a.occurrence_date === b.occurrence_date
-                ? (a.start_time || '').localeCompare(b.start_time || '')
-                : a.occurrence_date.localeCompare(b.occurrence_date)))
-              .forEach((o) => {
-                if (!byDate.has(o.occurrence_date)) byDate.set(o.occurrence_date, []);
-                byDate.get(o.occurrence_date).push(o.start_time || n.start_time || '21:00');
-              });
-            oneoffGroups = [...byDate.entries()].map(([date, times]) => ({ date, times }));
-            if (!oneoffGroups.length && n.one_off_date) oneoffGroups = [{ date: n.one_off_date, times: [n.start_time || '21:00'] }];
-          } catch (e) {
-            toast('候補スロットの読み込みに失敗しました。再読み込みしてから編集してください', true);
-            return; // 中断（フォームを開かない＝保存によるスロット消失を防ぐ）
-          }
-        }
-        $('#nId').value = n.id; $('#nFormTitle').textContent = '編集 (ID: ' + n.id + ')'; $('#nReset').classList.remove('hidden');
+        // 単発(oneoff)UI は撤去済み。万一の旧データはこのフォームで編集しない（保存で壊さないため）。
+        if (n.type === 'oneoff') { toast('単発通知の編集は現在無効です。', true); return; }
+        $('#nId').value = n.id; $('#nFormTitle').textContent = '編集 (ID: ' + n.id + ')';
         $('#nName').value = n.name || '';
         $('#nTitle').value = n.message_title || '';
         $('#nBody').value = n.message_body || '';
@@ -1053,11 +1264,9 @@
         }
         $('#nChannel').value = n.channel_id || '';
         $('#nSegment').value = String(n.segment_id);
-        $('#nType').value = n.type || 'recurring';
         const b = parseRRuleToBuilder(n.rrule);
         $('#nMode').value = b.mode; $('#nWeekday').value = b.byday;
         renderMonthlyRules(b.mode === 'monthly' ? b.rules : []);
-        renderOneoffSlots(n.type === 'oneoff' ? oneoffGroups : []);
         $('#nStartTime').value = n.start_time || '21:00';
         $('#nDuration').value = n.duration_minutes == null ? '' : n.duration_minutes;
         $('#nRecruit').value = n.recruit_days_before; $('#nRemindStart').value = n.remind_start_days;
@@ -1067,50 +1276,61 @@
         $('#nMention').value = n.mention_mode || 'role';
         $('#nRequireResponse').checked = n.requires_response == null ? true : !!n.requires_response;
         $('#nActive').checked = !!n.active;
+        $('#nSendHour').value = String(n.send_hour == null ? 21 : n.send_hour);
+        $('#nDeadlineHours').value = n.response_deadline_hours == null ? '' : n.response_deadline_hours;
+        if (n.change_alert_channel_id && ![...$('#nAlertChannel').options].some((o) => o.value === n.change_alert_channel_id)) {
+          $('#nAlertChannel').insertAdjacentHTML('beforeend', `<option value="${esc(n.change_alert_channel_id)}">ID: ${esc(n.change_alert_channel_id)}</option>`);
+        }
+        $('#nAlertChannel').value = n.change_alert_channel_id || '';
+        if ($('#nAdvanced')) $('#nAdvanced').open = true;
         refreshNextOptions(n.anchor_date || null);
         syncNotifUI();
-        $('#nFormTitle').scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
       async function saveNotif() {
-        const type = $('#nType').value;
         const qi = $('#nQuotaInterval').value.trim();
-        const slots = type === 'oneoff' ? getOneoffSlots() : [];
+        const dh = $('#nDeadlineHours').value.trim();
         const body = {
           guild_id: guild.id,
           name: $('#nName').value.trim(),
           channel_id: $('#nChannel').value.trim(),
           segment_id: Number($('#nSegment').value),
-          type,
-          rrule: type === 'recurring' ? buildRRule() : null,
-          one_off_date: type === 'oneoff' ? (slots[0] ? slots[0].date : null) : null,
-          candidate_slots: type === 'oneoff' ? slots : undefined,
-          anchor_date: type === 'recurring' && $('#nMode').value === 'biweekly' ? ($('#nNext').value || null) : null,
+          type: 'recurring',
+          rrule: buildRRule(),
+          anchor_date: $('#nMode').value === 'biweekly' ? ($('#nNext').value || null) : null,
           start_time: $('#nStartTime').value.trim() || '21:00',
           duration_minutes: durValue(),
           message_title: $('#nTitle').value.trim(),
           message_body: $('#nBody').value.trim() || null,
-          recruit_days_before: Number($('#nRecruit').value),
-          remind_start_days: Number($('#nRemindStart').value),
-          remind_undecided_days: Number($('#nRemindUndecided').value || 1),
+          recruit_days_before: numOrDefault('nRecruit', 7),
+          remind_start_days: numOrDefault('nRemindStart', 3),
+          remind_undecided_days: numOrDefault('nRemindUndecided', 1),
           quota_enabled: $('#nQuota').checked ? 1 : 0,
           quota_interval_days: qi === '' ? null : Number(qi),
           assignment_enabled: $('#nAssignment').checked ? 1 : 0,
           mention_mode: $('#nMention').value,
-          // 回答要否は recurring 専用。単発は常に回答あり。
-          requires_response: type === 'oneoff' ? 1 : ($('#nRequireResponse').checked ? 1 : 0),
+          requires_response: $('#nRequireResponse').checked ? 1 : 0,
+          // ③ 送信時刻・① 回答締切/変更通知チャンネル
+          send_hour: Number($('#nSendHour').value),
+          response_deadline_hours: dh === '' ? null : Number(dh),
+          change_alert_channel_id: $('#nAlertChannel').value.trim() || null,
           active: $('#nActive').checked ? 1 : 0,
         };
-        if (!body.name) return toast('名前は必須です', true);
-        if (!body.message_title) return toast('見出しは必須です', true);
-        if (!body.channel_id) return toast('チャンネルを選択してください', true);
-        if (!body.segment_id) return toast('区分を選択してください', true);
-        if (type === 'oneoff' && slots.length === 0) return toast('候補（日付＋時刻）を1つ以上追加してください', true);
+        // モーダル(top-layer)表示中は toast が背面に隠れるため、検証/失敗はフッタにインライン表示。
+        const err = (m) => { $('#nFormErr').textContent = m; };
+        if (!body.name) return err('名前は必須です');
+        if (!body.message_title) return err('見出しは必須です');
+        if (!body.channel_id) return err('チャンネルを選択してください');
+        if (!body.segment_id) return err('区分を選択してください');
+        $('#nFormErr').textContent = '';
         const id = $('#nId').value;
         try {
-          if (id) { await api('/notifications/' + id, { method: 'PUT', body: JSON.stringify(body) }); toast('更新しました'); }
-          else { await api('/notifications', { method: 'POST', body: JSON.stringify(body) }); toast('作成しました'); }
+          if (id) await api('/notifications/' + id, { method: 'PUT', body: JSON.stringify(body) });
+          else await api('/notifications', { method: 'POST', body: JSON.stringify(body) });
+          formDirty = false;
+          $('#nDialog').close();
+          toast(id ? '更新しました' : '作成しました');
           loadNotifications();
-        } catch (e) { toast(e.message, true); }
+        } catch (e) { $('#nFormErr').textContent = e.message; }
       }
 
       // ----- 開催回・番号割り当て・候補日確定（通知の文脈） -----
@@ -1388,16 +1608,53 @@
       async function loadRecords() {
         let responses = [];
         try { responses = await api('/responses?limit=200'); } catch (e) { toast(e.message, true); }
-        const rows = responses.map((r) => `<tr>
-          <td>${esc(r.occurrence_date || '')}${r.occurrence_time ? ' ' + esc(r.occurrence_time) : ''}</td>
-          <td>${esc(r.notification_name || '')}</td>
-          <td>${esc(r.user_name || r.user_id)}</td><td>${esc(r.status)}</td>
-          <td class="muted">${esc((r.updated_at || '').slice(0, 19))}</td></tr>`).join('');
         $('#sec-records').innerHTML = `<h2>回答履歴</h2>
-          <p class="muted">直近 ${responses.length} 件（全サーバー横断の回答ログ）。番号割り当ては「通知 → 開催回」から実行します。</p>
-          ${responses.length
-            ? `<div class="table-wrap"><table><thead><tr><th>開催日時</th><th>通知</th><th>メンバー</th><th>回答</th><th>更新</th></tr></thead><tbody>${rows}</tbody></table></div>`
-            : '<div class="empty">まだ回答がありません。募集を投稿し、メンバーがボタンで回答すると、ここに表示されます。</div>'}`;
+          <p class="muted">直近 ${responses.length} 件（全サーバー横断）。列ヘッダのクリックでソート、各列下で絞り込み、ヘッダのドラッグで並べ替え。</p>
+          <div id="recordsTable"></div>`;
+        if (!responses.length) {
+          $('#recordsTable').innerHTML = '<div class="empty">まだ回答がありません。募集を投稿し、メンバーがボタンで回答すると、ここに表示されます。</div>';
+          return;
+        }
+        window.EventBotTable.mount($('#recordsTable'), {
+          searchPlaceholder: '回答を全体検索',
+          columns: [
+            { id: 'when', header: '開催日時', accessor: (r) => `${r.occurrence_date || ''}${r.occurrence_time ? ' ' + r.occurrence_time : ''}` },
+            { id: 'notif', header: '通知', accessor: (r) => r.notification_name || '' },
+            { id: 'member', header: 'メンバー', accessor: (r) => r.user_name || r.user_id },
+            { id: 'status', header: '回答', accessor: (r) => r.status || '' },
+            { id: 'deadline', header: '締切後変更', accessor: (r) => (r.post_deadline_change ? 'あり' : 'なし'),
+              render: (v) => v === 'あり' ? '<span class="pill" style="color:var(--warn);border-color:var(--warn)">締切後変更</span>' : '<span class="muted">—</span>' },
+            { id: 'updated', header: '更新', accessor: (r) => (r.updated_at || '').slice(0, 19), render: (v) => `<span class="muted">${esc(v)}</span>` },
+          ],
+          rows: responses,
+        });
+      }
+
+      async function loadSendLog() {
+        let logs = [];
+        try { logs = await api('/send-log?limit=300'); } catch (e) { toast(e.message, true); }
+        const kindLabel = { recruit: '募集', remind_unanswered: '未回答リマインド', remind_undecided: '未定リマインド', quota: 'ノルマ', deadline_notice: '締切告知' };
+        $('#sec-sendlog').innerHTML = `<h2>リマインド送信履歴</h2>
+          <p class="muted">cron が送った募集・リマインド・ノルマ・締切告知の記録（直近 ${logs.length} 件・全サーバー横断）。DM 拒否などの失敗もここで確認できます。</p>
+          <div id="sendlogTable"></div>`;
+        if (!logs.length) {
+          $('#sendlogTable').innerHTML = '<div class="empty">まだ送信記録がありません。送信時刻になると cron が送信し、ここに記録されます。</div>';
+          return;
+        }
+        window.EventBotTable.mount($('#sendlogTable'), {
+          searchPlaceholder: '送信履歴を全体検索',
+          columns: [
+            { id: 'date', header: '送信日', accessor: (r) => r.send_date || '' },
+            { id: 'notif', header: '通知', accessor: (r) => r.notification_name || '' },
+            { id: 'occ', header: '開催日', accessor: (r) => r.occurrence_date || '' },
+            { id: 'kind', header: '種別', accessor: (r) => kindLabel[r.kind] || r.kind },
+            { id: 'to', header: '宛先', accessor: (r) => r.user_id || '（チャンネル）' },
+            { id: 'status', header: '結果', accessor: (r) => r.status,
+              render: (v) => v === 'sent' ? '<span class="pill on">送信</span>' : v === 'failed' ? '<span class="pill" style="color:var(--danger);border-color:var(--danger)">失敗</span>' : `<span class="pill">${esc(v)}</span>` },
+            { id: 'error', header: '詳細', accessor: (r) => r.error || '', render: (v) => v ? `<span class="muted">${esc(v)}</span>` : '' },
+          ],
+          rows: logs,
+        });
       }
 
       // ================= セットアップ ウィザード =================

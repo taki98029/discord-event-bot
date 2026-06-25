@@ -105,6 +105,18 @@ export interface Notification {
    * 確定すると当該回以外の候補は cancelled になり、cron はこの回のみを対象にする。
    */
   decided_occurrence_id: number | null;
+  /**
+   * 回答締切（ADR 0014）。開催開始の N 時間前を「これ以降は変更しないで」の境界とする。
+   * NULL=締切なし。締切後の Response 変更（未回答→回答含む）を検知して通知し、回答履歴で識別する。
+   */
+  response_deadline_hours: number | null;
+  /** 締切後変更の通知先チャンネル（ADR 0014）。NULL=通知の channel_id にフォールバック。 */
+  change_alert_channel_id: string | null;
+  /**
+   * cron 駆動送信（募集/未回答・未定リマインド/ノルマ/締切告知）を JST の何時に送るか（0〜23・ADR 0013）。
+   * 開催の start_time とは別物。既定 21（従来の cron 固定 21:00 踏襲）。
+   */
+  send_hour: number;
   created_at: string;
 }
 
@@ -140,6 +152,8 @@ export interface Response {
   /** 参加 / 不参加 / 未定 */
   status: string;
   updated_at: string;
+  /** 締切後に変更された回答か（0/1・ADR 0014）。回答履歴で「締切後変更」列として表示する。 */
+  post_deadline_change: number;
 }
 
 /** assignments: 開催回ごとのユニークな割り当て番号 */
@@ -167,4 +181,40 @@ export interface QuotaAlert extends Member {
 /** 表示名を解決（display_name > user_name > user_id） */
 export function resolveDisplayName(m: Member): string {
   return m.display_name || m.user_name || m.user_id;
+}
+
+/**
+ * send_log の送信種別（ADR 0013）。cron 駆動のペース配信のみが対象で、いずれも
+ * 「(通知, 開催回, 宛先, 種別, 送信日) で 1 日 1 回」の冪等。締切後変更の即時通知（change_alert）は
+ * interaction 時の処理で send_log には記録しない（responses.post_deadline_change が durable な記録）。
+ */
+export type SendLogKind =
+  | 'recruit'
+  | 'remind_unanswered'
+  | 'remind_undecided'
+  | 'quota'
+  | 'deadline_notice';
+
+/** send_log: cron 駆動送信の記録（冪等台帳 兼 ペースカーソル 兼 可視化・ADR 0013） */
+export interface SendLog {
+  id: number;
+  notification_id: number;
+  /** 開催回 id。0 = 開催回に紐づかない（ノルマ等） */
+  occurrence_id: number;
+  /** DM 宛先 user_id。'' = チャンネル投稿（個人宛なし） */
+  user_id: string;
+  kind: SendLogKind;
+  /** 'YYYY/MM/DD'(JST)。同日冪等の鍵 */
+  send_date: string;
+  /** sent | failed */
+  status: string;
+  /** 失敗理由（DM 拒否等）。成功時 null */
+  error: string | null;
+  created_at: string;
+}
+
+/** リマインド送信履歴の一覧表示用（send_log に通知名/開催日を合成・admin 閲覧用） */
+export interface SendLogListItem extends SendLog {
+  notification_name: string;
+  occurrence_date: string | null;
 }

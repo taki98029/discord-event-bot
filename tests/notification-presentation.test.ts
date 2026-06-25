@@ -98,6 +98,9 @@ describe('notifications 新カラムの往復（migration 0009・ADR 0010）', (
       message_title: '見出しX',
       message_body: '本文Y',
       active: 1,
+      response_deadline_hours: null,
+      change_alert_channel_id: null,
+      send_hour: 21,
     });
     const got = await getNotification(env.DB, created.id);
     expect(got?.mention_mode).toBe('members');

@@ -20,4 +20,13 @@ await build({
 mkdirSync('dist/styles', { recursive: true });
 cpSync('styles', 'dist/styles', { recursive: true });
 
-console.log('✅ build:ds done → dist/index.js (+ dist/styles/)');
+// styles/index.css の @import を解決した「平坦化済み・単一ファイル」も出力する。
+// 相対 @import を辿らないツール（例: /design-sync コンバータ）向けの自己完結CSS。
+await build({
+  entryPoints: ['styles/index.css'],
+  outfile: 'dist/styles/index.bundle.css',
+  bundle: true,
+  logLevel: 'info',
+});
+
+console.log('✅ build:ds done → dist/index.js (+ dist/styles/ + dist/styles/index.bundle.css)');

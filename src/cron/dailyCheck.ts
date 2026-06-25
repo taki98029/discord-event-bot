@@ -1,5 +1,5 @@
 import type { Env } from '../env';
-import type { Member, Notification, Occurrence } from '../db/types';
+import type { Notification, Occurrence, QuotaAlert, Segment } from '../db/types';
 import { resolveDisplayName } from '../db/types';
 import { listActiveNotifications } from '../db/notifications';
 import {
@@ -8,14 +8,22 @@ import {
   listScheduledOccurrences,
 } from '../db/occurrences';
 import {
-  getResponsesForOccurrence,
-  getUndecidedForOccurrence,
   checkQuotaForNotification,
+  remainingUnansweredTargets,
+  remainingUndecidedTargets,
 } from '../db/responses';
-import { getActiveSegmentMembers, getSegment } from '../db/segments';
+import { getActiveSegmentMembers, getSegment, listSegments } from '../db/segments';
+import { claimSend, finishSend, clearStaleClaims, type SendKey } from '../db/sendLog';
+import { getSendBudget, getConfig, setConfig } from '../db/config';
 import { syncSegmentFromRole } from '../discord/syncSegment';
 import { nextOccurrenceDate } from '../lib/recurrence';
-import { getDaysUntil, getJSTNow, formatOccurrenceLabel } from '../lib/date';
+import {
+  getDaysUntil,
+  getJSTNow,
+  formatDate,
+  formatOccurrenceLabel,
+  responseDeadline,
+} from '../lib/date';
 import {
   sendChannelMessage,
   sendDirectMessageCached,
@@ -27,7 +35,6 @@ import {
   DISCORD_CONTENT_LIMIT,
   type GuildMemberSummary,
 } from '../discord/rest';
-import type { Segment } from '../db/types';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const DM_INTERVAL_MS = 300;
@@ -94,20 +101,22 @@ function slotLabel(occ: Occurrence, n: Notification): string {
   return formatOccurrenceLabel(occ.occurrence_date, slotTime(occ, n), n.duration_minutes);
 }
 
-/** 募集 */
-async function sendRecruitment(
-  env: Env,
-  n: Notification,
-  occ: Occurrence,
-): Promise<boolean> {
+/** 募集（回答締切が設定されていれば日時行に併記する・ADR 0014）。 */
+async function sendRecruitment(env: Env, n: Notification, occ: Occurrence): Promise<boolean> {
   const segment = await getSegment(env.DB, n.segment_id);
+  const dl = responseDeadline(occ.occurrence_date, slotTime(occ, n), n.response_deadline_hours);
+  const tail = dl
+    ? `日時: **${slotLabel(occ, n)}**\n回答締切: **${formatDate(dl)} ${pad2(dl.getHours())}:${pad2(dl.getMinutes())}**`
+    : `日時: **${slotLabel(occ, n)}**`;
   // 見出し（必須）＋本文（任意）＋日時行（自動）。回答不要(announce-only)はボタンを付けない。
-  const message = await composeChannelPost(env, n, segment, `日時: **${slotLabel(occ, n)}**`);
+  const message = await composeChannelPost(env, n, segment, tail);
   const components = isAnnounceOnly(n) ? null : createButtonComponents(occ.id, n.type);
   const ok = await sendChannelMessage(env, n.channel_id, message, components, allowedMentionsFor(n, segment));
   console.log(ok ? `✅ [Recruitment] sent (n=${n.id})` : `❌ [Recruitment] failed (n=${n.id})`);
   return ok;
 }
+
+const pad2 = (n: number): string => String(n).padStart(2, '0');
 
 /**
  * 単発・複数候補日の募集。候補日一覧のヘッダ（メンションはここで1回）に続けて、
@@ -207,257 +216,267 @@ export async function recruitNotificationNow(
     : { ok: false, message: '募集メッセージの送信に失敗しました（文字数超過や Discord エラーの可能性）。' };
 }
 
-/** ノルマ確認（個別 DM） */
-async function checkQuotaAndNotify(env: Env, n: Notification): Promise<void> {
-  const db = env.DB;
-  const alerts = await checkQuotaForNotification(db, n);
-  if (alerts.length === 0) {
-    console.log(`[Quota] all within interval (n=${n.id})`);
-    return;
-  }
+// =============================================================================
+// ペース配信エンジン（毎分 cron・ADR 0013）
+//   送信時刻(send_hour)に達した通知の「今日の未送信分」を、1 ティック予算(send_budget_per_tick)
+//   内で送る。残りは次ティックへ。send_log で (通知,開催回,宛先,種別,送信日) ごとに冪等化し、
+//   毎分実行でも二重送信しない。subrequest 50/実行（Free）律速に対し予算で構造的に超えない。
+// =============================================================================
 
-  let sent = 0;
-  for (const member of alerts) {
-    // checkQuotaForNotification は未参加者を除外して返すため daysSinceLast は常に正値。
-    const daysText = `${member.daysSinceLast}日前`;
-    const message =
-      `📊 **参加間隔の確認**\n\n` +
-      `こんにちは、**${resolveDisplayName(member)}** さん！\n` +
-      `前回のイベント参加から少し時間が空いているようです（目安: ${n.quota_interval_days}日に1回）。\n\n` +
-      `- 最終参加: **${member.lastDateStr}** (${daysText})\n\n` +
-      `次回のイベントへの参加をぜひご検討ください！お待ちしています✨`;
-    const ok = await sendDirectMessageCached(env, db, member, message);
-    if (ok) sent++;
-    else console.error(`❌ [Quota] DM failed: ${member.user_name}`);
-    await sleep(DM_INTERVAL_MS);
-  }
-  console.log(`✅ [Quota] sent ${sent}/${alerts.length} (n=${n.id})`);
+/** ノルマ DM 文面 */
+function quotaMessage(n: Notification, member: QuotaAlert): string {
+  const daysText = `${member.daysSinceLast}日前`;
+  return (
+    `📊 **参加間隔の確認**\n\n` +
+    `こんにちは、**${resolveDisplayName(member)}** さん！\n` +
+    `前回のイベント参加から少し時間が空いているようです（目安: ${n.quota_interval_days}日に1回）。\n\n` +
+    `- 最終参加: **${member.lastDateStr}** (${daysText})\n\n` +
+    `次回のイベントへの参加をぜひご検討ください！お待ちしています✨`
+  );
 }
 
-/** 未回答リマインド（個別 DM）。対象=区分アクティブメンバー − 既回答 */
-async function sendUnansweredReminder(
-  env: Env,
-  n: Notification,
-  occ: Occurrence,
-  daysUntil: number,
-): Promise<void> {
-  const db = env.DB;
-  const members = await getActiveSegmentMembers(db, n.segment_id);
-  const responses = await getResponsesForOccurrence(db, occ.id);
-
-  const unanswered = members.filter((m) => !responses[m.user_id]);
-  if (unanswered.length === 0) {
-    console.log(`[Unanswered] all responded (n=${n.id})`);
-    return;
-  }
-
+/** 未回答リマインド DM 文面 */
+function unansweredMessage(n: Notification, occ: Occurrence, daysUntil: number): string {
   const dayText = daysUntil === 0 ? '今日' : `あと${daysUntil}日`;
-  let sent = 0;
-  for (const member of unanswered) {
-    const message =
-      `⏰ **リマインド: ${dayText}のイベント**\n\n` +
-      `日時: **${slotLabel(occ, n)}**\n\n` +
-      `まだ回答されていません。下のボタンで参加状況を回答してください!`;
-    const ok = await sendDirectMessageCached(
-      env,
-      db,
-      member,
-      message,
-      createButtonComponents(occ.id, n.type),
-    );
-    if (ok) sent++;
-    else console.error(`❌ [Unanswered] DM failed: ${member.user_name}`);
-    await sleep(DM_INTERVAL_MS);
-  }
-  console.log(`✅ [Unanswered] DM sent ${sent}/${unanswered.length} (n=${n.id})`);
+  return (
+    `⏰ **リマインド: ${dayText}のイベント**\n\n` +
+    `日時: **${slotLabel(occ, n)}**\n\n` +
+    `まだ回答されていません。下のボタンで参加状況を回答してください!`
+  );
 }
 
-/** 未定者リマインド（個別 DM）。休止者は除外 */
-async function sendUndecidedReminder(
-  env: Env,
-  n: Notification,
-  occ: Occurrence,
-): Promise<void> {
-  const db = env.DB;
-  const undecided = await getUndecidedForOccurrence(db, occ.id);
-  if (undecided.length === 0) {
-    console.log(`[Undecided] none (n=${n.id})`);
-    return;
-  }
-
-  // 休止者を除外するため、区分のアクティブメンバーを母集団とする。
-  const activeMembers = await getActiveSegmentMembers(db, n.segment_id);
-  const activeById = new Map(activeMembers.map((m) => [m.user_id, m]));
-
-  const targets: Member[] = [];
-  for (const u of undecided) {
-    // 区分でアクティブな未定者のみ対象（休止・未所属はスキップ）
-    const active = activeById.get(u.userId);
-    if (active) targets.push(active);
-  }
-  if (targets.length === 0) {
-    console.log(`[Undecided] no active targets (n=${n.id})`);
-    return;
-  }
-
-  let sent = 0;
-  for (const member of targets) {
-    const message =
-      `❓ **未定者へのリマインド**\n\n` +
-      `日時: **${slotLabel(occ, n)}**\n\n` +
-      `現在「未定」で回答されています。下のボタンで参加/不参加を確定してください!`;
-    const ok = await sendDirectMessageCached(
-      env,
-      db,
-      member,
-      message,
-      createButtonComponents(occ.id, n.type),
-    );
-    if (ok) sent++;
-    else console.error(`❌ [Undecided] DM failed: ${member.user_name}`);
-    await sleep(DM_INTERVAL_MS);
-  }
-  console.log(`✅ [Undecided] DM sent ${sent}/${targets.length} (n=${n.id})`);
+/** 未定者リマインド DM 文面 */
+function undecidedMessage(n: Notification, occ: Occurrence): string {
+  return (
+    `❓ **未定者へのリマインド**\n\n` +
+    `日時: **${slotLabel(occ, n)}**\n\n` +
+    `現在「未定」で回答されています。下のボタンで参加/不参加を確定してください!`
+  );
 }
 
-/** 1 開催回に対する未回答/未定リマインドを daysUntil ゲートで実行する（recurring / oneoff 共通）。 */
-async function remindForOccurrence(
-  env: Env,
-  n: Notification,
-  occ: Occurrence,
-  daysUntil: number,
-): Promise<void> {
-  if (occ.status === 'cancelled') return;
+/** 回答締切の到来告知（メンバー向け・募集チャンネルへ追従投稿・ADR 0014） */
+function deadlineNoticeMessage(n: Notification, occ: Occurrence): string {
+  return (
+    `⏰ **回答を締め切りました**（${slotLabel(occ, n)}）\n` +
+    `以降に回答を変更すると、主催者に記録・通知されます。`
+  );
+}
 
-  // 未回答リマインド
-  if (daysUntil >= 0 && daysUntil <= n.remind_start_days) {
-    let proceed = true;
-    if (daysUntil === 0) {
-      // 当日は開始時刻前のみ。スロット固有時刻(slotTime)で判定する（同日複数時刻スロットを正しく扱う）。
-      // cron が開始時刻と同時の場合は実質 no-op。
-      const now = getJSTNow();
-      const [h, m] = slotTime(occ, n).split(':').map(Number);
-      proceed = now.getHours() * 60 + now.getMinutes() < h * 60 + m;
+interface TickCtx {
+  env: Env;
+  db: D1Database;
+  now: Date; // getJSTNow()
+  today: string; // 'YYYY/MM/DD'(JST)
+  hour: number; // JST 時(0-23)
+  budget: { n: number }; // 1 ティックの残り送信予算（subrequest 50 律速）
+}
+
+interface SendTask {
+  key: SendKey;
+  run: () => Promise<boolean>;
+}
+
+/**
+ * タスク群を予算内でドレインする。claim → 送信 → finish。
+ * 既送信(claim=false)は予算を消費せずスキップ。予算切れで残りは次ティックへ繰り越す。
+ */
+async function drainTasks(ctx: TickCtx, tasks: SendTask[]): Promise<void> {
+  for (const t of tasks) {
+    if (ctx.budget.n <= 0) return;
+    const claimed = await claimSend(ctx.db, t.key);
+    if (!claimed) continue; // 他ティックが処理済み/処理中
+    ctx.budget.n--;
+    let ok = false;
+    try {
+      ok = await t.run();
+    } catch (e) {
+      console.error(`[Send] ${t.key.kind} threw: ${(e as Error).message}`);
+      ok = false;
     }
-    if (proceed) await sendUnansweredReminder(env, n, occ, daysUntil);
-  }
-
-  // 未定者リマインド
-  if (daysUntil === n.remind_undecided_days) {
-    await sendUndecidedReminder(env, n, occ);
+    await finishSend(ctx.db, t.key, ok, ok ? null : 'send failed');
+    await sleep(DM_INTERVAL_MS);
   }
 }
 
-/** recurring / 単一候補 oneoff（従来挙動）。nextOccurrenceDate の 1 開催回を処理する。 */
-async function processSingleOccurrence(env: Env, n: Notification): Promise<void> {
-  const db = env.DB;
-  const target = nextOccurrenceDate(n);
-  if (!target) {
-    console.log(`[n=${n.id}] no next occurrence, skip`);
+/**
+ * ロール管理区分を Discord ロールから同期する（1 日 1 回/ギルド・config マーカーで冪等・ADR 0009）。
+ * 取得失敗時は同期せず既存維持（マーカーを立てず次ティックで再試行）。
+ */
+async function ensureRoleSync(ctx: TickCtx, guildId: string): Promise<void> {
+  const markerKey = `rolesync:${guildId}`;
+  if ((await getConfig(ctx.db, markerKey)) === ctx.today) return;
+  let members: GuildMemberSummary[];
+  try {
+    members = await listGuildMembers(ctx.env, guildId);
+  } catch (e) {
+    console.error(`[SegmentSync] members fetch failed (guild=${guildId}): ${(e as Error).message}`);
     return;
   }
-  const daysUntil = getDaysUntil(target);
-  console.log(`[n=${n.id}] Target: ${target}, daysUntil: ${daysUntil}`);
+  const segs = await listSegments(ctx.db, guildId);
+  for (const seg of segs) {
+    if (!seg.mention_role_id) continue;
+    try {
+      const r = await syncSegmentFromRole(ctx.env, seg, { allowEmpty: false, members });
+      console.log(`[SegmentSync] seg=${seg.id} ${r.ok ? `+${r.added}/-${r.removed}` : 'skip: ' + r.message}`);
+    } catch (e) {
+      console.error(`[SegmentSync] seg=${seg.id} failed: ${(e as Error).message}`);
+    }
+  }
+  await setConfig(ctx.db, markerKey, ctx.today);
+  // メンバー取得（ページング）の subrequest を保守的に予算から控除（大規模は Paid 前提）。
+  ctx.budget.n = Math.max(0, ctx.budget.n - 5);
+}
 
-  // 回答不要（通知のみ）は告知だけ。ノルマ・未回答/未定リマインドは回答前提のため対象外（ADR 0010）。
+/** 開催回の回答締切が到来しているか（ADR 0014）。 */
+function deadlinePassed(n: Notification, occ: Occurrence, now: Date): boolean {
+  const dl = responseDeadline(occ.occurrence_date, slotTime(occ, n), n.response_deadline_hours);
+  return dl != null && now.getTime() >= dl.getTime();
+}
+
+/** 1 通知の「今日の未送信分」をペース配信で処理する（recurring / oneoff 共通）。 */
+async function drainNotification(ctx: TickCtx, n: Notification): Promise<void> {
+  const { env, db, today, hour } = ctx;
   const announceOnly = isAnnounceOnly(n);
 
-  // 募集/告知 & ノルマ確認（募集開始日に同時実行）
-  if (daysUntil === n.recruit_days_before) {
-    const occ = await getOrCreateOccurrence(db, n.id, target, n.start_time);
-    if (occ.status === 'cancelled') {
-      console.log(`[n=${n.id}] occurrence cancelled, skip recruitment`);
+  // --- 対象開催回を決める ---
+  let occ: Occurrence | null = null;
+  let daysUntil = 0;
+  if (n.type === 'oneoff') {
+    // 単発: 確定回 or 単一候補のみリマインド対象（募集は手動・cron では送らない）。
+    if (n.decided_occurrence_id != null) {
+      const o = await getOccurrence(db, n.decided_occurrence_id);
+      occ = o && o.status === 'scheduled' ? o : null;
     } else {
-      await sendRecruitment(env, n, occ);
-      if (!announceOnly && n.quota_enabled) await checkQuotaAndNotify(env, n);
+      const scheduled = await listScheduledOccurrences(db, n.id);
+      if (scheduled.length === 1) occ = scheduled[0];
+      else if (scheduled.length === 0 && n.one_off_date)
+        occ = await getOrCreateOccurrence(db, n.id, n.one_off_date, n.start_time);
     }
-  }
-
-  // リマインド（回答不要ならスキップ）。同じ開催回を再取得。
-  if (!announceOnly) {
-    const occ = await getOrCreateOccurrence(db, n.id, target, n.start_time);
-    await remindForOccurrence(env, n, occ, daysUntil);
-  }
-}
-
-/**
- * 単発・複数候補日。募集は管理画面／スラッシュコマンドからの手動送信に一本化したため、cron では
- * 自動募集を行わない（完全一致ゲートの取りこぼしや手動との二重投稿を避ける）。
- * cron はリマインドのみを候補回ごとに自分の日付で判定する。確定済み(decided_occurrence_id)なら確定回のみ対象。
- */
-async function processOneoffCandidates(env: Env, n: Notification): Promise<void> {
-  const db = env.DB;
-
-  // リマインド対象の決定。単発の出席リマインドは「確定後の確定回のみ」を対象にする
-  //（確定前に複数候補へ当日 DM が乱発するのを防ぐ）。募集は手動送信のため cron では送らない。
-  let target: Occurrence | null = null;
-  if (n.decided_occurrence_id != null) {
-    const occ = await getOccurrence(db, n.decided_occurrence_id);
-    target = occ && occ.status === 'scheduled' ? occ : null;
+    if (!occ || occ.status !== 'scheduled') return;
+    daysUntil = getDaysUntil(occ.occurrence_date);
   } else {
-    const scheduled = await listScheduledOccurrences(db, n.id);
-    if (scheduled.length === 1) {
-      target = scheduled[0]; // 候補が1つだけなら実質確定とみなしてリマインドする
-    } else if (scheduled.length === 0 && n.one_off_date) {
-      // 後方互換: 候補回未生成の旧データは one_off_date を 1 回だけ対象に
-      target = await getOrCreateOccurrence(db, n.id, n.one_off_date, n.start_time);
+    const date = nextOccurrenceDate(n);
+    if (!date) return;
+    daysUntil = getDaysUntil(date);
+    // 今日が「送信のありうる日」でなければ開催回も作らず安価に skip（毎分実行の負荷を抑える）。
+    const inRecruit = daysUntil === n.recruit_days_before;
+    const inUnanswered = !announceOnly && daysUntil >= 0 && daysUntil <= n.remind_start_days;
+    const inUndecided = !announceOnly && daysUntil === n.remind_undecided_days;
+    const mayDeadline =
+      !announceOnly &&
+      n.response_deadline_hours != null &&
+      daysUntil >= 0 &&
+      daysUntil <= n.recruit_days_before;
+    if (!inRecruit && !inUnanswered && !inUndecided && !mayDeadline) return;
+    occ = await getOrCreateOccurrence(db, n.id, date, n.start_time);
+    if (occ.status === 'cancelled') return;
+  }
+
+  // --- (1) 締切告知（メンバー向け・締切時刻ゲート。send_hour に依存せず時刻ベースで独立発火・ADR 0014）---
+  // 文面は固定（@メンションなし）だが、念のため allowed_mentions={parse:[]} で一切ピングしないことを保証。
+  if (!announceOnly && deadlinePassed(n, occ, ctx.now)) {
+    await drainTasks(ctx, [
+      {
+        key: { notification_id: n.id, occurrence_id: occ.id, kind: 'deadline_notice', send_date: today },
+        run: () => sendChannelMessage(env, n.channel_id, deadlineNoticeMessage(n, occ!), null, { parse: [] }),
+      },
+    ]);
+  }
+
+  // 以降（募集・ノルマ・リマインド）は送信時刻ゲート。時刻未到達なら今ティックは送らない。
+  if (hour < n.send_hour) return;
+
+  // メンバー基準の送信（募集の 'members' メンション含む）の前にロール同期する（1 日 1 回/ギルドで冪等）。
+  // announce-only のみのギルドでもロール管理区分が同期されるよう、announce-only 判定の前に呼ぶ。
+  await ensureRoleSync(ctx, n.guild_id);
+
+  // --- (2) 募集（recruit_days_before 当日・チャンネル投稿）---
+  if (daysUntil === n.recruit_days_before) {
+    await drainTasks(ctx, [
+      {
+        key: { notification_id: n.id, occurrence_id: occ.id, kind: 'recruit', send_date: today },
+        run: () => sendRecruitment(env, n, occ!),
+      },
+    ]);
+  }
+
+  if (announceOnly) return; // 回答不要は以降（回答依存）対象外。
+
+  // --- (3) ノルマ（recruit 当日・未送信分のみ）---
+  if (n.quota_enabled && n.quota_interval_days && daysUntil === n.recruit_days_before && ctx.budget.n > 0) {
+    const alerts = await checkQuotaForNotification(db, n);
+    await drainTasks(
+      ctx,
+      alerts.map((member) => ({
+        key: { notification_id: n.id, user_id: member.user_id, kind: 'quota' as const, send_date: today },
+        run: () => sendDirectMessageCached(env, db, member, quotaMessage(n, member)),
+      })),
+    );
+  }
+
+  // --- (4) 未回答リマインド（0<=daysUntil<=remind_start_days・当日は開始時刻前のみ）---
+  if (daysUntil >= 0 && daysUntil <= n.remind_start_days && ctx.budget.n > 0) {
+    let proceed = true;
+    if (daysUntil === 0) {
+      const [h, m] = slotTime(occ, n).split(':').map(Number);
+      proceed = ctx.now.getHours() * 60 + ctx.now.getMinutes() < (h || 0) * 60 + (m || 0);
     }
-    // 複数候補（未確定）はリマインドを保留（確定後に送る）
+    if (proceed) {
+      const targets = await remainingUnansweredTargets(db, n.segment_id, occ.id, n.id, today, ctx.budget.n);
+      await drainTasks(
+        ctx,
+        targets.map((member) => ({
+          key: { notification_id: n.id, occurrence_id: occ!.id, user_id: member.user_id, kind: 'remind_unanswered' as const, send_date: today },
+          run: () => sendDirectMessageCached(env, db, member, unansweredMessage(n, occ!, daysUntil), createButtonComponents(occ!.id, n.type)),
+        })),
+      );
+    }
   }
 
-  if (!target || target.status !== 'scheduled') {
-    console.log(`[n=${n.id}] oneoff: リマインド対象なし（未確定の複数候補 / 候補なし）, skip`);
-    return;
+  // --- (5) 未定リマインド（daysUntil===remind_undecided_days）---
+  if (daysUntil === n.remind_undecided_days && ctx.budget.n > 0) {
+    const targets = await remainingUndecidedTargets(db, n.segment_id, occ.id, n.id, today, ctx.budget.n);
+    await drainTasks(
+      ctx,
+      targets.map((member) => ({
+        key: { notification_id: n.id, occurrence_id: occ!.id, user_id: member.user_id, kind: 'remind_undecided' as const, send_date: today },
+        run: () => sendDirectMessageCached(env, db, member, undecidedMessage(n, occ!), createButtonComponents(occ!.id, n.type)),
+      })),
+    );
   }
-
-  await remindForOccurrence(env, n, target, getDaysUntil(target.occurrence_date));
 }
 
 /**
- * 日次メインチェック。active な Notification をすべてループし、
- * recurring / 単一候補 oneoff は従来どおり、単発・複数候補日は候補回ごとに
- * 募集 & ノルマ / 未回答リマインド / 未定リマインドを判定・実行する。
+ * cron ティック（毎分・ADR 0013 ペース配信）。送信時刻に達した通知の今日の未送信分を予算内で送る。
+ * index.ts の scheduled ハンドラから毎分呼ばれる（旧「1日1回」ではない）。
  */
 export async function mainDailyCheck(env: Env): Promise<void> {
-  console.log('=== mainDailyCheck START ===');
+  const now = getJSTNow();
+  const ctx: TickCtx = {
+    env,
+    db: env.DB,
+    now,
+    today: formatDate(now),
+    hour: now.getHours(),
+    budget: { n: await getSendBudget(env.DB) },
+  };
+  // クラッシュ等で status='sending' のまま残った claim を回収（5分以上前）→ 次ティックで再送可能にする。
+  await clearStaleClaims(env.DB, new Date(Date.now() - 5 * 60_000).toISOString());
+
   const notifications = await listActiveNotifications(env.DB);
-  console.log(`Active notifications: ${notifications.length}`);
+  if (notifications.length === 0) return;
 
-  // ロール管理区分を Discord ロールから同期してから処理する（ADR 0009）。
-  // 有効通知が参照する区分のみ。ギルド単位でメンバーを1回だけ取得して使い回す（重複フェッチ回避）。
-  // cron は無人化/取得失敗をスキップ（allowEmpty=false）。1区分の同期失敗で後続処理を止めない（try/catch）。
-  const segmentIds = [...new Set(notifications.map((n) => n.segment_id))];
-  const guildMembersCache = new Map<string, GuildMemberSummary[] | null>();
-  for (const segId of segmentIds) {
+  // 予算切れ時の公平性: ティック番号で開始位置をローテートし、特定通知の優先固定を避ける
+  //（通知数 > 60 でも全件が順に先頭へ回る）。
+  const start = Math.floor(now.getTime() / 60000) % notifications.length;
+  const ordered = [...notifications.slice(start), ...notifications.slice(0, start)];
+
+  for (const n of ordered) {
+    if (ctx.budget.n <= 0) break;
     try {
-      const seg = await getSegment(env.DB, segId);
-      if (!seg || !seg.mention_role_id) continue;
-      if (!guildMembersCache.has(seg.guild_id)) {
-        try {
-          guildMembersCache.set(seg.guild_id, await listGuildMembers(env, seg.guild_id));
-        } catch (e) {
-          console.error(`[SegmentSync] guild members fetch failed (guild=${seg.guild_id}): ${(e as Error).message}`);
-          guildMembersCache.set(seg.guild_id, null);
-        }
-      }
-      const members = guildMembersCache.get(seg.guild_id);
-      if (!members) continue; // 取得失敗ギルドはスキップ（既存メンバーを維持）
-      const r = await syncSegmentFromRole(env, seg, { allowEmpty: false, members });
-      console.log(
-        `[SegmentSync] seg=${segId} ${r.ok ? `+${r.added}/-${r.removed} (=${r.total})` : 'skip: ' + r.message}`,
-      );
+      await drainNotification(ctx, n);
     } catch (e) {
-      console.error(`[SegmentSync] seg=${segId} failed: ${(e as Error).message}`);
+      console.error(`[Tick] n=${n.id} failed: ${(e as Error).message}`);
     }
   }
-
-  for (const n of notifications) {
-    if (n.type === 'oneoff') {
-      await processOneoffCandidates(env, n);
-    } else {
-      await processSingleOccurrence(env, n);
-    }
-  }
-
-  console.log('=== mainDailyCheck END ===');
 }

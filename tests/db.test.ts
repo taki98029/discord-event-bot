@@ -48,6 +48,9 @@ async function insertNotification(
     message_body: null,
     active: 1,
     decided_occurrence_id: null,
+    response_deadline_hours: null,
+    change_alert_channel_id: null,
+    send_hour: 21,
     created_at: '',
     ...over,
   };

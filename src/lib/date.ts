@@ -96,3 +96,21 @@ export function formatOccurrenceLabel(
   const w = weekdayLabel(date);
   return `${date}${w ? ` (${w})` : ''} ${formatTimeRange(time, durationMinutes)}`;
 }
+
+/**
+ * 回答締切の時刻（ADR 0014）。開催開始（dateStr 'YYYY/MM/DD' ＋ timeStr 'HH:MM'）の
+ * hoursBefore 時間前を JST 壁時計の Date で返す。hoursBefore=null（締切なし）や不正日付は null。
+ * 返り値は getJSTNow() と同じ「ローカル＝JST 壁時計」系で構築するので getTime() 比較が整合する。
+ */
+export function responseDeadline(
+  dateStr: string,
+  timeStr: string,
+  hoursBefore: number | null,
+): Date | null {
+  if (hoursBefore == null) return null;
+  const [y, mo, d] = dateStr.split('/').map(Number);
+  const [h, mi] = (timeStr || '00:00').split(':').map(Number);
+  if (!y || !mo || !d) return null;
+  const start = new Date(y, mo - 1, d, h || 0, mi || 0);
+  return new Date(start.getTime() - hoursBefore * 3_600_000);
+}

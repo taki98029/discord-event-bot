@@ -42,3 +42,10 @@ verify-*.png
 
 # 本番 D1 のローカルバックアップ（PII含む・コミット禁止）
 .backups/
+
+# /design-sync の作業物（ステージングスクリプト・生成バンドル・キャッシュ・fork symlink）
+.ds-sync/
+ds-bundle/
+.design-sync/.cache/
+.design-sync/learnings/
+.design-sync/node_modules
