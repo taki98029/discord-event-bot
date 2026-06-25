@@ -473,24 +473,24 @@
       // ----- 共通UI: 確認モーダル / ボタンのbusy状態 -----
       function confirmDialog(message, opts = {}) {
         return new Promise((resolve) => {
-          const bd = document.createElement('div');
-          bd.className = 'backdrop';
-          bd.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-label="確認">
-            <h3>${esc(opts.title || '確認')}</h3>
+          // ネイティブ <dialog>。top-layer なので、開催回/メンバー等のフォームモーダル上でも背後に隠れない。
+          const d = document.createElement('dialog');
+          d.className = 'modal';
+          d.setAttribute('aria-label', '確認');
+          d.innerHTML = `<h3>${esc(opts.title || '確認')}</h3>
             <p>${esc(message)}</p>
             <div class="actions">
               <button class="btn ghost" data-cancel>キャンセル</button>
               <button class="btn ${opts.danger ? 'danger' : ''}" data-ok>${esc(opts.okLabel || 'OK')}</button>
-            </div></div>`;
-          const prev = document.activeElement;
-          const close = (val) => { document.removeEventListener('keydown', onKey); bd.remove(); if (prev && prev.focus) prev.focus(); resolve(val); };
-          const onKey = (e) => { if (e.key === 'Escape') close(false); else if (e.key === 'Enter') close(true); };
-          bd.addEventListener('click', (e) => { if (e.target === bd) close(false); });
-          document.body.appendChild(bd);
-          bd.querySelector('[data-cancel]').onclick = () => close(false);
-          bd.querySelector('[data-ok]').onclick = () => close(true);
-          document.addEventListener('keydown', onKey);
-          bd.querySelector('[data-ok]').focus();
+            </div>`;
+          document.body.appendChild(d);
+          const close = (val) => { d.close(); d.remove(); resolve(val); };
+          d.querySelector('[data-cancel]').onclick = () => close(false);
+          d.querySelector('[data-ok]').onclick = () => close(true);
+          d.addEventListener('cancel', (e) => { e.preventDefault(); close(false); }); // Esc=キャンセル
+          d.addEventListener('click', (e) => { if (e.target === d) close(false); }); // 背景クリック=キャンセル
+          d.showModal();
+          d.querySelector('[data-ok]').focus();
         });
       }
       async function withBusy(btn, fn) {
@@ -836,7 +836,12 @@
 
         $('#sec-notifications').innerHTML = `<h2>通知 (${notifs.length})</h2>
           ${notifs.length ? rows : '<div class="empty">まだ通知がありません。<br>下のフォームから最初の通知を作成しましょう。</div>'}
-          <div id="occBox"></div>
+          <dialog class="modal-lg" id="occDialog" aria-labelledby="occTitle">
+            <div class="modal-head"><h3 id="occTitle">開催回</h3>
+              <button type="button" class="modal-close" data-occ-close aria-label="閉じる">✕</button></div>
+            <div class="modal-body" id="occBox"></div>
+            <div class="modal-foot"><button type="button" class="btn ghost" data-occ-close>閉じる</button></div>
+          </dialog>
           ${segs.length ? notifForm() : '<p class="muted" style="margin-top:16px">※ 先に「メンバー区分」を作成してください（通知の対象になります）。</p>'}`;
 
         if (segs.length) { bindNotifForm(); }
@@ -846,6 +851,7 @@
         document.querySelectorAll('[data-nocc]').forEach((b) => {
           b.onclick = () => loadOccurrences(Number(b.dataset.nocc));
         });
+        document.querySelectorAll('#occDialog [data-occ-close]').forEach((b) => { b.onclick = () => $('#occDialog').close(); });
         document.querySelectorAll('[data-nrecruit]').forEach((b) => {
           b.onclick = async () => {
             if (!(await confirmDialog('この通知の募集メッセージをチャンネルへ投稿します。', { okLabel: '送信する' }))) return;
@@ -1153,11 +1159,11 @@
         }).join('');
         const recruitBtn = n
           ? `<div class="actions" style="margin-bottom:8px"><button class="btn sm secondary" id="occRecruit">📣 今すぐ募集を投稿</button></div>` : '';
-        $('#occBox').innerHTML = `<fieldset><legend>開催回: ${esc(n ? n.name : notifId)} (${occs.length})</legend>
-          ${recruitBtn}
+        $('#occTitle').textContent = `開催回: ${n ? n.name : notifId} (${occs.length})`;
+        $('#occBox').innerHTML = `${recruitBtn}
           ${occs.length ? rows : '<div class="empty">開催回はまだありません。<br>単発は保存時に候補が、繰り返しは募集タイミングで生成されます。</div>'}
-          <div id="assignBox"></div></fieldset>`;
-        $('#occBox').scrollIntoView({ behavior: 'smooth', block: 'center' });
+          <div id="assignBox"></div>`;
+        const _od = $('#occDialog'); if (_od && !_od.open) _od.showModal();
         document.querySelectorAll('[data-occ]').forEach((b) => { b.onclick = () => loadAssignments(Number(b.dataset.occ)); });
         const rb = $('#occRecruit');
         if (rb) rb.onclick = async () => {
@@ -1216,22 +1222,36 @@
             <button class="btn sm ghost" data-sedit="${s.id}">編集</button>
             <button class="btn sm danger" data-sdel="${s.id}">削除</button>
           </div></div>`).join('');
-        $('#sec-segments').innerHTML = `<h2>メンバー区分 (${segs.length})</h2>
+        $('#sec-segments').innerHTML = `<div class="sec-head"><h2>メンバー区分 (${segs.length})</h2>
+            <button class="btn" id="segNewBtn">＋ 新規区分</button></div>
           ${segs.length ? rows : '<div class="empty">メンバー区分がまだありません。<br>例: キャスト / スタッフ などを作成しましょう。</div>'}
-          <fieldset><legend id="segFormTitle">新規区分</legend>
-            <input type="hidden" id="segId" />
-            <div class="row">
-              <div><label>名前</label><input id="segName" placeholder="例: キャスト" /></div>
-              <div><label>ロール / @everyone（任意）<span class="muted">設定するとメンバーをこのロールから自動同期＋メンション先に</span></label><input id="segRole" placeholder="未設定＝手動管理" /></div>
+          <dialog class="modal-lg" id="segDialog" aria-labelledby="segFormTitle">
+            <div class="modal-head"><h3 id="segFormTitle">新規区分</h3>
+              <button type="button" class="modal-close" id="segClose" aria-label="閉じる">✕</button></div>
+            <div class="modal-body">
+              <input type="hidden" id="segId" />
+              <div class="row">
+                <div><label>名前</label><input id="segName" placeholder="例: キャスト" /></div>
+                <div><label>ロール / @everyone（任意）<span class="muted">設定するとメンバーをこのロールから自動同期＋メンション先に</span></label><input id="segRole" placeholder="未設定＝手動管理" /></div>
+              </div>
             </div>
-            <div class="actions" style="margin-top:12px">
+            <div class="modal-foot">
+              <button class="btn ghost" type="button" id="segCancel">キャンセル</button>
               <button class="btn" id="segSave">保存</button>
-              <button class="btn secondary hidden" id="segReset">新規入力に戻す</button>
-            </div></fieldset>
-          <div id="segMembersBox"></div>`;
+            </div>
+          </dialog>
+          <dialog class="modal-lg" id="segMembersDialog" aria-labelledby="segMembersTitle">
+            <div class="modal-head"><h3 id="segMembersTitle">区分メンバー</h3>
+              <button type="button" class="modal-close" data-segm-close aria-label="閉じる">✕</button></div>
+            <div class="modal-body" id="segMembersBox"></div>
+            <div class="modal-foot"><button type="button" class="btn ghost" data-segm-close>閉じる</button></div>
+          </dialog>`;
         $('#segSave').onclick = (e) => withBusy(e.currentTarget, saveSegment);
-        $('#segReset').onclick = resetSegForm;
-        document.querySelectorAll('[data-sedit]').forEach((b) => { b.onclick = () => fillSegForm(segs.find((s) => s.id === Number(b.dataset.sedit))); });
+        $('#segNewBtn') && ($('#segNewBtn').onclick = () => { resetSegForm(); $('#segDialog').showModal(); $('#segName').focus(); });
+        $('#segClose').onclick = () => $('#segDialog').close();
+        $('#segCancel').onclick = () => $('#segDialog').close();
+        document.querySelectorAll('#segMembersDialog [data-segm-close]').forEach((b) => { b.onclick = () => $('#segMembersDialog').close(); });
+        document.querySelectorAll('[data-sedit]').forEach((b) => { b.onclick = () => { fillSegForm(segs.find((s) => s.id === Number(b.dataset.sedit))); $('#segDialog').showModal(); }; });
         document.querySelectorAll('[data-smembers]').forEach((b) => { b.onclick = () => loadSegmentMembers(Number(b.dataset.smembers)); });
         document.querySelectorAll('[data-sdel]').forEach((b) => {
           b.onclick = async () => {
@@ -1243,12 +1263,12 @@
       }
       function resetSegForm() {
         $('#segId').value = ''; $('#segName').value = ''; $('#segRole').value = '';
-        $('#segFormTitle').textContent = '新規区分'; $('#segReset').classList.add('hidden');
+        $('#segFormTitle').textContent = '新規区分';
       }
       function fillSegForm(s) {
         if (!s) return;
         $('#segId').value = s.id; $('#segName').value = s.name; $('#segRole').value = s.mention_role_id || '';
-        $('#segFormTitle').textContent = '編集 (ID: ' + s.id + ')'; $('#segReset').classList.remove('hidden');
+        $('#segFormTitle').textContent = '編集 (ID: ' + s.id + ')';
       }
       async function saveSegment() {
         const name = $('#segName').value.trim();
@@ -1258,6 +1278,7 @@
         try {
           if (id) { await api('/segments/' + id, { method: 'PUT', body: JSON.stringify({ name, mention_role_id }) }); toast('更新しました'); }
           else { await api('/segments', { method: 'POST', body: JSON.stringify({ guild_id: guild.id, name, mention_role_id }) }); toast('作成しました'); }
+          try { $('#segDialog').close(); } catch (_) {}
           loadSegments();
         } catch (e) { toast(e.message, true); }
       }
@@ -1295,12 +1316,10 @@
           : `<h3 style="margin-top:14px">メンバーを追加</h3>
              <div class="search"><input id="memSearch" placeholder="サーバー参加者を検索（User ID 入力は不要）" /></div>
              <div id="memPicker" style="margin-top:8px"><p class="muted">読み込み中…</p></div>`;
-        $('#segMembersBox').innerHTML = `<fieldset>
-          <legend>区分メンバー: ${esc(seg ? seg.name : segmentId)} (${list.length})</legend>
-          ${list.length ? rows : '<div class="empty">' + emptyMsg + '</div>'}
-          ${panel}
-          </fieldset>`;
-        $('#segMembersBox').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        $('#segMembersTitle').textContent = `区分メンバー: ${seg ? seg.name : segmentId} (${list.length})`;
+        $('#segMembersBox').innerHTML = `${list.length ? rows : '<div class="empty">' + emptyMsg + '</div>'}
+          ${panel}`;
+        const _smd = $('#segMembersDialog'); if (_smd && !_smd.open) _smd.showModal();
         document.querySelectorAll('[data-smtoggle]').forEach((b) => {
           b.onclick = async () => {
             try { await api('/segments/' + segmentId + '/members/' + encodeURIComponent(b.dataset.smtoggle),
