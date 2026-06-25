@@ -85,7 +85,7 @@
       /* ---------- Form controls ---------- */
       label { display: block; color: var(--muted); margin: 12px 0 5px; font-size: 12.5px; font-weight: 600; letter-spacing: .01em; }
       input, select, textarea {
-        width: 100%; padding: 9px 11px; background: var(--bg);
+        width: 100%; padding: 9px 11px; background: var(--panel);
         border: 1px solid var(--border2); border-radius: var(--r-sm); color: var(--text);
         color-scheme: dark; /* ネイティブの日付/時刻ピッカーのアイコン・カレンダーを暗背景向けに明色化 */
         font-family: inherit; font-size: 14px; transition: border-color .17s ease, box-shadow .17s ease, background .17s ease;
@@ -113,8 +113,10 @@
       button.btn.secondary:hover { background: var(--btn-secondary-hover); }
       button.btn.danger { background: var(--danger); }
       button.btn.danger:hover { background: var(--btn-danger-hover); }
-      button.btn.ghost { background: none; border: 1px solid var(--border2); color: var(--muted); }
+      button.btn.ghost { background: transparent; border: 1px solid transparent; color: var(--muted); }
       button.btn.ghost:hover { background: var(--elevated); color: var(--text); }
+      button.btn.ghost.danger { background: transparent; border-color: transparent; color: var(--muted); }
+      button.btn.ghost.danger:hover { background: var(--danger); border-color: var(--danger); color: #fff; }
       button.btn.sm { padding: 5px 11px; font-size: 13px; }
       button.btn.xs { padding: 3px 8px; font-size: 12px; border-radius: 6px; }
       button.btn.busy { position: relative; color: transparent !important; pointer-events: none; }
@@ -141,9 +143,9 @@
       }
       .toast.show { opacity: 1; transform: translateY(0); }
       .toast.err { background: var(--danger); }
-      .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; border: 1px solid var(--border2); color: var(--muted); }
+      .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; border: 1px solid transparent; background: rgba(255, 255, 255, .06); color: var(--muted); }
       .pill.on { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--pill-ok-text); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
-      .pill.off { color: var(--muted); }
+      .pill.off { background: rgba(255, 255, 255, .04); color: var(--text-placeholder); }
       .summary {
         display: flex; align-items: center; gap: 8px; padding: 11px 13px; margin: 14px 0;
         background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); border-radius: var(--r-sm); font-size: 14px; font-weight: 500;
@@ -198,13 +200,13 @@
       .divider { height: 1px; border: none; background: var(--border); margin: 16px 0; }
       
       /* Alert (情報/警告/危険のコールアウト) */
-      .alert { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: var(--r-sm); font-size: 13.5px; color: var(--text); border: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 9%, transparent); }
+      .alert { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: 0 var(--r-sm) var(--r-sm) 0; font-size: 13.5px; color: var(--text); border: none; border-left: 3px solid var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--panel2)); }
       .alert-icon { flex: none; display: flex; color: var(--accent); margin-top: 1px; }
-      .alert.warn { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 9%, transparent); }
+      .alert.warn { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 8%, var(--panel2)); }
       .alert.warn .alert-icon { color: var(--warn); }
-      .alert.danger { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 9%, transparent); }
+      .alert.danger { border-left-color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, var(--panel2)); }
       .alert.danger .alert-icon { color: var(--danger); }
-      .alert.ok { border-color: var(--ok); background: color-mix(in srgb, var(--ok) 9%, transparent); }
+      .alert.ok { border-left-color: var(--ok); background: color-mix(in srgb, var(--ok) 8%, var(--panel2)); }
       .alert.ok .alert-icon { color: var(--ok); }
       
       /* SubTabs (設定ページ内の縦サブタブ・active は左に accent バー) */
@@ -266,14 +268,16 @@
       .side { border-right: 1px solid var(--border); padding: 14px 10px; background: var(--panel); }
       .side .navitem {
         display: flex; align-items: center; gap: 9px; padding: 10px 12px; border-radius: var(--r-sm);
-        color: var(--muted); cursor: pointer; margin-bottom: 3px; font-weight: 600; user-select: none;
+        color: var(--muted); cursor: pointer; margin-bottom: 3px; font-weight: 500; user-select: none;
         border: 1px solid transparent; transition: background .17s ease, color .17s ease;
       }
-      .side .navitem:hover { background: var(--elevated); color: var(--text); }
-      .side .navitem.active { background: var(--accent-soft); color: var(--nav-active-text); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+      .side .navitem:hover { background: var(--panel2); color: var(--text); }
+      .side .navitem.active { background: var(--elevated); color: var(--nav-active-text); border-color: transparent; font-weight: 600; }
+      .side .navitem.active:hover { background: color-mix(in srgb, #fff 4%, var(--elevated)); }
       .topbar {
         display: flex; align-items: center; justify-content: space-between; gap: 12px;
         padding: 11px 18px; border-bottom: 1px solid var(--border); background: var(--panel); position: sticky; top: 0; z-index: 20;
+        box-shadow: 0 1px 0 var(--border), 0 2px 8px rgba(0, 0, 0, .18);
       }
       .srv { display: flex; align-items: center; gap: 10px; min-width: 0; }
       .ava {
@@ -283,16 +287,16 @@
       .ava img { width: 100%; height: 100%; object-fit: cover; display: block; }
       main { padding: 22px; max-width: 940px; }
       .card {
-        background: var(--panel); border: 1px solid var(--border); border-radius: var(--r);
+        background: var(--elevated); border: 1px solid transparent; border-radius: var(--r);
         padding: 15px 16px; margin-bottom: 10px; cursor: pointer; transition: border-color .17s ease, background .17s ease, transform .04s;
       }
-      .card:hover { border-color: var(--border2); background: var(--panel2); }
+      .card:hover { background: color-mix(in srgb, #fff 4%, var(--elevated)); }
       .card:active { transform: translateY(1px); }
       .listrow {
         display: flex; align-items: center; justify-content: space-between; gap: 12px;
-        padding: 13px 14px; border: 1px solid var(--border); border-radius: var(--r); margin-bottom: 8px; background: var(--panel);
+        padding: 14px 16px; border: 1px solid transparent; border-radius: var(--r); margin-bottom: 8px; background: var(--elevated);
       }
-      .listrow:hover { border-color: var(--border2); }
+      .listrow:hover { background: color-mix(in srgb, #fff 4%, var(--elevated)); }
       .grid-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
       .search { position: relative; }
       .pickrow {
@@ -378,7 +382,7 @@
       .modal-body::-webkit-scrollbar-thumb:hover { background: var(--border-hover); border: 3px solid var(--elevated); background-clip: padding-box; }
       
       /* 2トーン徹底（ダイアログ内のみ上書き）: プレビュー=リセス、詳細セクションは面に溶かしフラット化 */
-      dialog.modal-lg .summary { background: var(--bg); border: 1px solid var(--border); color: var(--text); }
+      dialog.modal-lg .summary { background: var(--panel); border: 1px solid var(--border); color: var(--text); }
       dialog.modal-lg details.section { background: transparent; border: 1px solid var(--border); }
       dialog.modal-lg details.section > summary:hover { background: rgba(255, 255, 255, .03); }
       
@@ -392,7 +396,7 @@
       .tl-step { position: relative; display: flex; gap: 13px; padding: 11px 0; }
       .tl-badge {
         position: relative; z-index: 1; flex: none; width: 26px; height: 26px; border-radius: 50%;
-        background: var(--bg); border: 1.5px solid var(--accent); color: var(--accent);
+        background: var(--panel); border: 1.5px solid var(--accent); color: var(--accent);
         display: inline-flex; align-items: center; justify-content: center;
         font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;
         box-shadow: 0 0 0 4px var(--elevated);
@@ -431,7 +435,7 @@
       
       /* ---- ワークスペース全体: 最左の server-rail ＋ 本体（topbar + shell） ---- */
       .ws-layout { display: flex; align-items: stretch; min-height: 100vh; }
-      .ws-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+      .ws-body { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--panel2); }
       
       /* server-rail は左に固定（本体をスクロールしても残す） */
       .ws-layout > .server-rail {
@@ -874,7 +878,7 @@
         const over = est.overDaily || est.overWindow;
         return `<div class="alert ${over ? 'warn' : ''}" style="margin-bottom:14px">
           <div class="alert-icon">${over ? '⚠️' : '📊'}</div>
-          <div><div style="font-weight:600">送信量の目安（無料枠の推奨上限・⑦）</div>
+          <div><div style="font-weight:600">送信量の目安（無料枠の推奨上限）</div>
           <div class="muted" style="font-size:12.5px;margin-top:2px">
             推定ピーク: <b>${est.dailyTotal}</b> 件/日（同一送信時刻 最大 <b>${est.maxWindow}</b> 件）／
             推奨: 日次 ≤ ${est.recommendedDaily}・同一時刻 ≤ ${est.recommendedPerWindow}（送信予算 ${est.budget}/分）。
@@ -916,10 +920,10 @@
                 ${sched} ・ ${esc(chName(n.channel_id))}</div></div>
             <div class="actions">
               <span class="pill ${n.active ? 'on' : 'off'}">${n.active ? '有効' : '無効'}</span>
-              <button class="btn sm secondary" data-nrecruit="${n.id}">📣 募集</button>
-              <button class="btn sm secondary" data-nedit="${n.id}">編集</button>
+              <button class="btn sm ghost" data-nrecruit="${n.id}">📣 募集</button>
+              <button class="btn sm ghost" data-nedit="${n.id}">編集</button>
               <button class="btn sm ghost" data-nocc="${n.id}">開催回</button>
-              <button class="btn sm danger" data-ndel="${n.id}">削除</button>
+              <button class="btn sm ghost danger" data-ndel="${n.id}">削除</button>
             </div></div>`;
         }).join('');
 

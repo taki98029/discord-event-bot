@@ -9,7 +9,7 @@
 
 /* ---- ワークスペース全体: 最左の server-rail ＋ 本体（topbar + shell） ---- */
 .ws-layout { display: flex; align-items: stretch; min-height: 100vh; }
-.ws-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ws-body { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--panel2); }
 
 /* server-rail は左に固定（本体をスクロールしても残す） */
 .ws-layout > .server-rail {
