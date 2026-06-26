@@ -665,7 +665,7 @@
       }
 
       // ================= ナビ =================
-      const SECTIONS = ['notifications', 'segments', 'records', 'setup'];
+      const SECTIONS = ['notifications', 'segments', 'records', 'sendlog', 'setup'];
       const LOADERS = { notifications: loadNotifications, segments: loadSegments, records: loadRecords, sendlog: loadSendLog, setup: loadSetup };
       function switchSection(sec) {
         document.querySelectorAll('.side .navitem').forEach((x) => x.classList.toggle('active', x.dataset.sec === sec));
