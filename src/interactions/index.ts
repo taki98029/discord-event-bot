@@ -1,5 +1,41 @@
-import { verifyKey, InteractionType, InteractionResponseType } from 'discord-interactions';
 import type { Env } from '../env';
+
+// ponytail: (d) discord-interactions の verifyKey と enum を Workers ネイティブの Web Crypto + const で置換。
+// Cloudflare Workers (workerd) は crypto.subtle.importKey('raw', ..., { name: 'Ed25519' }, ...) と
+// crypto.subtle.verify('Ed25519', ...) を 2023 年以降サポート済み。
+const InteractionType = { PING: 1, APPLICATION_COMMAND: 2, MESSAGE_COMPONENT: 3 } as const;
+const InteractionResponseType = { PONG: 1, CHANNEL_MESSAGE_WITH_SOURCE: 4 } as const;
+
+const HEX_RE = /^[0-9a-f]+$/i;
+function hexToBytes(hex: string): Uint8Array {
+  if (hex.length === 0 || hex.length % 2 !== 0 || !HEX_RE.test(hex)) throw new Error('invalid hex');
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  return out;
+}
+
+/** Discord Interaction 署名（Ed25519）を Web Crypto で検証する。失敗・例外はすべて false 扱い。 */
+export async function verifyEd25519(
+  rawBody: string,
+  signatureHex: string,
+  timestamp: string,
+  publicKeyHex: string,
+): Promise<boolean> {
+  try {
+    const key = await crypto.subtle.importKey(
+      'raw',
+      hexToBytes(publicKeyHex),
+      { name: 'Ed25519' },
+      false,
+      ['verify'],
+    );
+    const data = new TextEncoder().encode(timestamp + rawBody);
+    return await crypto.subtle.verify('Ed25519', key, hexToBytes(signatureHex), data);
+  } catch {
+    return false;
+  }
+}
+
 import { ensureMember, updateMemberDisplayName } from '../db/members';
 import { getNotification, listNotificationsByChannel } from '../db/notifications';
 import { getOccurrence, listScheduledOccurrences } from '../db/occurrences';
@@ -76,7 +112,7 @@ export async function handleInteraction(
     return json({ error: 'Missing signature headers' }, 401);
   }
 
-  const valid = await verifyKey(rawBody, signature, timestamp, env.DISCORD_PUBLIC_KEY);
+  const valid = await verifyEd25519(rawBody, signature, timestamp, env.DISCORD_PUBLIC_KEY);
   if (!valid) {
     return json({ error: 'Invalid request signature' }, 401);
   }
