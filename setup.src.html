@@ -187,8 +187,8 @@
 <body>
   <header class="top">
     <div class="wrap">
-      <h1>🛠️ セットアップ・アシスタント</h1>
-      <p>discord-event-bot を動かすための初期設定を、画面の案内に沿って進めます。所要時間 15〜20 分・ターミナル操作は不要です。</p>
+      <h1>セットアップ・アシスタント</h1>
+      <p>discord-event-bot を動かすための初期設定を、画面の案内に沿って進めます。所要時間 15〜20 分。コマンド入力は使いません。</p>
       <div class="progress">
         <div class="bar"><i id="bar"></i></div>
         <div class="bar-label"><span id="doneCount">0</span> / <span id="totalCount">7</span> ステップ完了</div>
@@ -198,8 +198,8 @@
 
   <main class="wrap">
     <div class="note">
-      🔒 <b>安全について</b>：入力した値（トークンなど）は<b>このブラウザの中だけ</b>に一時保存され、どこにも送信されません。
-      共用パソコンでは使い終わったら下部の「<b>入力をすべて消去</b>」を押してください。<b>このタブを閉じると入力値は消えます</b>（安全のため）。
+      <b>安全について</b>：入力した値（トークンなど）は<b>このブラウザの中だけ</b>に一時保存され、どこにも送信されません。
+      共用パソコンでは使い終わったら下部の「<b>入力をすべて消去</b>」を押してください。<b>このタブを閉じると入力値は消えます</b>。
     </div>
 
     <!-- STEP 0 -->
@@ -215,7 +215,7 @@
           <li><b>Cloudflare アカウント</b>（無料。クレジットカード不要）</li>
           <li><b>GitHub アカウント</b>（無料。リポジトリの複製（fork）と、更新時の「Sync fork」に使います）</li>
         </ul>
-        <p>このアシスタントでは、設定に必要な「合言葉」を順に集めていきます。各欄に貼り付けると、次の手順で<b>自動的に使い回します</b>（招待リンクの生成・コピー用の値など）。</p>
+        <p>各欄に貼り付けた「合言葉」は、あとの手順で自動的に引き継いで使います（招待リンクの生成やコピー用の値など）。</p>
         <label class="done-toggle"><input type="checkbox" data-done="0"> 準備できた</label>
       </div>
     </details>
@@ -320,7 +320,7 @@
         </figure>
 
         <div class="step-tip">
-          💡 <b>Bot をサーバーに招待</b>：アプリIDを入れると、必要な権限を組み込んだ招待リンクを自動で作ります。
+          <b>Bot をサーバーに招待</b>：アプリIDを入れると、必要な権限を組み込んだ招待リンクを自動で作ります。
         </div>
         <div class="copybox">
           <span class="cap">招待リンク</span>
@@ -346,7 +346,7 @@
         <span class="chev">▶</span>
       </summary>
       <div class="body">
-        <p>この Bot の<b>管理画面に入るためのパスワード</b>です。推測されにくい長い文字列が必要なので、下のボタンで自動生成します（自分で考えなくてOK）。</p>
+        <p>この Bot の<b>管理画面に入るためのパスワード</b>です。推測されにくい長い文字列が必要なので、下のボタンで自動生成します。</p>
         <div class="actions">
           <button class="btn-primary" type="button" id="genToken">🎲 パスワードを生成する</button>
         </div>
@@ -355,7 +355,7 @@
           <input type="text" id="adminToken" autocomplete="off" spellcheck="false" placeholder="「生成する」を押すと入ります（手入力も可）" />
           <button class="btn-copy" type="button" data-copy="adminToken">コピー</button>
         </div>
-        <div class="step-tip">⚠️ このパスワードはあとで「デプロイ時の入力」と「管理画面ログイン」で使います。生成したらコピーして安全な場所に控えてください。</div>
+        <div class="step-tip">このパスワードはあとで「デプロイ時の入力」と「管理画面ログイン」で使います。生成したらコピーして安全な場所に控えてください。</div>
         <label class="done-toggle"><input type="checkbox" data-done="2"> パスワードを生成・保存した</label>
       </div>
     </details>
@@ -368,7 +368,7 @@
         <span class="chev">▶</span>
       </summary>
       <div class="body">
-        <p>更新を「ボタン1つ」で受け取れるように、まず公開リポジトリを<b>自分の GitHub に複製（fork）</b>し、それを Cloudflare に接続します。<b>ターミナルは使いません。</b>（GitHub・Cloudflare の画面は英語表記です。）</p>
+        <p>更新を取り込みやすくするため、まず公開リポジトリを<b>自分の GitHub に複製（fork）</b>し、それを Cloudflare に接続します。（GitHub・Cloudflare の画面は英語表記です。）</p>
         <div class="actions">
           <a class="linkbtn" href="https://github.com/taki98029/discord-event-bot/fork" target="_blank" rel="noopener">
             <button class="btn-primary" type="button">🍴 リポジトリを fork する</button>
@@ -379,7 +379,7 @@
         </div>
 
         <h3 class="substep"><span class="n">1</span>リポジトリを fork する</h3>
-        <p>上の<b>「リポジトリを fork する」</b>を開き、GitHub にログイン。<span class="where">「Owner」<span class="arr">▸</span>あなたのアカウント</span>を選び、<span class="where">右下の緑「Create fork」</span>を押します。あなたの GitHub にコピー（fork）ができます。</p>
+        <p>上の<b>「リポジトリを fork する」</b>を開き、GitHub にログイン。<span class="where">「Owner」<span class="arr">▸</span>あなたのアカウント</span>を選び、<span class="where">右下の緑「Create fork」</span>を押します。これで、あなたの GitHub にコピー（fork）ができあがります。</p>
         <figure class="shot">
           <div class="shot-frame">
             <img alt="GitHubのfork作成画面。Owner選択と緑のCreate forkボタン" src="@@r-github-01-fork@@">
@@ -467,7 +467,7 @@
           <input type="text" id="workerUrl" autocomplete="off" spellcheck="false" placeholder="https://◯◯◯.workers.dev" />
         </div>
         <div class="err-text" id="workerUrlErr" hidden>https:// で始まる URL を貼り付けてください。</div>
-        <div class="step-tip">💡 4つの合言葉は後から追加してもOK（追加すると即反映されます）。合言葉が未設定だと Bot は反応しません。</div>
+        <div class="step-tip">4つの合言葉は後から追加しても構いません（追加すると即反映されます）。合言葉が未設定だと Bot は反応しません。</div>
         <label class="done-toggle"><input type="checkbox" data-done="3"> デプロイが完了し、Bot の URL を控えた</label>
       </div>
     </details>
@@ -520,7 +520,7 @@
         <span class="chev">▶</span>
       </summary>
       <div class="body">
-        <p>Discord からのボタン操作やコマンドを Bot が受け取れるように、<b>接続先の URL</b> を Discord に登録します。</p>
+        <p>Bot がボタン操作やコマンドを受け取れるよう、<b>接続先の URL</b> を Discord に登録します。</p>
         <ol>
           <li>下の URL の<b>「コピー」</b>を押す。</li>
           <li>「Discord Developer Portal を開く」→ <span class="where">左メニュー 概要<span class="arr">▸</span>一般情報</span>を開いて下にスクロール → <b>「インタラクション・エンドポイントURL」</b>の欄に貼り付け。</li>
@@ -555,7 +555,7 @@
         <p>ここからは管理画面の左メニューで設定します。順番は <b>「メンバー区分」→「通知」</b> です。</p>
 
         <h3 class="substep"><span class="n">1</span>メンバー区分をつくる</h3>
-        <p><span class="where">左メニュー<span class="arr">▸</span>👥 メンバー区分</span>を開き、「新規区分」で対象グループを作成（例: キャスト、スタッフ）。@メンションする Discord ロールは任意で紐付け。<b>「名前」</b>を入れて<b>「保存」</b>。メンバーは各区分の<b>「メンバー」</b>ボタンから一覧で選ぶだけです。</p>
+        <p><span class="where">左メニュー<span class="arr">▸</span>👥 メンバー区分</span>を開き、「新規区分」で対象グループを作成（例: キャスト、スタッフ）。@メンションする Discord ロールは任意で紐付け。<b>「名前」</b>を入れて<b>「保存」</b>。メンバーは各区分の<b>「メンバー」</b>ボタンを開き、一覧から選んで登録します。</p>
         <figure class="shot">
           <div class="shot-frame">
             <img alt="管理画面のメンバー区分。区分一覧と新規区分フォーム" src="@@admin-02-segment@@">
@@ -566,7 +566,7 @@
         </figure>
 
         <h3 class="substep"><span class="n">2</span>通知（募集）をつくる</h3>
-        <p><span class="where">左メニュー<span class="arr">▸</span>🔔 通知</span>を開き、<b>対象区分（メンバー区分）・投稿チャンネル・種別（繰り返し/単発）・開始時刻・曜日</b>などを設定して保存。設定どおりに募集とリマインドが自動で送られます。</p>
+        <p><span class="where">左メニュー<span class="arr">▸</span>🔔 通知</span>を開き、<b>対象区分（メンバー区分）・投稿チャンネル・種別（繰り返し/単発）・開始時刻・曜日</b>などを設定して保存。以後は設定どおりに、Bot が募集とリマインドを自動で送ります。</p>
         <figure class="shot">
           <div class="shot-frame">
             <img alt="管理画面の通知フォーム。対象区分・投稿チャンネル・種別・開始時刻など" src="@@admin-03-notify@@">
@@ -579,7 +579,7 @@
         </figure>
 
         <p>メンバーは募集メッセージのボタンに回答すると<b>自動で登録</b>され、区分にも自動所属します。</p>
-        <div class="step-tip">📖 管理画面の各メニューは、画面のラベルに沿って進められます。</div>
+        <div class="step-tip">履歴の確認やデータのエクスポートも、同じ管理画面の各メニューから行えます。</div>
         <label class="done-toggle"><input type="checkbox" data-done="6"> 区分・通知を作成した</label>
       </div>
     </details>
@@ -588,16 +588,16 @@
     <details class="step" id="ref-admintoken">
       <summary>
         <span class="num">🔑</span>
-        <span class="summary-txt"><h2>ADMIN_TOKEN を忘れたとき</h2><span class="sub">あとから確認はできません。新しく作り直せばOK（データは消えません）</span></span>
+        <span class="summary-txt"><h2>ADMIN_TOKEN を忘れたとき</h2><span class="sub">あとから中身は確認できません。作り直せば再びログインできます（データは残ります）</span></span>
         <span class="chev">▶</span>
       </summary>
       <div class="body">
-        <p><b>ADMIN_TOKEN（管理画面のパスワード）は、安全のため「あとから中身を見て確認する」ことができません。</b>でも心配いりません。忘れてしまったら、<b>新しいパスワードに作り直す</b>だけで、また管理画面に入れます。</p>
-        <div class="step-tip">😌 <b>データは消えません</b>：作り直しても、登録済みのメンバー・回答・通知などはそのまま残ります。変わるのは「ログインの合言葉」だけです。</div>
+        <p><b>ADMIN_TOKEN（管理画面のパスワード）は、安全のため「あとから中身を見て確認する」ことができません。</b>忘れてしまった場合は、<b>新しいパスワードに作り直す</b>と、また管理画面に入れます。</p>
+        <div class="step-tip"><b>データは保持されます</b>：作り直しても、登録済みのメンバー・回答・通知などは残ります。変わるのは「ログインの合言葉」だけです。</div>
 
         <h3 class="substep"><span class="n">1</span>新しいパスワードを用意する</h3>
         <p>このページの上の方にある<b>「手順2：管理パスワード（ADMIN_TOKEN）を作る」</b>を開き、<b>「🎲 パスワードを生成する」</b>を押すと、新しい合言葉を作れます。表示された文字列を<b>コピー</b>し、安全な場所（パスワード管理アプリなど）に控えてください。</p>
-        <div class="step-tip">💡 自分で考えた長い文字列でも構いませんが、推測されにくいよう<b>英数字で30文字以上</b>を目安にしてください。</div>
+        <div class="step-tip">自分で考えた長い文字列でも構いませんが、推測されにくいよう<b>英数字で30文字以上</b>を目安にしてください。</div>
 
         <h3 class="substep"><span class="n">2</span>Cloudflare で古いパスワードを差し替える</h3>
         <p>手順3で使った Cloudflare の画面を開き、<span class="where">あなたの Worker<span class="arr">▸</span>Settings<span class="arr">▸</span>Variables and secrets</span> を開きます。一覧の中の <span class="pill">ADMIN_TOKEN</span> の行で、次の<b>どちらか</b>を行います。</p>
@@ -606,12 +606,12 @@
           <li>「Edit」が見当たらないときは、<span class="pill">ADMIN_TOKEN</span> を<b>「Delete」（削除）</b>してから、<b>まったく同じ名前</b>でもう一度<b>「+ Add」</b>を押し、新しい値を入れて保存する。</li>
         </ol>
         <div class="copybox"><span class="cap">設定する名前（コピーして貼り付け）</span><code id="v_admname">ADMIN_TOKEN</code><button class="btn-copy" type="button" data-copy="v_admname">コピー</button></div>
-        <div class="step-tip">⏱️ 保存すると<b>数秒で反映</b>されます。名前は <span class="pill">ADMIN_TOKEN</span> と<b>1文字も違わない</b>ようにしてください（前後に空白を入れない・大文字小文字もそのまま）。値が <b>Value encrypted</b> と表示されればOKです。</div>
+        <div class="step-tip">保存すると<b>数秒で反映</b>されます。名前は <span class="pill">ADMIN_TOKEN</span> と<b>1文字も違わない</b>ようにしてください（前後に空白を入れない・大文字小文字もそのまま）。値が <b>Value encrypted</b> と表示されればOKです。</div>
 
         <h3 class="substep"><span class="n">3</span>新しいパスワードでログインする</h3>
         <p>管理画面をもう一度開き、①で作った<b>新しいパスワード</b>を入力してログインします。これで完了です。</p>
-        <div class="step-tip">🔒 <b>安全のヒント</b>：古いパスワードは差し替えと同時に使えなくなります。「誰かに知られたかも」というときも、この手順で作り直せば安心です。</div>
-        <div class="step-tip">💡 <b>（パソコンに詳しい方向け）すぐ確認したいとき</b>：管理画面に<b>まだログインしたままのブラウザ</b>があれば、そこに今のパスワードが残っています。そのブラウザで <kbd>F12</kbd> →「Application（アプリケーション）」→「Local Storage」→ あなたの Bot の URL を選ぶと、<span class="pill">eventbot_admin_token</span> の値が現在の ADMIN_TOKEN です。</div>
+        <div class="step-tip"><b>安全のヒント</b>：古いパスワードは差し替えと同時に使えなくなります。「誰かに知られたかも」というときも、この手順ですぐ作り直せます。</div>
+        <div class="step-tip"><b>（パソコンに詳しい方向け）すぐ確認したいとき</b>：管理画面に<b>まだログインしたままのブラウザ</b>があれば、そこに今のパスワードが残っています。そのブラウザで <kbd>F12</kbd> →「Application（アプリケーション）」→「Local Storage」→ あなたの Bot の URL を選ぶと、<span class="pill">eventbot_admin_token</span> の値が現在の ADMIN_TOKEN です。</div>
       </div>
     </details>
 
@@ -642,22 +642,22 @@
     <details class="step" id="ref-update">
       <summary>
         <span class="num">🔄</span>
-        <span class="summary-txt"><h2>アップデートのしかた</h2><span class="sub">新バージョンが出たら GitHub の fork で「Sync fork」を押すだけ</span></span>
+        <span class="summary-txt"><h2>アップデートのしかた</h2><span class="sub">新バージョンが出たら GitHub の fork で「Sync fork」を実行</span></span>
         <span class="chev">▶</span>
       </summary>
       <div class="body">
-        <p>新しいバージョンが出たら、<b>自分の GitHub の fork ページ</b>（手順3 で作ったコピー）を開いて <b>「Sync fork」</b> ボタンを押すだけです。</p>
+        <p>新しいバージョンが出たら、<b>自分の GitHub の fork ページ</b>（手順3 で作ったコピー）を開いて <b>「Sync fork」</b> ボタンを押します。</p>
         <ol>
           <li>Cloudflare が変更を検知して<b>自動で再デプロイ</b>します。</li>
           <li><b>データベースも自動で最新化</b>されます（手作業のマイグレーションは不要）。</li>
         </ol>
-        <div class="step-tip">💡 「DB変更あり」と書かれたリリースでも、やることは同じ <b>「Sync fork」</b> だけ。必要なデータベースの更新も自動で適用されます。<b>ターミナル操作は不要</b>です。</div>
-        <div class="step-tip">⚠️ この自動更新は、手順3 ③の <b>Deploy command が <span class="pill">npm run deploy</span> のまま</b>であることに依存します（素の <span class="pill">wrangler deploy</span> に変えると、データベースの自動更新が止まります）。<b>同じ Worker に更新する限り、これまでのデータ（メンバー・回答など）は保持</b>されます。</div>
+        <div class="step-tip">「DB変更あり」と書かれたリリースでも、操作は <b>「Sync fork」</b> で共通です。必要なデータベースの更新も自動で適用されます。</div>
+        <div class="step-tip">この自動更新は、手順3 ③の <b>Deploy command が <span class="pill">npm run deploy</span> のまま</b>であることに依存します（素の <span class="pill">wrangler deploy</span> に変えると、データベースの自動更新が止まります）。<b>同じ Worker に更新する限り、これまでのデータ（メンバー・回答など）は保持</b>されます。</div>
       </div>
     </details>
 
     <div class="note" id="finishNote" hidden>
-      🎉 <b>おつかれさまでした！</b> セットアップは完了です。Bot が募集・リマインドを自動で行います。
+      <b>セットアップは完了です。</b>これ以降、Bot が募集とリマインドを自動で送ります。
       共用パソコンの場合は、下の「入力をすべて消去」を押して合言葉を消しておきましょう。
     </div>
   </main>
