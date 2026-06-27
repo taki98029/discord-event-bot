@@ -1,6 +1,6 @@
 import type { Env } from '../env';
 import type { Notification, Occurrence, QuotaAlert, Segment } from '../db/types';
-import { resolveDisplayName } from '../db/types';
+import { isAnnounceOnly, resolveDisplayName } from '../db/types';
 import { listActiveNotifications } from '../db/notifications';
 import {
   getOccurrence,
@@ -38,11 +38,6 @@ import {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const DM_INTERVAL_MS = 300;
-
-/** 回答不要（通知のみ）か。recurring かつ requires_response=0 のとき true（ADR 0010）。 */
-function isAnnounceOnly(n: Notification): boolean {
-  return n.type === 'recurring' && !n.requires_response;
-}
 
 /**
  * 投稿の @メンション接頭辞を mention_mode に従って解決する（ADR 0010）。

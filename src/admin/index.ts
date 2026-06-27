@@ -1,5 +1,6 @@
 import type { Env } from '../env';
 import type { MentionMode, NotificationType } from '../db/types';
+import { isAnnounceOnly } from '../db/types';
 import { listGuilds, listGuildChannels, listGuildMembers } from '../discord/rest';
 import {
   listSegments,
@@ -143,7 +144,7 @@ function toNotificationInput(b: Record<string, unknown>): NotificationInput | nu
   // 回答要否は recurring 専用。oneoff は常に回答あり（1）。回答不要(=通知のみ)は回答依存機能を無効化する。
   const requiresResponse =
     type === 'oneoff' ? 1 : b.requires_response === undefined ? 1 : b.requires_response ? 1 : 0;
-  const announceOnly = type === 'recurring' && requiresResponse === 0;
+  const announceOnly = isAnnounceOnly({ type, requires_response: requiresResponse });
   return {
     guild_id,
     segment_id,

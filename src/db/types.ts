@@ -191,6 +191,12 @@ export function resolveDisplayName(m: Member): string {
   return m.display_name || m.user_name || m.user_id;
 }
 
+// ponytail: (b) 既存の dailyCheck/admin に散らばる「回答不要」判定を 1 本化（ADR 0010）。
+/** 回答不要（通知のみ）か。recurring かつ requires_response=0 のとき true。 */
+export function isAnnounceOnly(n: Pick<Notification, 'type' | 'requires_response'>): boolean {
+  return n.type === 'recurring' && !n.requires_response;
+}
+
 /**
  * send_log の送信種別（ADR 0013）。cron 駆動のペース配信のみが対象で、いずれも
  * 「(通知, 開催回, 宛先, 種別, 送信日) で 1 日 1 回」の冪等。締切後変更の即時通知（change_alert）は
