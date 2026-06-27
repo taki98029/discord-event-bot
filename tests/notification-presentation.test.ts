@@ -93,6 +93,7 @@ describe('notifications 新カラムの往復（migration 0009・ADR 0010）', (
       quota_enabled: 0,
       quota_interval_days: null,
       assignment_enabled: 0,
+      grouping_enabled: 0,
       mention_mode: 'members',
       requires_response: 0,
       message_title: '見出しX',

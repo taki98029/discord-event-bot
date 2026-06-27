@@ -30,6 +30,7 @@ function makeNotification(over: Partial<Notification>): Notification {
     quota_enabled: 0,
     quota_interval_days: null,
     assignment_enabled: 0,
+    grouping_enabled: 0,
     mention_enabled: 1,
     mention_mode: 'role',
     requires_response: 1,

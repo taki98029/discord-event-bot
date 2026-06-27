@@ -37,6 +37,19 @@ import {
 } from '../db/occurrences';
 import { getResponsesForOccurrence, getStatusBuckets, listRecentResponses } from '../db/responses';
 import { getAssignments, assignNumbers } from '../db/assignments';
+import {
+  getGroupingView,
+  upsertGrouping,
+  setGroupMembers,
+  moveMemberToGroup,
+  renameGroup,
+  deleteGrouping,
+  listConstraints,
+  upsertConstraint,
+  deleteConstraint,
+  autoAssign,
+} from '../db/groupings';
+import type { ConstraintDirection, ConstraintStrength } from '../db/types';
 import { listSendLog } from '../db/sendLog';
 import { getAllConfig, setConfig, getSendBudget } from '../db/config';
 import { sendChannelMessage, createButtonComponents } from '../discord/rest';
@@ -158,6 +171,8 @@ function toNotificationInput(b: Record<string, unknown>): NotificationInput | nu
         : Number(b.quota_interval_days),
     // 回答不要は番号割り当ても対象外。UI 表示と永続値を一致させ将来の発火経路追加時の事故も防ぐ。
     assignment_enabled: announceOnly ? 0 : b.assignment_enabled ? 1 : 0,
+    // 回答不要はグループ分けも対象外（参加者が集計されないため）。
+    grouping_enabled: announceOnly ? 0 : b.grouping_enabled ? 1 : 0,
     // メンション方法（ADR 0010）。不正値は 'role' に倒す。
     mention_mode: ((): MentionMode => {
       const m = b.mention_mode;
@@ -538,6 +553,175 @@ export async function handleAdmin(request: Request, env: Env): Promise<Response>
         return json({ ok }, ok ? 200 : 404);
       }
       return json({ error: 'status or date required' }, 400);
+    }
+
+    // ============ grouping（グループ分け・ADR 0015）============
+    // /occurrences/:id/grouping
+    //   GET    現在のグループ分けビュー（groups + pool + diff）
+    //   PUT    グループ数を upsert（{group_count}）。減らすと余剰メンバーはプールに戻る
+    //   DELETE グループ分けを削除（groups/group_members もカスケード）
+    const occGrouping = path.match(/^\/occurrences\/(\d+)\/grouping$/);
+    if (occGrouping) {
+      const occId = Number(occGrouping[1]);
+      if (method === 'GET') {
+        return json(await getGroupingView(db, occId));
+      }
+      if (method === 'PUT') {
+        const b = (await request.json()) as { group_count?: number };
+        const gc = Number(b.group_count);
+        if (!Number.isInteger(gc) || gc < 1 || gc > 100) {
+          return json({ error: 'group_count must be 1..100' }, 400);
+        }
+        await upsertGrouping(db, occId, gc);
+        return json(await getGroupingView(db, occId));
+      }
+      if (method === 'DELETE') {
+        const ok = await deleteGrouping(db, occId);
+        return json({ ok }, ok ? 200 : 404);
+      }
+    }
+    // /occurrences/:id/grouping/members  PUT: メンバー所属を一括設定
+    //   body: { assignments: [{group_id, user_ids: []}] }
+    const occGroupingMembers = path.match(/^\/occurrences\/(\d+)\/grouping\/members$/);
+    if (occGroupingMembers && method === 'PUT') {
+      const occId = Number(occGroupingMembers[1]);
+      const b = (await request.json()) as {
+        assignments?: { group_id?: number; user_ids?: string[] }[];
+      };
+      const assignments = Array.isArray(b.assignments) ? b.assignments : [];
+      const normalized: { group_id: number; user_ids: string[] }[] = [];
+      for (const a of assignments) {
+        const gid = Number(a.group_id);
+        const uids = Array.isArray(a.user_ids) ? a.user_ids.filter((u) => typeof u === 'string') : [];
+        if (!Number.isInteger(gid)) continue;
+        normalized.push({ group_id: gid, user_ids: uids });
+      }
+      const view = await getGroupingView(db, occId);
+      if (!view.grouping) return json({ error: 'grouping not initialized' }, 400);
+      await setGroupMembers(db, view.grouping.id, normalized);
+      return json(await getGroupingView(db, occId));
+    }
+    // /occurrences/:id/grouping/move  PUT: 1 メンバーを移動
+    //   body: { user_id, to_group_id|null }
+    const occGroupingMove = path.match(/^\/occurrences\/(\d+)\/grouping\/move$/);
+    if (occGroupingMove && method === 'PUT') {
+      const occId = Number(occGroupingMove[1]);
+      const b = (await request.json()) as { user_id?: string; to_group_id?: number | null };
+      const userId = typeof b.user_id === 'string' ? b.user_id : '';
+      if (!userId) return json({ error: 'user_id required' }, 400);
+      const view = await getGroupingView(db, occId);
+      if (!view.grouping) return json({ error: 'grouping not initialized' }, 400);
+      const toGroupId = b.to_group_id == null ? null : Number(b.to_group_id);
+      await moveMemberToGroup(db, view.grouping.id, userId, toGroupId);
+      return json(await getGroupingView(db, occId));
+    }
+    // /occurrences/:id/grouping/rename  PUT: グループ名を変更
+    //   body: { group_id, name }
+    const occGroupingRename = path.match(/^\/occurrences\/(\d+)\/grouping\/rename$/);
+    if (occGroupingRename && method === 'PUT') {
+      const b = (await request.json()) as { group_id?: number; name?: string };
+      const gid = Number(b.group_id);
+      const name = typeof b.name === 'string' ? b.name.trim().slice(0, 50) : '';
+      if (!Number.isInteger(gid) || !name) {
+        return json({ error: 'group_id and name required' }, 400);
+      }
+      const ok = await renameGroup(db, gid, name);
+      return json({ ok }, ok ? 200 : 404);
+    }
+    // /occurrences/:id/grouping/auto-assign  POST: 自動配置を実行
+    //   結果は DB に保存し、新しいビューを返す
+    const occGroupingAuto = path.match(/^\/occurrences\/(\d+)\/grouping\/auto-assign$/);
+    if (occGroupingAuto && method === 'POST') {
+      const occId = Number(occGroupingAuto[1]);
+      const occ = await getOccurrence(db, occId);
+      if (!occ) return json({ error: 'occurrence not found' }, 404);
+      const view = await getGroupingView(db, occId);
+      if (!view.grouping) return json({ error: 'grouping not initialized' }, 400);
+      const constraints = await listConstraints(db, occ.notification_id);
+      const participantIds = [
+        ...view.pool.map((p) => p.user_id),
+        // グループに入っているがまだ参加中のメンバーも対象に再分配する
+        ...view.groups.flatMap((g) =>
+          g.members
+            .filter(
+              (m) =>
+                !view.diff.no_longer_participating.some(
+                  (x) => x.user_id === m.user_id && x.group_id === g.id,
+                ),
+            )
+            .map((m) => m.user_id),
+        ),
+      ];
+      const groupIds = view.groups.map((g) => g.id);
+      const result = autoAssign(participantIds, groupIds, constraints);
+      const assignments = Array.from(result.byGroupId.entries()).map(([group_id, user_ids]) => ({
+        group_id,
+        user_ids,
+      }));
+      await setGroupMembers(db, view.grouping.id, assignments);
+      return json(await getGroupingView(db, occId));
+    }
+    // /occurrences/:id/grouping/announce  POST: 結果を Discord チャンネルへ投稿
+    const occGroupingAnnounce = path.match(/^\/occurrences\/(\d+)\/grouping\/announce$/);
+    if (occGroupingAnnounce && method === 'POST') {
+      const occId = Number(occGroupingAnnounce[1]);
+      const occ = await getOccurrence(db, occId);
+      if (!occ) return json({ error: 'occurrence not found' }, 404);
+      const n = await getNotification(db, occ.notification_id);
+      if (!n) return json({ error: 'notification not found' }, 404);
+      const view = await getGroupingView(db, occId);
+      if (!view.grouping) return json({ error: 'grouping not initialized' }, 400);
+      const lines: string[] = [];
+      lines.push(
+        `🧩 **グループ分け** ${occ.occurrence_date} ${formatTimeRange(occ.start_time || n.start_time, n.duration_minutes)}`,
+      );
+      lines.push('');
+      for (const g of view.groups) {
+        const names = g.members.map((m) => m.name).join(', ');
+        lines.push(`**${g.name}** (${g.members.length}名): ${names || '—'}`);
+      }
+      if (view.pool.length > 0) {
+        lines.push('');
+        lines.push(`未割り当て (${view.pool.length}名): ${view.pool.map((m) => m.name).join(', ')}`);
+      }
+      const announced = await sendChannelMessage(env, n.channel_id, lines.join('\n'));
+      return json({ ok: announced, content: lines.join('\n') });
+    }
+
+    // ============ constraints（ペア制約・Notification 単位・ADR 0015）============
+    // /notifications/:id/constraints
+    //   GET  一覧
+    //   POST 作成/更新（{user_id_a, user_id_b, direction, strength}）
+    const notifConstraints = path.match(/^\/notifications\/(\d+)\/constraints$/);
+    if (notifConstraints) {
+      const nid = Number(notifConstraints[1]);
+      if (method === 'GET') {
+        return json(await listConstraints(db, nid));
+      }
+      if (method === 'POST') {
+        const b = (await request.json()) as {
+          user_id_a?: string;
+          user_id_b?: string;
+          direction?: string;
+          strength?: string;
+        };
+        const a = typeof b.user_id_a === 'string' ? b.user_id_a : '';
+        const c = typeof b.user_id_b === 'string' ? b.user_id_b : '';
+        if (!a || !c || a === c) return json({ error: 'distinct user_id_a/b required' }, 400);
+        const dir: ConstraintDirection =
+          b.direction === 'apart' ? 'apart' : 'together';
+        const str: ConstraintStrength =
+          b.strength === 'preferred' ? 'preferred' : 'required';
+        const created = await upsertConstraint(db, nid, a, c, dir, str);
+        return json(created, 201);
+      }
+    }
+    // /notifications/:nid/constraints/:cid  DELETE
+    const constraintDelete = path.match(/^\/notifications\/(\d+)\/constraints\/(\d+)$/);
+    if (constraintDelete && method === 'DELETE') {
+      const cid = Number(constraintDelete[2]);
+      const ok = await deleteConstraint(db, cid);
+      return json({ ok }, ok ? 200 : 404);
     }
 
     // ============ responses ============

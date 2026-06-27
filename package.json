@@ -14,7 +14,8 @@
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
     "register-commands": "node scripts/register-commands.js",
-    "build:tables": "node design-system/build-ui-tables.mjs"
+    "build:tables": "node design-system/build-ui-tables.mjs",
+    "build:sortable": "node design-system/build-ui-sortable.mjs"
   },
   "dependencies": {
     "discord-interactions": "^4.1.0",
@@ -24,6 +25,7 @@
     "@cloudflare/vitest-pool-workers": "^0.16.16",
     "@cloudflare/workers-types": "^4.20260617.1",
     "dotenv": "^17.3.1",
+    "sortablejs": "^1.15.7",
     "typescript": "^5.7.0",
     "vitest": "^4.1.9",
     "wrangler": "^4.102.0"
@@ -37,7 +39,10 @@
   },
   "cloudflare": {
     "label": "Discord イベント出欠 Bot",
-    "products": ["Workers", "D1"],
+    "products": [
+      "Workers",
+      "D1"
+    ],
     "bindings": {
       "DISCORD_PUBLIC_KEY": {
         "description": "Discord アプリの公開鍵。Developer Portal → アプリ → General Information の PUBLIC KEY をコピーして貼り付け。"
