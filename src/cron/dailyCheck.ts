@@ -106,7 +106,7 @@ async function sendRecruitment(env: Env, n: Notification, occ: Occurrence): Prom
   const segment = await getSegment(env.DB, n.segment_id);
   const dl = responseDeadline(occ.occurrence_date, slotTime(occ, n), n.response_deadline_hours);
   const tail = dl
-    ? `日時: **${slotLabel(occ, n)}**\n回答締切: **${formatDate(dl)} ${pad2(dl.getHours())}:${pad2(dl.getMinutes())}**`
+    ? `日時: **${slotLabel(occ, n)}**\n回答締切: **${formatDate(dl)} ${String(dl.getHours()).padStart(2, '0')}:${String(dl.getMinutes()).padStart(2, '0')}**`
     : `日時: **${slotLabel(occ, n)}**`;
   // 見出し（必須）＋本文（任意）＋日時行（自動）。回答不要(announce-only)はボタンを付けない。
   const message = await composeChannelPost(env, n, segment, tail);
@@ -116,13 +116,11 @@ async function sendRecruitment(env: Env, n: Notification, occ: Occurrence): Prom
   return ok;
 }
 
-const pad2 = (n: number): string => String(n).padStart(2, '0');
-
 /**
  * 単発・複数候補日の募集。候補日一覧のヘッダ（メンションはここで1回）に続けて、
  * 候補日ごとに 1 メッセージ（参加/不参加/未定/状況確認ボタン付き）を投稿する。
  * ボタン custom_id は {action}_{occurrenceId} で開催回単位なので回答ハンドラは無改修で機能する。
- * 募集 UI（/recruit・管理画面の「今すぐ募集」）からも再利用する。
+ * 募集 UI（/notify・管理画面の「今すぐ募集」）からも再利用する。
  */
 export async function sendCandidateRecruitment(
   env: Env,
@@ -157,7 +155,7 @@ export async function sendCandidateRecruitment(
 }
 
 /**
- * 募集を即時実行する（スラッシュコマンド /recruit と管理画面「今すぐ募集」で共用）。
+ * 募集を即時実行する（スラッシュコマンド /notify と管理画面「今すぐ募集」で共用）。
  * 単発・複数候補日（未確定）は候補回をまとめて募集、それ以外は次回開催回を 1 件募集する。
  */
 export async function recruitNotificationNow(
