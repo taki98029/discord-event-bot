@@ -82,6 +82,8 @@ export interface Notification {
   quota_interval_days: number | null;
   /** 0/1 */
   assignment_enabled: number;
+  /** 0/1 グループ分け機能を有効にするか（ADR 0015） */
+  grouping_enabled: number;
   /**
    * @deprecated mention_mode へ移行（ADR 0010）。列は後方互換で残すが本体は参照しない。
    * 0/1 対象 Segment の Discord ロールへ @メンションするか
@@ -217,4 +219,72 @@ export interface SendLog {
 export interface SendLogListItem extends SendLog {
   notification_name: string;
   occurrence_date: string | null;
+}
+
+/**
+ * グループ分け（Grouping）関連の型（ADR 0015）。
+ * Occurrence 単位で 1 つ作成し、参加者を group_count 個の Group に分割する。
+ */
+
+/** ペア制約の方向 */
+export type ConstraintDirection = 'together' | 'apart';
+/** ペア制約の強度 */
+export type ConstraintStrength = 'required' | 'preferred';
+
+/** groupings: 1 Occurrence あたり 1 つ */
+export interface Grouping {
+  id: number;
+  occurrence_id: number;
+  group_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** groups: グループ実体（表示順と名前を持つ） */
+export interface Group {
+  id: number;
+  grouping_id: number;
+  group_index: number;
+  name: string;
+}
+
+/** group_members: グループへのメンバー所属 */
+export interface GroupMember {
+  group_id: number;
+  user_id: string;
+}
+
+/** grouping_constraints: Notification 単位のペア制約 */
+export interface GroupingConstraint {
+  id: number;
+  notification_id: number;
+  /** ペアは a < b で正規化して保存 */
+  user_id_a: string;
+  user_id_b: string;
+  direction: ConstraintDirection;
+  strength: ConstraintStrength;
+  created_at: string;
+}
+
+/** API 応答用: Group + メンバー一覧（表示名付き） */
+export interface GroupWithMembers {
+  id: number;
+  group_index: number;
+  name: string;
+  members: { user_id: string; name: string }[];
+}
+
+/** API 応答用: Grouping の全体ビュー */
+export interface GroupingView {
+  grouping: Grouping | null;
+  groups: GroupWithMembers[];
+  /** 未割り当ての参加者（プール） */
+  pool: { user_id: string; name: string }[];
+  /** 保存後に「不参加」に変わった or 既存メンバーで未割り当てだが現在も「参加」のメンバー差分情報 */
+  diff: {
+    /** グループに入っているが現在は参加していないメンバー（保存時 vs 現在） */
+    no_longer_participating: { user_id: string; name: string; group_id: number }[];
+    /** 現在「参加」だがどのグループにも入っていない新規参加者 */
+    newly_participating: { user_id: string; name: string }[];
+  };
 }
