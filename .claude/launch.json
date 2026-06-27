@@ -10,7 +10,7 @@
     {
       "name": "ui-preview",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["design-system/serve-ui.mjs"],
+      "runtimeArgs": ["design-system/serve.mjs", "--ui"],
       "port": 5578
     },
     {

@@ -18,7 +18,7 @@ design-system/
 │  └─ index.ts            … 公開 barrel（44 export）
 ├─ dist/                  … ビルド成果物（esbuild ESM + .d.ts）。build で生成・gitignore
 ├─ sync-ui.mjs            … tokens+components+app-ui を ui/index.html の <style> へ注入（npm run sync:ui）
-├─ serve.mjs / serve-ui.mjs … プレビュー用の最小静的サーバ（preview.html / ui）
+├─ serve.mjs              … 最小静的プレビューサーバ（既定: design-system/preview.html、`--ui` で ui/index.html）
 ├─ build.mjs / tsconfig.json / package.json
 └─ README.md              … これ
 ```
