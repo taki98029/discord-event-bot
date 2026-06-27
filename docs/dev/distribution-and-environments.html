@@ -65,7 +65,7 @@
 
   <div class="callout warn">
     <p class="t">運用モデル更新（2026-06-27 採用・model A）</p>
-    <p>これまでの「<code>staging</code> ブランチ → ②検証 auto-deploy、<code>main</code> ブランチ → ③本番 auto-deploy」を廃止し、<b>main 一本＋②検証は main の auto-deploy、③本番は保守者の手動 <code>npm run deploy:cli</code></b> に移行しました。<b>main への push は staging Worker（テスト環境）にのみ自動反映され、本番には飛びません</b>（本番 Workers Builds は Builds disabled）。詳細は §6「現在の運用モデル（model A）」と <a href="adr/0012-three-tier-parity.md">ADR 0012 追補</a>。<b>下記 §1〜§5 は移行前の 2 ブランチ前提のため、歴史的経緯として残しています</b>（環境分離・D1 自動生成・利用者の Fork→Workers Builds 経路の説明はそのまま有効）。</p>
+    <p>これまでの「<code>staging</code> ブランチ → ②検証 auto-deploy、<code>main</code> ブランチ → ③本番 auto-deploy」を廃止し、<b>main 一本＋②検証は main の auto-deploy、③本番は保守者の手動 <code>npm run deploy:cli</code></b> に移行しました。<b>main への push は staging Worker（テスト環境）にのみ自動反映され、本番には飛びません</b>（本番 Workers Builds は Builds disabled）。<b>§1・§2・§6 は model A に合わせて更新済み</b>。§5 は ADR0012 採用時の根拠記録として歴史的に残しています。詳細仕様は §6 と <a href="adr/0012-three-tier-parity.md">ADR 0012 追補</a>。</p>
   </div>
 
   <div class="callout good">
@@ -74,7 +74,7 @@
   </div>
 
   <h2>1. 全体像：開発と3つの環境</h2>
-  <p>登場するのは <b>開発者のローカル（開発の起点）</b> と、そこから GitHub 経由でデプロイされる<b>3つの環境</b>です ── <b>② 開発者のテスト環境（staging）</b>／<b>③ 開発者の本番環境（Choiemu）</b>／<b>④ ユーザーの本番環境</b>。<b>リポジトリは2つ</b>あります：開発者の<b>非公開</b>リポジトリ <code>event-master-bot</code>（②③用・<code>staging</code>／<code>main</code> ブランチ）と、<b>公開</b>の配布リポジトリ <code>discord-event-bot</code>（④用・利用者が fork）。<a href="adr/0012-three-tier-parity.md">ADR 0012</a> の方針では、この3環境は<b>デプロイ機構が同一</b>（GitHub → Cloudflare Workers Builds＝環境差が出ない）で、違いは「<b>どのリポジトリ／ブランチ／forkを見るか</b>」と「どのDiscord・データに繋がるか」だけです。</p>
+  <p>登場するのは <b>開発者のローカル（開発の起点）</b> と、そこから派生する<b>3つの環境</b>です ── <b>② 開発者のテスト環境（staging）</b>／<b>③ 開発者の本番環境（Choiemu）</b>／<b>④ ユーザーの本番環境</b>。<b>リポジトリは2つ</b>あります：開発者の<b>非公開</b>リポジトリ <code>event-master-bot</code>（②③用・<code>main</code> 一本）と、<b>公開</b>の配布リポジトリ <code>discord-event-bot</code>（④用・利用者が fork）。<b>②と④は GitHub→Workers Builds で自動デプロイ</b>、<b>③本番は保守者の手動 <code>npm run deploy:cli</code></b>（model A・2026-06-27 採用）。違いは「どのリポジトリ／forkを見るか」「どの Discord・データに繋がるか」、そして③のみデプロイ機構が手動 CLI である点。</p>
 
   <figure>
     <svg viewBox="0 0 700 500" role="img" aria-label="開発と3つの環境の全体像">
@@ -86,7 +86,7 @@
 
       <rect x="38" y="106" width="300" height="60" rx="8" fill="#4A4945"/>
       <text x="188" y="127" font-size="13" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">開発リポジトリ（非公開）</text>
-      <text x="188" y="147" font-size="11" fill="#C7C5BC" text-anchor="middle" dominant-baseline="central">event-master-bot ・ staging / main</text>
+      <text x="188" y="147" font-size="11" fill="#C7C5BC" text-anchor="middle" dominant-baseline="central">event-master-bot ・ main 一本</text>
 
       <rect x="380" y="106" width="288" height="60" rx="8" fill="#6B6A62"/>
       <text x="524" y="127" font-size="13" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">配布リポジトリ（公開）</text>
@@ -94,12 +94,12 @@
 
       <rect x="30" y="222" width="200" height="84" rx="8" fill="#854F0B"/>
       <text x="130" y="246" font-size="14" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">② 開発者のテスト環境</text>
-      <text x="130" y="268" font-size="11" fill="#FAC775" text-anchor="middle" dominant-baseline="central">staging → Workers Builds</text>
+      <text x="130" y="268" font-size="11" fill="#FAC775" text-anchor="middle" dominant-baseline="central">main push → Workers Builds（自動）</text>
       <text x="130" y="290" font-size="11" fill="#FAC775" text-anchor="middle" dominant-baseline="central">テストD1＋テスト用Discord</text>
 
       <rect x="250" y="222" width="200" height="84" rx="8" fill="#712B13"/>
       <text x="350" y="246" font-size="14" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">③ 開発者の本番環境</text>
-      <text x="350" y="268" font-size="11" fill="#F0997B" text-anchor="middle" dominant-baseline="central">main → Workers Builds</text>
+      <text x="350" y="268" font-size="11" fill="#F0997B" text-anchor="middle" dominant-baseline="central">保守者の手動 deploy:cli</text>
       <text x="350" y="290" font-size="11" fill="#F0997B" text-anchor="middle" dominant-baseline="central">本番D1＋本番Choiemu</text>
 
       <rect x="470" y="222" width="200" height="84" rx="8" fill="#3C3489"/>
@@ -115,24 +115,27 @@
       <line x1="338" y1="136" x2="376" y2="136" stroke="#888780" stroke-width="1.5" marker-end="url(#ar1)"/>
       <text x="357" y="125" font-size="9" fill="#888780" text-anchor="middle">配布反映</text>
       <line x1="150" y1="166" x2="130" y2="220" stroke="#888780" stroke-width="1.5" marker-end="url(#ar1)"/>
-      <line x1="300" y1="166" x2="350" y2="220" stroke="#888780" stroke-width="1.5" marker-end="url(#ar1)"/>
+      <text x="160" y="200" font-size="9" fill="#888780">自動</text>
+      <line x1="300" y1="166" x2="350" y2="220" stroke="#D85A30" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#ar1)"/>
+      <text x="333" y="195" font-size="9" fill="#D85A30" font-weight="600">手動</text>
       <line x1="560" y1="166" x2="570" y2="220" stroke="#888780" stroke-width="1.5" marker-end="url(#ar1)"/>
+      <text x="580" y="200" font-size="9" fill="#888780">自動</text>
       <line x1="130" y1="306" x2="285" y2="398" stroke="#888780" stroke-width="1.5" marker-end="url(#ar1)"/>
       <line x1="350" y1="306" x2="350" y2="398" stroke="#888780" stroke-width="1.5" marker-end="url(#ar1)"/>
       <line x1="570" y1="306" x2="415" y2="398" stroke="#888780" stroke-width="1.5" marker-end="url(#ar1)"/>
     </svg>
-    <figcaption>2リポジトリ構成（<a href="adr/0012-three-tier-parity.md">ADR 0012</a>／<a href="adr/0011-distribution-and-update-model.md">ADR 0011 追補2</a>・2026-06-20 移行完了）。<b>非公開</b>の開発リポジトリ <code>event-master-bot</code> の staging／main ブランチが②③へ、<b>公開</b>の配布リポジトリ <code>discord-event-bot</code> を利用者が fork したものが④へ、いずれも Workers Builds で自動デプロイ。デプロイ機構は②③④の3環境とも同一で（①ローカルは正本/起点）、違いは見るリポジトリ／ブランチ／forkと接続先Discord・データだけ。色: 緑=開発／橙=テスト／赤=本番／紫=ユーザー／灰=GitHub（濃=非公開の開発／淡=公開の配布）。</figcaption>
+    <figcaption>model A（2026-06-27 採用）。<b>非公開</b>の開発リポジトリ <code>event-master-bot</code>（main 一本）が②へ Workers Builds で<b>自動デプロイ</b>、<b>公開</b>の配布リポジトリ <code>discord-event-bot</code> を利用者が fork したものが④へ Workers Builds で自動デプロイ。<b>③本番のみ保守者の手動 <code>npm run deploy:cli</code></b>（橙の破線・ローカル CLI 経由・本番 Workers Builds は Builds disabled）。違いは見るリポジトリ／forkと接続先Discord・データ、そして③のデプロイ機構だけ。色: 緑=開発／橙=テスト／赤=本番／紫=ユーザー／灰=GitHub（濃=非公開／淡=公開）。</figcaption>
   </figure>
 
   <ul>
-    <li><b>開発者の本番（③）とテスト（②）は分離。</b> 同じ機構でも、③は本番Choiemu＋本番D1、②はテスト用Discord＋テストD1に繋がる<b>別環境</b>（データは完全に独立）。</li>
-    <li><b>3環境ともデプロイ機構は同一（parity）。</b> GitHub → Workers Builds が <code>npm run deploy</code>（マイグレーション＋デプロイ）を自動実行する（<a href="adr/0008-verify-on-deployed-test-worker.md">ADR 0008</a>／<a href="adr/0012-three-tier-parity.md">ADR 0012</a>）。だから②で本番と同条件の検証ができる。違うのは見るリポジトリ（②③＝非公開 <code>event-master-bot</code>／④＝公開 <code>discord-event-bot</code> の fork）と接続先だけ。</li>
-    <li><b>インスタンスは環境ごとに別物。</b> それぞれ別のWorker・別のD1で、データは独立（ユーザー環境はテナント分離ではなく各自が自己ホスト）。</li>
-    <li><b>移行完了（2026-06-20）。</b> ②staging と③本番の両方が Workers Builds で稼働開始。3 環境とも同一機構の上図通りに統一済み。<code>deploy:cli</code> は緊急時フォールバックとして残置、しばらく観察後に撤去（P-5）。</li>
+    <li><b>開発者の本番（③）とテスト（②）は分離。</b> ③は本番Choiemu＋本番D1、②はテスト用Discord＋テストD1に繋がる<b>別環境</b>（データは完全に独立）。</li>
+    <li><b>②と④は同じ Workers Builds 機構（GitHub→自動）。</b> <code>npm run deploy[:staging]</code>（マイグレーション＋デプロイ）が CI 上で自動実行される（<a href="adr/0008-verify-on-deployed-test-worker.md">ADR 0008</a>／<a href="adr/0012-three-tier-parity.md">ADR 0012</a>）。②で本番と同条件の検証ができる。</li>
+    <li><b>③本番は保守者の手動 <code>npm run deploy:cli</code>（model A）。</b> ②で OK の判断ができたら、保守者がローカル CLI から本番へデプロイ。本番 Workers Builds プロジェクトは Builds disabled で、main への push は本番に飛ばない。</li>
+    <li><b>インスタンスは環境ごとに別物。</b> それぞれ別の Worker・別の D1 で、データは独立（ユーザー環境はテナント分離ではなく各自が自己ホスト）。</li>
   </ul>
 
   <h2>2. 3つの環境（開発者のテスト・開発者の本番・ユーザー本番）</h2>
-  <p>3つの環境は<b>デプロイ機構が同一</b>（GitHub → Workers Builds＝<b>parity</b>。<a href="adr/0012-three-tier-parity.md">ADR 0012</a>）ですが、<b>ソースのリポジトリは2つに分かれます</b>：②③は開発者の<b>非公開</b>リポジトリ <code>event-master-bot</code>（<code>staging</code>／<code>main</code> ブランチ）、④は<b>公開</b>の配布リポジトリ <code>discord-event-bot</code>（利用者の fork）。開発者のソース正本はローカル（PC）にあり、<b>非公開リポジトリへ push</b> すると②③の起点になり、その成果を<b>公開の配布リポジトリへ反映</b>したものを利用者が fork して④になります。各環境の違いは <b>「どのリポジトリ／ブランチ／forkを見るか」</b>（②=<code>staging</code>／③=<code>main</code>／④=利用者の fork）と、<b>「どのDiscord・データに繋がるか」</b>だけです。とりわけ <b>②と③は、同じ機構でもデータ・接続先が完全に独立した別環境</b>として分離します。</p>
+  <p>3つの環境のうち、<b>②と④は Workers Builds で自動デプロイ</b>（同じ機構＝parity の効果はこの2環境間で成立）、<b>③本番のみ保守者の手動 <code>npm run deploy:cli</code></b>です（model A・<a href="adr/0012-three-tier-parity.md">ADR 0012 追補</a>）。<b>ソースのリポジトリは2つ</b>：②③は開発者の<b>非公開</b>リポジトリ <code>event-master-bot</code>（<code>main</code> 一本）、④は<b>公開</b>の配布リポジトリ <code>discord-event-bot</code>（利用者の fork）。開発者のソース正本はローカル（PC）にあり、<b>非公開リポジトリへ push</b> すると②の起点になり、その成果を<b>公開の配布リポジトリへ反映</b>したものを利用者が fork して④になります。③は ②で検証 OK の判断ができたら<b>保守者がローカル CLI から直接</b>デプロイ。各環境の違いは <b>「どのリポジトリ／forkを見るか」「どの Discord・データに繋がるか」「デプロイ機構（自動/手動）」</b>です。<b>②と③は完全に独立した別環境</b>（データ・接続先・デプロイトリガーが分離）。</p>
 
   <figure>
     <svg viewBox="0 0 700 450" role="img" aria-label="3つの環境（開発者のテスト・開発者の本番・ユーザー本番）の比較図">
@@ -144,7 +147,7 @@
 
       <rect x="200" y="20" width="210" height="46" rx="8" fill="#4A4945"/>
       <text x="305" y="37" font-size="12" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">開発リポジトリ（非公開）</text>
-      <text x="305" y="55" font-size="10" fill="#C7C5BC" text-anchor="middle" dominant-baseline="central">event-master-bot ・ staging / main</text>
+      <text x="305" y="55" font-size="10" fill="#C7C5BC" text-anchor="middle" dominant-baseline="central">event-master-bot ・ main 一本</text>
 
       <rect x="448" y="20" width="234" height="46" rx="8" fill="#6B6A62"/>
       <text x="565" y="37" font-size="12" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">配布リポジトリ（公開）</text>
@@ -160,23 +163,23 @@
       <text x="492" y="111" font-size="13" font-weight="600" class="svg-muted">ユーザーの環境</text>
 
       <rect x="33" y="128" width="190" height="46" rx="8" fill="#854F0B"/>
-      <text x="128" y="151" font-size="13" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">staging ブランチ</text>
+      <text x="128" y="151" font-size="13" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">main ブランチ</text>
       <rect x="43" y="196" width="170" height="30" rx="14" fill="#5C3608"/>
       <text x="128" y="211" font-size="11" fill="#FAC775" text-anchor="middle" dominant-baseline="central">Workers Builds（自動）</text>
       <rect x="33" y="256" width="190" height="56" rx="8" fill="#854F0B"/>
       <text x="128" y="277" font-size="13" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">Worker＋テストD1</text>
-      <text x="128" y="295" font-size="11" fill="#FAC775" text-anchor="middle" dominant-baseline="central">自動生成</text>
+      <text x="128" y="295" font-size="11" fill="#FAC775" text-anchor="middle" dominant-baseline="central">discord-event-bot-staging</text>
       <rect x="33" y="342" width="190" height="46" rx="8" fill="#854F0B"/>
       <text x="128" y="365" font-size="13" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">テスト用Discord</text>
       <text x="128" y="412" font-size="11" class="svg-muted" text-anchor="middle">用途: 仕上げ検証</text>
 
       <rect x="250" y="128" width="190" height="46" rx="8" fill="#712B13"/>
-      <text x="345" y="151" font-size="13" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">main ブランチ</text>
-      <rect x="260" y="196" width="170" height="30" rx="14" fill="#4A1B0C"/>
-      <text x="345" y="211" font-size="11" fill="#F0997B" text-anchor="middle" dominant-baseline="central">Workers Builds（自動）</text>
+      <text x="345" y="151" font-size="13" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">main ブランチ（同じ）</text>
+      <rect x="260" y="196" width="170" height="30" rx="14" fill="#4A1B0C" stroke="#D85A30" stroke-width="1.5" stroke-dasharray="4 3"/>
+      <text x="345" y="211" font-size="11" fill="#F0997B" text-anchor="middle" dominant-baseline="central">保守者の手動 deploy:cli</text>
       <rect x="250" y="256" width="190" height="56" rx="8" fill="#712B13"/>
       <text x="345" y="277" font-size="13" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">Worker＋本番D1</text>
-      <text x="345" y="295" font-size="11" fill="#F0997B" text-anchor="middle" dominant-baseline="central">実データ</text>
+      <text x="345" y="295" font-size="11" fill="#F0997B" text-anchor="middle" dominant-baseline="central">discord-event-bot</text>
       <rect x="250" y="342" width="190" height="46" rx="8" fill="#712B13"/>
       <text x="345" y="365" font-size="13" font-weight="600" fill="#ffffff" text-anchor="middle" dominant-baseline="central">本番Choiemu</text>
       <text x="345" y="412" font-size="11" class="svg-muted" text-anchor="middle">用途: 実運用（Choiemu）</text>
@@ -199,31 +202,31 @@
       <line x1="128" y1="174" x2="128" y2="194" stroke="#888780" stroke-width="1.5" marker-end="url(#ar2)"/>
       <line x1="128" y1="226" x2="128" y2="254" stroke="#888780" stroke-width="1.5" marker-end="url(#ar2)"/>
       <line x1="128" y1="312" x2="128" y2="340" stroke="#888780" stroke-width="1.5" marker-end="url(#ar2)"/>
-      <line x1="345" y1="174" x2="345" y2="194" stroke="#888780" stroke-width="1.5" marker-end="url(#ar2)"/>
-      <line x1="345" y1="226" x2="345" y2="254" stroke="#888780" stroke-width="1.5" marker-end="url(#ar2)"/>
+      <line x1="345" y1="174" x2="345" y2="194" stroke="#D85A30" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#ar2)"/>
+      <line x1="345" y1="226" x2="345" y2="254" stroke="#D85A30" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#ar2)"/>
       <line x1="345" y1="312" x2="345" y2="340" stroke="#888780" stroke-width="1.5" marker-end="url(#ar2)"/>
       <line x1="580" y1="174" x2="580" y2="194" stroke="#888780" stroke-width="1.5" marker-end="url(#ar2)"/>
       <line x1="580" y1="226" x2="580" y2="254" stroke="#888780" stroke-width="1.5" marker-end="url(#ar2)"/>
       <line x1="580" y1="312" x2="580" y2="340" stroke="#888780" stroke-width="1.5" marker-end="url(#ar2)"/>
     </svg>
-    <figcaption>3環境はデプロイ機構が同一（GitHub → Workers Builds＝parity）だが、見るリポジトリが違う：②③は<b>非公開</b>の開発リポジトリ <code>event-master-bot</code> の staging／main ブランチ、④は<b>公開</b>の配布リポジトリ <code>discord-event-bot</code> を利用者が fork したもの。開発者のソース正本はローカルにあり、非公開リポジトリへ push＋配布リポジトリへ反映が起点。橙=開発者のテスト／赤=開発者の本番／紫=ユーザー本番。</figcaption>
+    <figcaption>model A: ②④は Workers Builds で自動デプロイ、③は保守者の手動 <code>npm run deploy:cli</code>（橙の破線・本番 Workers Builds は Builds disabled）。ソースは ②③とも同じ <b>非公開</b>リポジトリ <code>event-master-bot</code> の <code>main</code> ブランチ（main 一本）、④は<b>公開</b>配布リポジトリ <code>discord-event-bot</code> の fork。開発者のソース正本はローカルにあり、非公開リポへ push＋配布リポへ反映が起点。橙=開発者のテスト／赤=開発者の本番／紫=ユーザー本番。</figcaption>
   </figure>
 
   <table>
     <thead><tr><th>軸</th><th>② 開発者のテスト環境</th><th>③ 開発者の本番環境</th><th>④ ユーザーの本番環境</th></tr></thead>
     <tbody>
-      <tr><td>ソース（見る先）</td><td><code>staging</code> ブランチ（開発者の<b>非公開</b>リポジトリ <code>event-master-bot</code>）</td><td><code>main</code> ブランチ（同・<b>非公開</b> <code>event-master-bot</code>）</td><td><b>公開</b>の配布リポジトリ <code>discord-event-bot</code> の fork（利用者のGitHub）</td></tr>
-      <tr><td>ソースの正本</td><td colspan="2">開発者のローカル → <b>非公開</b>リポジトリ <code>event-master-bot</code> へ push</td><td>開発者が<b>公開</b>の <code>discord-event-bot</code> を整備。利用者が fork して取得</td></tr>
-      <tr><td>デプロイ機構</td><td colspan="3">GitHub → <b>Cloudflare Workers Builds</b>（<code>npm run deploy</code> を自動実行・ノンCLI）＝3環境で同一（parity）</td></tr>
-      <tr><td>Cloudflare（D1）</td><td>staging Worker＋テストD1（自動生成）</td><td>本番Worker＋本番D1</td><td>Worker＋D1（自動生成）</td></tr>
+      <tr><td>ソース（見る先）</td><td><code>main</code> ブランチ（開発者の<b>非公開</b>リポジトリ <code>event-master-bot</code>）</td><td><code>main</code> ブランチ（同じ・保守者のローカルチェックアウト経由）</td><td><b>公開</b>の配布リポジトリ <code>discord-event-bot</code> の fork（利用者のGitHub）</td></tr>
+      <tr><td>ソースの正本</td><td colspan="2">開発者のローカル → <b>非公開</b>リポジトリ <code>event-master-bot</code> へ push（②③とも同じ main を見る）</td><td>開発者が<b>公開</b>の <code>discord-event-bot</code> を整備。利用者が fork して取得</td></tr>
+      <tr><td>デプロイ機構</td><td><b>GitHub → Workers Builds</b>（<code>npm run deploy:staging</code> を自動実行）</td><td><b>保守者の手動 <code>npm run deploy:cli</code></b>（本番 Workers Builds は Builds disabled）</td><td><b>GitHub → Workers Builds</b>（<code>npm run deploy</code> を自動実行・ノンCLI）</td></tr>
+      <tr><td>Cloudflare（D1）</td><td>staging Worker（<code>discord-event-bot-staging</code>）＋ staging D1（<code>choiemu-event-bot-db-staging</code>・id 明記）</td><td>本番 Worker（<code>discord-event-bot</code>）＋本番 D1（<code>choiemu-event-bot-db</code>）</td><td>Worker＋D1（自動生成・<code>database_id</code> 省略）</td></tr>
       <tr><td>Discord 接続先</td><td>テスト用アプリ＋ダミーサーバー</td><td>本番Choiemu（開発者のサーバー）</td><td>利用者各自のサーバー</td></tr>
-      <tr><td>更新のきっかけ <span class="badge b-mid">model A で変更</span></td><td>（旧）<code>staging</code> push ／（新）<code>main</code> push（§6）</td><td>（旧）<code>main</code> push ／（新）保守者の手動 <code>npm run deploy:cli</code>（§6）</td><td>fork で「Sync fork」（model A でも変更なし）</td></tr>
+      <tr><td>更新のきっかけ</td><td><code>main</code> への push（auto）</td><td>保守者の <code>npm run deploy:cli</code>（手動・要事前許可）</td><td>fork で「Sync fork」（auto）</td></tr>
       <tr><td>用途</td><td>仕上げ検証（本番と同条件のパリティ確認）</td><td>実運用（Choiemu）</td><td>利用者の実運用</td></tr>
-      <tr><td>現状（移行）</td><td>Workers Builds 接続済み（2026-06-20）。同名 D1 自動生成＋migrations 0001-0009 適用を実機確認</td><td>Workers Builds 接続済み（2026-06-20）。auto-provisioning が同名既存 D1 を再利用＝本番データ保持で移行成功</td><td>設計どおり（<code>database_id</code> 省略で自動生成）</td></tr>
+      <tr><td>現状</td><td>Workers Builds 接続済み・Production branch = main / Deploy command = <code>npm run deploy:staging</code>（2026-06-27 model A 移行）</td><td>本番 Workers Builds は接続解除（Builds disabled）。<code>deploy:cli</code> 経路のみで運用</td><td>設計どおり（<code>database_id</code> 省略で自動生成）</td></tr>
     </tbody>
   </table>
 
-  <p class="lead">※ 利用者環境（④）も<b>初回から</b> Fork → Workers Builds 接続による初回デプロイで D1 が自動生成されます。<b>更新</b>は GitHub の「Sync fork」で取り込み、同じ Workers Builds が再デプロイします（§3）。②③（開発者の環境）はブランチへの push が常に Workers Builds を起動します。2026-06-20 に②staging・③本番ともに Workers Builds 接続完了し、すべての環境（②③④）が同一機構で稼働中です。</p>
+  <p class="lead">※ 利用者環境（④）も<b>初回から</b> Fork → Workers Builds 接続による初回デプロイで D1 が自動生成されます。<b>更新</b>は GitHub の「Sync fork」で取り込み、同じ Workers Builds が再デプロイします（§3）。②は <code>main</code> push が常に Workers Builds を起動します（model A）。③本番のみ保守者の手動 <code>npm run deploy:cli</code> 経路で、main push では本番に飛びません（本番 Workers Builds は Builds disabled）。</p>
 
   <h2>3. ユーザーのセットアップとD1の自動構築</h2>
   <p>ユーザーが必要とするのは<b>無料の3アカウントだけ</b>。データベース（D1）はユーザーが手で作る場面が一切なく、Fork → Workers Builds 接続による初回デプロイで自動生成され、スキーマもマイグレーションで自動適用されます。</p>
@@ -337,7 +340,7 @@
       <line x1="210" y1="73" x2="248" y2="73" stroke="#888780" stroke-width="1.5" marker-end="url(#ar4)"/>
       <line x1="420" y1="73" x2="458" y2="73" stroke="#888780" stroke-width="1.5" marker-end="url(#ar4)"/>
     </svg>
-    <figcaption>②と③はデプロイ機構が同一（Workers Builds＋D1自動生成＋migrations自動適用）。違いは接続先Discordアプリとデータだけ＝環境差が出ない（①＝§1/§2 の開発者のローカル、②＝開発者のテスト環境、③＝開発者の本番環境）。②③のソースは<b>非公開</b>の開発リポジトリ <code>event-master-bot</code>。④ユーザー本番は別の<b>公開</b>配布リポジトリ <code>discord-event-bot</code> の fork で同じ機構を回す。</figcaption>
+    <figcaption><b>※ ADR0012 採用時の構想図（歴史的）</b>。当時は②③とも Workers Builds（デプロイ機構が同一）を想定していた。<b>2026-06-27 の model A 移行後は③本番のみ保守者の手動 <code>npm run deploy:cli</code></b> に変更され、ブランチも main 一本になった。現行図は §1・§2・§6 を参照。当時の意図: 違いは接続先Discordアプリとデータだけ＝環境差が出ない（①＝§1/§2 の開発者のローカル、②＝開発者のテスト環境、③＝開発者の本番環境）。②③のソースは<b>非公開</b>の開発リポジトリ <code>event-master-bot</code>。④ユーザー本番は別の<b>公開</b>配布リポジトリ <code>discord-event-bot</code> の fork で同じ機構を回す（model A でも変わらず）。</figcaption>
   </figure>
 
   <h3>具体的な形</h3>
