@@ -28,3 +28,82 @@
   .ws-layout > .server-rail .server-rail-item::before { display: none; }
   .ws-layout > .server-rail .server-rail-divider { width: 2px; height: 32px; margin: 0 2px; }
 }
+
+/* ---- 子ページ（ADR 0016）: as-page な <dialog> を main 内に show() で表示し、
+       main.has-page でリスト(section)を隠してメインエリアを占有させる。 ---- */
+main.has-page > section { display: none; }
+dialog.modal-lg.as-page[open] {
+  position: static; inset: auto; display: flex; flex-direction: column;
+  width: 100%; max-width: none; height: auto; max-height: none;
+  margin: 0; border: none; border-radius: 0; box-shadow: none;
+  background: transparent; min-height: calc(100vh - 130px);
+}
+dialog.modal-lg.as-page .modal-head {
+  background: transparent; padding: 0 0 14px;
+  border-bottom: 1px solid var(--border);
+}
+dialog.modal-lg.as-page .modal-body { padding: 16px 0; }
+dialog.modal-lg.as-page .modal-foot {
+  background: transparent; padding: 14px 0 0; border-top: 1px solid var(--border);
+}
+/* パンくず＋戻る（ADR 0016・子ページ上端） */
+.page-crumb { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); margin-bottom: 4px; }
+.page-crumb a { color: var(--muted); text-decoration: none; }
+.page-crumb a:hover { color: var(--text); text-decoration: underline; }
+.page-back {
+  flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px;
+  background: var(--panel); border: 1px solid var(--border2); border-radius: var(--r-sm);
+  color: var(--text); cursor: pointer; font-size: 13px; font-family: inherit;
+}
+.page-back:hover { background: var(--btn-secondary-hover); border-color: var(--border-hover); }
+
+/* ---- グループ分け（ADR 0015）: 開催回のメンバーをドラッグ&ドロップで班分けする盤面 ---- */
+.grouping-toolbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px; }
+.grouping-toolbar .spacer { flex:1; }
+.grouping-board { display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:12px; }
+.grouping-col {
+  background: var(--panel2); border:1px solid var(--border); border-radius: var(--r);
+  padding:10px; min-height:180px; display:flex; flex-direction:column;
+}
+.grouping-col.pool { background: var(--panel); border-style:dashed; }
+.grouping-col-head { display:flex; gap:6px; align-items:center; margin-bottom:8px; }
+.grouping-col-head .name { font-weight:600; flex:1; padding:2px 4px; border-radius: var(--r-sm); cursor: text; }
+.grouping-col-head .name:hover { background: var(--elevated); }
+.grouping-col-head .name[contenteditable="true"]:focus { outline: var(--ring); background: var(--bg); }
+.grouping-col-head .count { color: var(--muted); font-size:12px; }
+.grouping-cards { flex:1; display:flex; flex-direction:column; gap:6px; min-height:80px; }
+.grouping-card {
+  background: var(--elevated); border:1px solid var(--border); border-radius: var(--r-sm);
+  padding:6px 8px; cursor:grab; user-select:none; display:flex; gap:6px; align-items:center;
+  font-size:13px;
+}
+.grouping-card:active { cursor: grabbing; }
+.grouping-card.violated-required { border-color: var(--danger); box-shadow: 0 0 0 1px var(--danger); }
+.grouping-card.violated-preferred { border-color: var(--warn); box-shadow: 0 0 0 1px var(--warn); }
+.grouping-card.no-longer { opacity:.55; text-decoration: line-through; }
+.grouping-card .badge { font-size:10px; padding:1px 5px; border-radius:8px; }
+.grouping-card .badge.new { background: var(--accent-soft); color: var(--accent); }
+.grouping-card .badge.gone { background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); }
+.sortable-ghost { opacity: 0.4; }
+.sortable-chosen { outline: var(--ring); }
+.grouping-alerts {
+  margin-top:12px; padding:10px; border-radius: var(--r); background: var(--panel2);
+  border-left: 3px solid var(--warn); max-height: 180px; overflow:auto;
+}
+.grouping-alerts.has-error { border-left-color: var(--danger); }
+.grouping-alerts h4 { margin:0 0 6px; font-size:13px; }
+.grouping-alerts ul { margin:0; padding-left: 18px; font-size:12px; }
+.grouping-alerts .err { color: var(--danger); }
+.grouping-alerts .warn { color: var(--warn); }
+.grouping-constraints-panel {
+  margin-top:14px; padding:10px; border-radius: var(--r); background: var(--panel2);
+}
+.grouping-constraints-panel h4 { margin:0 0 8px; font-size:13px; }
+.grouping-constraints-list { display:flex; flex-direction:column; gap:6px; margin-bottom:8px; }
+.grouping-constraint-row {
+  display:flex; gap:6px; align-items:center; font-size:12px;
+  background: var(--panel); padding:6px 8px; border-radius: var(--r-sm);
+}
+.grouping-constraint-row .spacer { flex:1; }
+.grouping-constraints-form { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+.grouping-constraints-form select { min-width:120px; max-width:180px; padding:4px 6px; font-size:12px; }

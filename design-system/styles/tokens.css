@@ -3,11 +3,13 @@
  * Discord 2025 Q1 リフレッシュ準拠のモダンダークテーマ。
  * ============================================================= */
 :root {
-  /* --- 背景・面 (surfaces) --- */
-  --bg: #111214;
-  --panel: #1e1f22;
-  --panel2: #2b2d31;
-  --elevated: #313338;
+  /* --- 背景・面 (surfaces) ---
+   * Discord ダーク〜Midnight 寄りの近黒ランプ。中間グレー(#2b2d31/#313338)は不使用。
+   * 単調な明度順を保つ: bg(最暗・ページ/レール) < panel(沈み面/入力) < panel2(hover面) < elevated(カード/浮き面) */
+  --bg: #0c0d0f;
+  --panel: #141518;
+  --panel2: #18191c;
+  --elevated: #1c1d20;
 
   /* --- 境界線 (borders) --- */
   --border: #3f4147;
@@ -31,7 +33,7 @@
   --warn: #f0b232;
 
   /* --- ボタン hover (darken パターン) --- */
-  --btn-secondary-hover: #3a3c41;
+  --btn-secondary-hover: #26272b;
   --btn-danger-hover: #a12d31;
 
   /* --- コンポーネント固有テキスト --- */
