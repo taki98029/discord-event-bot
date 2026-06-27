@@ -5,7 +5,7 @@
  * このスクリプトは CLI で登録したい場合の代替手段です。
  *
  * 使い方:
- *   node scripts/register-commands.js
+ *   npm run register-commands           # = node --env-file=.env で .env を自動ロード
  *
  * 必要な環境変数（.env）:
  *   DISCORD_BOT_TOKEN / DISCORD_APPLICATION_ID
@@ -14,7 +14,7 @@
  *
  * コマンド定義は src/discord/commands.json を単一ソースとして共有する。
  */
-import 'dotenv/config';
+// ponytail: (d) Node 20 標準 --env-file で .env 読込。dotenv devDep を排除。
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
