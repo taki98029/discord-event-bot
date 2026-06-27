@@ -5,20 +5,16 @@
 import { build } from 'esbuild';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { writeFileSync, readFileSync } from 'node:fs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-// 一時的なエントリーポイントを作って、SortableJS を `window.Sortable` にバインドする
-const entrySrc = `
-import Sortable from 'sortablejs';
-window.Sortable = Sortable;
-`;
-const entryPath = join(here, 'src', '_ui-sortable-entry.ts');
-writeFileSync(entryPath, entrySrc, 'utf8');
-
+// ponytail: (c) esbuild stdin で SortableJS を window.Sortable にバインド（一時ファイル書出しを排除）。
 await build({
-  entryPoints: [entryPath],
+  stdin: {
+    contents: "import Sortable from 'sortablejs';\nwindow.Sortable = Sortable;\n",
+    resolveDir: join(here, 'src'),
+    loader: 'ts',
+  },
   outfile: join(here, '..', 'ui', 'eventbot-sortable.js'),
   bundle: true,
   format: 'iife',
