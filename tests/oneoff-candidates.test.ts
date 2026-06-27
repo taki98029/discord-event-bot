@@ -45,6 +45,7 @@ function oneoffInput(
     quota_enabled: 0,
     quota_interval_days: null,
     assignment_enabled: 0,
+    grouping_enabled: 0,
     mention_mode: 'role',
     requires_response: 1,
     message_title: '単発テスト',
