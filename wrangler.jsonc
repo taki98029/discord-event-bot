@@ -52,12 +52,17 @@
   },
 
   // --- ②検証 staging 上書き ---
-  // `wrangler deploy --env staging` で適用。`name` 未指定は base + `-staging` 自動サフィックス
-  // により `discord-event-bot-staging` になる。d1_databases は環境継承されないキーのため
-  // 全項目を再記述する。staging D1 の id を明記して自動プロビジョニング曖昧性を排除している
-  // （利用者は --env staging を使わないため id 漏洩リスクなし）。
+  // `wrangler deploy --env staging` で適用。
+  // `name` は明示的に "discord-event-bot-staging" を設定（base + `-staging` 自動サフィックスと
+  // 同じ値だが、Cloudflare Workers Builds の静的チェックが top-level `name` しか見ない結果
+  // 「設定不一致」と警告し auto-PR を立ててくる挙動への対策。明記しておくことで意図が明確化し
+  // 警告抑止も期待できる）。auto-PR が top-level `name` を `*-staging` に書き換える提案を出した
+  // 場合は **絶対に merge しないこと**（本番デプロイが壊れる）。詳細は .claude/rules/repo-and-environments.md。
+  // d1_databases は環境継承されないキーのため全項目を再記述する。staging D1 の id を明記して
+  // 自動プロビジョニング曖昧性を排除している（利用者は --env staging を使わないため id 漏洩リスクなし）。
   "env": {
     "staging": {
+      "name": "discord-event-bot-staging",
       "d1_databases": [
         {
           "binding": "DB",

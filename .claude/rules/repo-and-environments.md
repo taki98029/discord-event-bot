@@ -58,3 +58,9 @@ paths:
 - staging プロジェクト(`discord-event-bot-staging`): **Production branch = `main`**, **Deploy command = `npm run deploy:staging`**
 - prod プロジェクト(`discord-event-bot`): **Builds disabled**（または接続解除）。auto-deploy が一切走らない状態に保つ
 - 上記設定が崩れると model A は成立しない（特に prod project の Builds が有効に戻ると、main push が本番に飛ぶ事故になる）
+
+## ★ Cloudflare auto-PR は merge してはいけない（要厳守）
+- staging プロジェクトの Build 画面で「`Update wrangler.jsonc in your repo to keep settings consistent. On Wrangler v3.109.0+, we will auto-generate a PR to fix this after the build`」のような警告が出る。
+- これは Cloudflare の静的チェックが top-level `name` (`discord-event-bot`) と staging Worker 名 (`discord-event-bot-staging`) の不一致を検出したもの。**unified wrangler.jsonc の `env.staging` 上書きを Cloudflare が認識していない**ため発生する。
+- 警告自体は無害（実デプロイは `--env staging` で正しく解決される）だが、**ビルド後に Cloudflare が GitHub に「top-level `name` を `discord-event-bot-staging` に書き換える」自動 PR を立てる可能性**がある。これを merge すると **本番デプロイ(`npm run deploy:cli`)が staging Worker を狙う**ようになり本番が壊れる。
+- **対応**: ダッシュボードの警告は X で閉じる。GitHub に Cloudflare 由来の wrangler.jsonc 編集 PR が立ったら **絶対に merge せず Close**。理想的には `env.staging.name = "discord-event-bot-staging"` を明記しておくと意図が明確化＋警告抑止が期待できる（2026-06-28 wrangler.jsonc に追加済み）。
