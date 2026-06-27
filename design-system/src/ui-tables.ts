@@ -153,14 +153,36 @@ function mount(container: HTMLElement, opts: MountOpts): void {
 
     const q = <T extends Element>(sel: string) => container.querySelector(sel) as T | null;
 
+    // IME（日本語入力など）対策: 反映は setState→render で input を作り直すため、変換中
+    // (composition 中) に走らせると変換が壊れて子音が生のローマ字で残る。変換中は保留し、
+    // 確定（compositionend）後にまとめて反映する。英数字など非変換入力は従来どおり即時反映。
+    let composing = false;
+
     const global = q<HTMLInputElement>('.ebt-global');
     if (global) {
-      global.oninput = () =>
-        setState({ globalFilter: global.value, pagination: { ...state.pagination, pageIndex: 0 } });
+      const applyGlobal = () => {
+        const val = global.value;
+        setState({ globalFilter: val, pagination: { ...state.pagination, pageIndex: 0 } });
+        const again = q<HTMLInputElement>('.ebt-global');
+        if (again) {
+          again.focus();
+          again.setSelectionRange(val.length, val.length);
+        }
+      };
+      global.addEventListener('compositionstart', () => {
+        composing = true;
+      });
+      global.addEventListener('compositionend', () => {
+        composing = false;
+        applyGlobal();
+      });
+      global.oninput = () => {
+        if (!composing) applyGlobal();
+      };
     }
 
     container.querySelectorAll<HTMLInputElement>('.ebt-filter').forEach((inp) => {
-      inp.oninput = () => {
+      const applyFilter = () => {
         const col = inp.dataset.col as string;
         const val = inp.value;
         const others = state.columnFilters.filter((f) => f.id !== col);
@@ -171,6 +193,16 @@ function mount(container: HTMLElement, opts: MountOpts): void {
           again.focus();
           again.setSelectionRange(val.length, val.length);
         }
+      };
+      inp.addEventListener('compositionstart', () => {
+        composing = true;
+      });
+      inp.addEventListener('compositionend', () => {
+        composing = false;
+        applyFilter();
+      });
+      inp.oninput = () => {
+        if (!composing) applyFilter();
       };
     });
 
