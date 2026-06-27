@@ -7,6 +7,8 @@
 /** segments: 設定可能なメンバー区分（キャスト/スタッフ等） */
 export interface Segment {
   id: number;
+  /** URL／API 表面用の UUID（ADR 0016）。内部結合は id を使う */
+  uuid: string;
   guild_id: string;
   name: string;
   /** @メンション用 Discord ロールID / '@everyone' / null。設定時は「ロール管理区分」のメンバー源も兼ねる（ADR 0009） */
@@ -53,6 +55,8 @@ export type MentionMode = 'none' | 'role' | 'members';
 /** notifications: Server(guild_id) 配下の独立トラック */
 export interface Notification {
   id: number;
+  /** URL／API 表面用の UUID（ADR 0016）。内部結合は id を使う */
+  uuid: string;
   guild_id: string;
   segment_id: number;
   name: string;
@@ -137,6 +141,8 @@ export type OccurrenceStatus = 'scheduled' | 'cancelled';
 /** occurrences: Notification の 1 開催回（単発の複数候補では「日付＋時刻」のスロット1つ） */
 export interface Occurrence {
   id: number;
+  /** URL／API 表面用の UUID（ADR 0016）。内部結合は id を使う */
+  uuid: string;
   notification_id: number;
   /** 'YYYY/MM/DD'（JST・ゼロ埋めで辞書順=時系列順） */
   occurrence_date: string;
@@ -234,6 +240,8 @@ export type ConstraintStrength = 'required' | 'preferred';
 /** groupings: 1 Occurrence あたり 1 つ */
 export interface Grouping {
   id: number;
+  /** URL／API 表面用の UUID（ADR 0016） */
+  uuid: string;
   occurrence_id: number;
   group_count: number;
   created_at: string;
@@ -243,6 +251,8 @@ export interface Grouping {
 /** groups: グループ実体（表示順と名前を持つ） */
 export interface Group {
   id: number;
+  /** URL／API 表面用の UUID（ADR 0016） */
+  uuid: string;
   grouping_id: number;
   group_index: number;
   name: string;
@@ -257,6 +267,8 @@ export interface GroupMember {
 /** grouping_constraints: Notification 単位のペア制約 */
 export interface GroupingConstraint {
   id: number;
+  /** URL／API 表面用の UUID（ADR 0016） */
+  uuid: string;
   notification_id: number;
   /** ペアは a < b で正規化して保存 */
   user_id_a: string;

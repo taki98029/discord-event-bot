@@ -1,8 +1,9 @@
 import type { MentionMode, Notification, NotificationListItem, NotificationType } from './types';
 import { listOccurrencesForNotification, setOccurrenceStatus } from './occurrences';
+import { newUuid } from './uuid';
 
 const COLS =
-  'id, guild_id, segment_id, name, channel_id, type, rrule, one_off_date, anchor_date, start_time, ' +
+  'id, uuid, guild_id, segment_id, name, channel_id, type, rrule, one_off_date, anchor_date, start_time, ' +
   'duration_minutes, recruit_days_before, remind_start_days, remind_undecided_days, ' +
   'quota_enabled, quota_interval_days, assignment_enabled, grouping_enabled, mention_enabled, mention_mode, ' +
   'requires_response, message_title, message_body, active, ' +
@@ -76,6 +77,18 @@ export async function getNotification(
   return row ?? null;
 }
 
+/** UUID で Notification を取得（未登録なら null・ADR 0016） */
+export async function getNotificationByUuid(
+  db: D1Database,
+  uuid: string,
+): Promise<Notification | null> {
+  const row = await db
+    .prepare(`SELECT ${COLS} FROM notifications WHERE uuid = ?`)
+    .bind(uuid)
+    .first<Notification>();
+  return row ?? null;
+}
+
 /** チャンネルに紐づく active な Notification 一覧 */
 export async function listNotificationsByChannel(
   db: D1Database,
@@ -105,17 +118,19 @@ export async function createNotification(
   db: D1Database,
   input: NotificationInput,
 ): Promise<Notification> {
+  const uuid = newUuid();
   const res = await db
     .prepare(
       `INSERT INTO notifications (
-         guild_id, segment_id, name, channel_id, type, rrule, one_off_date, anchor_date, start_time,
+         uuid, guild_id, segment_id, name, channel_id, type, rrule, one_off_date, anchor_date, start_time,
          duration_minutes, recruit_days_before, remind_start_days, remind_undecided_days,
          quota_enabled, quota_interval_days, assignment_enabled, grouping_enabled, mention_mode, requires_response,
          message_title, message_body, active,
          response_deadline_hours, change_alert_channel_id, send_hour
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
+      uuid,
       input.guild_id,
       input.segment_id,
       input.name,
@@ -150,6 +165,7 @@ export async function createNotification(
   return (
     row ?? {
       id,
+      uuid,
       created_at: '',
       decided_occurrence_id: null,
       mention_enabled: input.mention_mode === 'role' ? 1 : 0,

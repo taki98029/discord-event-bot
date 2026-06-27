@@ -8,6 +8,7 @@ import type {
   Member,
 } from './types';
 import { resolveDisplayName } from './types';
+import { newUuid } from './uuid';
 
 /** Fisher-Yates シャッフル（in-place） */
 function shuffle<T>(arr: T[]): T[] {
@@ -30,9 +31,23 @@ export async function getGrouping(
 ): Promise<Grouping | null> {
   const row = await db
     .prepare(
-      'SELECT id, occurrence_id, group_count, created_at, updated_at FROM groupings WHERE occurrence_id = ?',
+      'SELECT id, uuid, occurrence_id, group_count, created_at, updated_at FROM groupings WHERE occurrence_id = ?',
     )
     .bind(occurrenceId)
+    .first<Grouping>();
+  return row ?? null;
+}
+
+/** UUID で Grouping を取得（未登録なら null・ADR 0016） */
+export async function getGroupingByUuid(
+  db: D1Database,
+  uuid: string,
+): Promise<Grouping | null> {
+  const row = await db
+    .prepare(
+      'SELECT id, uuid, occurrence_id, group_count, created_at, updated_at FROM groupings WHERE uuid = ?',
+    )
+    .bind(uuid)
     .first<Grouping>();
   return row ?? null;
 }
@@ -52,23 +67,25 @@ export async function upsertGrouping(
   const existing = await getGrouping(db, occurrenceId);
 
   if (!existing) {
+    const groupingUuid = newUuid();
     const res = await db
       .prepare(
-        'INSERT INTO groupings (occurrence_id, group_count, created_at, updated_at) VALUES (?, ?, ?, ?)',
+        'INSERT INTO groupings (uuid, occurrence_id, group_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
       )
-      .bind(occurrenceId, groupCount, ts, ts)
+      .bind(groupingUuid, occurrenceId, groupCount, ts, ts)
       .run();
     const groupingId = res.meta.last_row_id as number;
     for (let i = 0; i < groupCount; i++) {
       await db
         .prepare(
-          'INSERT INTO groups (grouping_id, group_index, name) VALUES (?, ?, ?)',
+          'INSERT INTO groups (uuid, grouping_id, group_index, name) VALUES (?, ?, ?, ?)',
         )
-        .bind(groupingId, i, `グループ ${i + 1}`)
+        .bind(newUuid(), groupingId, i, `グループ ${i + 1}`)
         .run();
     }
     return {
       id: groupingId,
+      uuid: groupingUuid,
       occurrence_id: occurrenceId,
       group_count: groupCount,
       created_at: ts,
@@ -81,9 +98,9 @@ export async function upsertGrouping(
       for (let i = existing.group_count; i < groupCount; i++) {
         await db
           .prepare(
-            'INSERT INTO groups (grouping_id, group_index, name) VALUES (?, ?, ?)',
+            'INSERT INTO groups (uuid, grouping_id, group_index, name) VALUES (?, ?, ?, ?)',
           )
-          .bind(existing.id, i, `グループ ${i + 1}`)
+          .bind(newUuid(), existing.id, i, `グループ ${i + 1}`)
           .run();
       }
     } else {
@@ -111,11 +128,20 @@ export async function upsertGrouping(
 export async function listGroups(db: D1Database, groupingId: number): Promise<Group[]> {
   const { results } = await db
     .prepare(
-      'SELECT id, grouping_id, group_index, name FROM groups WHERE grouping_id = ? ORDER BY group_index ASC',
+      'SELECT id, uuid, grouping_id, group_index, name FROM groups WHERE grouping_id = ? ORDER BY group_index ASC',
     )
     .bind(groupingId)
     .all<Group>();
   return results;
+}
+
+/** UUID で Group を取得（未登録なら null・ADR 0016） */
+export async function getGroupByUuid(db: D1Database, uuid: string): Promise<Group | null> {
+  const row = await db
+    .prepare('SELECT id, uuid, grouping_id, group_index, name FROM groups WHERE uuid = ?')
+    .bind(uuid)
+    .first<Group>();
+  return row ?? null;
 }
 
 /** グループ名を更新 */
@@ -367,7 +393,7 @@ export async function listConstraints(
 ): Promise<GroupingConstraint[]> {
   const { results } = await db
     .prepare(
-      `SELECT id, notification_id, user_id_a, user_id_b, direction, strength, created_at
+      `SELECT id, uuid, notification_id, user_id_a, user_id_b, direction, strength, created_at
          FROM grouping_constraints
         WHERE notification_id = ?
         ORDER BY id ASC`,
@@ -375,6 +401,21 @@ export async function listConstraints(
     .bind(notificationId)
     .all<GroupingConstraint>();
   return results;
+}
+
+/** UUID で GroupingConstraint を取得（未登録なら null・ADR 0016） */
+export async function getConstraintByUuid(
+  db: D1Database,
+  uuid: string,
+): Promise<GroupingConstraint | null> {
+  const row = await db
+    .prepare(
+      `SELECT id, uuid, notification_id, user_id_a, user_id_b, direction, strength, created_at
+         FROM grouping_constraints WHERE uuid = ?`,
+    )
+    .bind(uuid)
+    .first<GroupingConstraint>();
+  return row ?? null;
 }
 
 /**
@@ -396,7 +437,7 @@ export async function upsertConstraint(
   // 既存があれば direction/strength のみ更新
   const existing = await db
     .prepare(
-      `SELECT id, notification_id, user_id_a, user_id_b, direction, strength, created_at
+      `SELECT id, uuid, notification_id, user_id_a, user_id_b, direction, strength, created_at
          FROM grouping_constraints
         WHERE notification_id = ? AND user_id_a = ? AND user_id_b = ?`,
     )
@@ -413,16 +454,18 @@ export async function upsertConstraint(
     return { ...existing, direction, strength };
   }
 
+  const uuid = newUuid();
   const res = await db
     .prepare(
       `INSERT INTO grouping_constraints
-         (notification_id, user_id_a, user_id_b, direction, strength, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+         (uuid, notification_id, user_id_a, user_id_b, direction, strength, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
-    .bind(notificationId, a, b, direction, strength, ts)
+    .bind(uuid, notificationId, a, b, direction, strength, ts)
     .run();
   return {
     id: res.meta.last_row_id as number,
+    uuid,
     notification_id: notificationId,
     user_id_a: a,
     user_id_b: b,

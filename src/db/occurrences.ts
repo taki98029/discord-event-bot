@@ -1,6 +1,7 @@
 import type { Occurrence, OccurrenceStatus } from './types';
+import { newUuid } from './uuid';
 
-const COLS = 'id, notification_id, occurrence_date, start_time, status, created_at';
+const COLS = 'id, uuid, notification_id, occurrence_date, start_time, status, created_at';
 
 /**
  * Occurrence を取得 or 生成。UNIQUE(notification_id, occurrence_date, start_time) で upsert。
@@ -22,9 +23,10 @@ export async function getOrCreateOccurrence(
     .first<Occurrence>();
   if (existing) return existing;
 
+  const uuid = newUuid();
   const res = await db
-    .prepare('INSERT INTO occurrences (notification_id, occurrence_date, start_time) VALUES (?, ?, ?)')
-    .bind(notificationId, dateStr, startTime)
+    .prepare('INSERT INTO occurrences (uuid, notification_id, occurrence_date, start_time) VALUES (?, ?, ?, ?)')
+    .bind(uuid, notificationId, dateStr, startTime)
     .run();
   const id = res.meta.last_row_id as number;
   const row = await db
@@ -34,6 +36,7 @@ export async function getOrCreateOccurrence(
   return (
     row ?? {
       id,
+      uuid,
       notification_id: notificationId,
       occurrence_date: dateStr,
       start_time: startTime,
@@ -48,6 +51,18 @@ export async function getOccurrence(db: D1Database, id: number): Promise<Occurre
   const row = await db
     .prepare(`SELECT ${COLS} FROM occurrences WHERE id = ?`)
     .bind(id)
+    .first<Occurrence>();
+  return row ?? null;
+}
+
+/** UUID で Occurrence を取得（未登録なら null・ADR 0016） */
+export async function getOccurrenceByUuid(
+  db: D1Database,
+  uuid: string,
+): Promise<Occurrence | null> {
+  const row = await db
+    .prepare(`SELECT ${COLS} FROM occurrences WHERE uuid = ?`)
+    .bind(uuid)
     .first<Occurrence>();
   return row ?? null;
 }

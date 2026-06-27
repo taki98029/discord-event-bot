@@ -25,6 +25,7 @@ async function insertNotification(
 ): Promise<Notification> {
   const n: Notification = {
     id: 0,
+    uuid: '00000000-0000-0000-0000-000000000001',
     guild_id: guildId,
     segment_id: segmentId,
     name: 'テスト通知',

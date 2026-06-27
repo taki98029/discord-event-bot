@@ -8,6 +8,7 @@ import type { Segment } from '../src/db/types';
 /** mention_role_id だけ差し替えた最小 Segment */
 const seg = (role: string | null): Segment => ({
   id: 1,
+  uuid: '00000000-0000-0000-0000-000000000001',
   guild_id: 'g1',
   name: 's',
   mention_role_id: role,

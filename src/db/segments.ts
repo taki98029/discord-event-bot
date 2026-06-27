@@ -1,6 +1,7 @@
 import type { Member, Segment, SegmentMember } from './types';
+import { newUuid } from './uuid';
 
-const SEG_COLS = 'id, guild_id, name, mention_role_id, members_synced_at, created_at';
+const SEG_COLS = 'id, uuid, guild_id, name, mention_role_id, members_synced_at, created_at';
 const MEMBER_COLS = 'm.user_id, m.user_name, m.display_name, m.dm_channel_id, m.created_at';
 
 /** Segment 取得（guildId 指定時はそのギルドのみ、未指定で全件） */
@@ -27,20 +28,31 @@ export async function getSegment(db: D1Database, id: number): Promise<Segment | 
   return row ?? null;
 }
 
+/** UUID で Segment を取得（未登録なら null・ADR 0016） */
+export async function getSegmentByUuid(db: D1Database, uuid: string): Promise<Segment | null> {
+  const row = await db
+    .prepare(`SELECT ${SEG_COLS} FROM segments WHERE uuid = ?`)
+    .bind(uuid)
+    .first<Segment>();
+  return row ?? null;
+}
+
 /** Segment 作成。採番後の行を返す */
 export async function createSegment(
   db: D1Database,
   input: { guild_id: string; name: string; mention_role_id: string | null },
 ): Promise<Segment> {
+  const uuid = newUuid();
   const res = await db
-    .prepare('INSERT INTO segments (guild_id, name, mention_role_id) VALUES (?, ?, ?)')
-    .bind(input.guild_id, input.name, input.mention_role_id ?? null)
+    .prepare('INSERT INTO segments (uuid, guild_id, name, mention_role_id) VALUES (?, ?, ?, ?)')
+    .bind(uuid, input.guild_id, input.name, input.mention_role_id ?? null)
     .run();
   const id = res.meta.last_row_id as number;
   const row = await getSegment(db, id);
   return (
     row ?? {
       id,
+      uuid,
       guild_id: input.guild_id,
       name: input.name,
       mention_role_id: input.mention_role_id ?? null,
@@ -198,7 +210,7 @@ export async function listSegmentsForMember(
 ): Promise<Segment[]> {
   const { results } = await db
     .prepare(
-      `SELECT s.id, s.guild_id, s.name, s.mention_role_id, s.members_synced_at, s.created_at
+      `SELECT s.id, s.uuid, s.guild_id, s.name, s.mention_role_id, s.members_synced_at, s.created_at
          FROM segment_members sm
          JOIN segments s ON s.id = sm.segment_id
         WHERE sm.user_id = ?
