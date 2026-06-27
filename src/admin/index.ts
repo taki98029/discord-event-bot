@@ -180,10 +180,7 @@ function toNotificationInput(b: Record<string, unknown>): NotificationInput | nu
     // 回答不要はグループ分けも対象外（参加者が集計されないため）。
     grouping_enabled: announceOnly ? 0 : b.grouping_enabled ? 1 : 0,
     // メンション方法（ADR 0010）。不正値は 'role' に倒す。
-    mention_mode: ((): MentionMode => {
-      const m = b.mention_mode;
-      return m === 'none' || m === 'role' || m === 'members' ? m : 'role';
-    })(),
+    mention_mode: (b.mention_mode === 'none' || b.mention_mode === 'members' ? b.mention_mode : 'role') as MentionMode,
     requires_response: requiresResponse,
     // 見出し（必須・1行・最大100字）。改行は空白化。空かどうかは呼び出し側で 400 判定する。
     message_title: String(b.message_title ?? '').replace(/[\r\n]+/g, ' ').trim().slice(0, 100),
