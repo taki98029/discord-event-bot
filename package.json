@@ -7,12 +7,14 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy && npm run db:migrate:remote",
+    "deploy:staging": "wrangler deploy --env staging && wrangler d1 migrations apply DB --remote --env staging",
     "deploy:cli": "wrangler d1 migrations apply DB --remote --config wrangler.local.jsonc && wrangler deploy --config wrangler.local.jsonc",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "db:migrate:remote:staging": "wrangler d1 migrations apply DB --remote --env staging",
     "register-commands": "node scripts/register-commands.js",
     "build:tables": "node design-system/build-ui-tables.mjs",
     "build:sortable": "node design-system/build-ui-sortable.mjs"

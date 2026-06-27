@@ -1,21 +1,32 @@
 {
-  // 配布用の Cloudflare 設定（JSONC）。利用者の fork を接続した Cloudflare Workers Builds が
-  // このファイルを読む。JSON 形式なのは、自動生成された database_id の「書き戻し」が
-  // .toml では行われない問題（workers-sdk issue #13632）を避けるため。
+  // ★ Unified Wrangler 設定（main / staging / public/main すべて同一）★
+  //
+  // 配布用 = base（main / public/main）: 利用者の fork を接続した Cloudflare Workers Builds
+  //   がこのファイルを読み、Worker `discord-event-bot` と D1 `choiemu-event-bot-db` を
+  //   自動生成（または再利用）してデプロイする。利用者の Deploy command は `npm run deploy`。
+  //
+  // ②検証 staging = `env.staging` 上書き: `wrangler deploy --env staging` で
+  //   Worker 名 = `discord-event-bot-staging`（base name + `-staging` 自動サフィックス）
+  //   D1 名/ID  = `choiemu-event-bot-db-staging` / `43d98794-…`
+  //   へデプロイする。
+  //   ★ Workers Builds の staging プロジェクトは Deploy command を **`npm run deploy:staging`**
+  //     に設定すること。素の `npm run deploy` は base = 本番 Worker(`discord-event-bot`) を狙う
+  //     ため、staging プロジェクトに設定すると staging push で **本番にデプロイされる事故** に
+  //     なる（ガード不可・要厳守）。
+  //
+  // JSONC を使う理由: 自動生成された database_id の「書き戻し」が .toml では行われない
+  //   workers-sdk issue #13632 を避けるため。
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "discord-event-bot",
   "main": "src/index.ts",
   "compatibility_date": "2024-12-30",
   "compatibility_flags": ["nodejs_compat"],
 
-  // --- D1 データベース ---
-  // database_id は「記載しない（省略）」。Cloudflare の自動プロビジョニング（2025-10-24〜）は
-  // 「id の無いバインディング＝新規作成」とみなし、利用者のアカウントに D1 を自動生成する。
-  // ※ wrangler deploy が作成後に database_id を JSONC へ書き戻す → その後 migrations が解決できる。
-  //    そのため deploy スクリプトは「deploy → migrations」の順にする（workers-sdk issue #13632）。
-  // ※ 保守者がローカル CLI から本番 Choiemu へデプロイするときは、実 database_id を持つ
-  //    wrangler.local.jsonc（gitignore 済み）を使う（package.json の deploy:cli）。理由は
-  //    docs/dev/distribution-and-environments.html §4 リスク① / §5 を参照。
+  // --- D1 データベース（base = 配布／本番）---
+  // database_id は記載しない（省略）。Cloudflare の自動プロビジョニング（2025-10-24〜）は
+  // 「id 無しバインディング ＝ 同名既存 D1 を再利用、無ければ新規作成」と動く。
+  // 利用者の fork デプロイでは新規作成、本番再デプロイでは既存 choiemu-event-bot-db を再利用。
+  // 保守者がローカル CLI から本番へ直接デプロイするときは wrangler.local.jsonc を `--config`。
   "d1_databases": [
     {
       "binding": "DB",
@@ -26,16 +37,41 @@
 
   // --- cron（毎分。ADR 0013 のペース配信。実送信は通知ごとの send_hour で時刻ゲート＋予算ドレイン。
   //     旧「0 12 * * *＝1日1回 JST21:00 固定」を置換。送信ログ send_log で毎分実行でも二重送信しない）---
+  // env.staging へは継承される（再記述不要）。
   "triggers": {
     "crons": ["* * * * *"]
   },
 
   // --- 管理UI（静的アセット）---
   // ui/ を SPA として配信。env.ASSETS でプログラムからも参照可能。
+  // env.staging へは継承される（再記述不要）。
   "assets": {
     "directory": "./ui",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application"
+  },
+
+  // --- ②検証 staging 上書き ---
+  // `wrangler deploy --env staging` で適用。
+  // `name` は明示的に "discord-event-bot-staging" を設定（base + `-staging` 自動サフィックスと
+  // 同じ値だが、Cloudflare Workers Builds の静的チェックが top-level `name` しか見ない結果
+  // 「設定不一致」と警告し auto-PR を立ててくる挙動への対策。明記しておくことで意図が明確化し
+  // 警告抑止も期待できる）。auto-PR が top-level `name` を `*-staging` に書き換える提案を出した
+  // 場合は **絶対に merge しないこと**（本番デプロイが壊れる）。詳細は .claude/rules/repo-and-environments.md。
+  // d1_databases は環境継承されないキーのため全項目を再記述する。staging D1 の id を明記して
+  // 自動プロビジョニング曖昧性を排除している（利用者は --env staging を使わないため id 漏洩リスクなし）。
+  "env": {
+    "staging": {
+      "name": "discord-event-bot-staging",
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "choiemu-event-bot-db-staging",
+          "database_id": "43d98794-8b33-4114-867d-296b2d2697f2",
+          "migrations_dir": "migrations"
+        }
+      ]
+    }
   }
 
   // シークレットは Worker の Variables and Secrets、または wrangler secret put で設定（コミットしない）:
