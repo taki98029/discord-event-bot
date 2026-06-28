@@ -515,8 +515,8 @@
         font-size:13px;
       }
       .grouping-card:active { cursor: grabbing; }
-      .grouping-card.violated-required { border-color: var(--danger); box-shadow: 0 0 0 1px var(--danger); }
-      .grouping-card.violated-preferred { border-color: var(--warn); box-shadow: 0 0 0 1px var(--warn); }
+      .grouping-card.violated-required { border-color: var(--danger); box-shadow: 0 0 0 2px var(--danger); background: color-mix(in srgb, var(--danger) 18%, transparent); }
+      .grouping-card.violated-preferred { border-color: var(--warn); border-style: dashed; }
       .grouping-card.no-longer { opacity:.55; text-decoration: line-through; }
       .grouping-card .badge { font-size:10px; padding:1px 5px; border-radius:8px; }
       .grouping-card .badge.new { background: var(--accent-soft); color: var(--accent); }
@@ -1817,9 +1817,8 @@
         const isGone = currentGroupId !== null && view.diff.no_longer_participating.some(
           (x) => x.user_id === m.user_id && x.group_id === currentGroupId,
         );
-        const isNew = currentGroupId === null && view.diff.newly_participating.some((x) => x.user_id === m.user_id);
-        const badge = isGone ? '<span class="badge gone">不参加に変更</span>'
-          : (isNew && view.grouping ? '<span class="badge new">新規参加</span>' : '');
+        // ponytail: 未割り当てカラムにいる=未割り当てなのは自明なので「新規参加」バッジは出さない
+        const badge = isGone ? '<span class="badge gone">不参加に変更</span>' : '';
         return `<div class="grouping-card${isGone ? ' no-longer' : ''}" data-user-id="${esc(m.user_id)}">
           <span>${esc(m.name)}</span>${badge}
         </div>`;
