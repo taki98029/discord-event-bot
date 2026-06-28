@@ -2052,7 +2052,9 @@
         const rows = groupingState.constraints.map((c) => `
           <div class="grouping-constraint-row" data-cuuid="${esc(c.uuid)}">
             <span>${esc(nameOfUser(c.user_id_a))} ${c.direction === 'together' ? '🤝' : '🚫'} ${esc(nameOfUser(c.user_id_b))}</span>
-            <span class="pill ${c.strength === 'required' ? 'off' : 'on'}" style="font-size:11px">${c.strength === 'required' ? '必須' : '推奨'}</span>
+            ${c.strength === 'required'
+              ? '<span class="pill" style="font-size:11px;background:color-mix(in srgb,var(--danger) 18%,transparent);color:var(--danger);border-color:color-mix(in srgb,var(--danger) 55%,transparent)">必須</span>'
+              : '<span class="pill" style="font-size:11px">推奨</span>'}
             <span class="spacer"></span>
             <button class="btn sm ghost" data-del-constraint="${esc(c.uuid)}">削除</button>
           </div>`).join('');
