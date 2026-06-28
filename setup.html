@@ -246,9 +246,14 @@
     /* aria-selected でも色強調しない（ユーザー指示） */
 
     /* タブによるパネル表示制御 */
-    body[data-tab="steps"] [data-pane="others"],
-    body[data-tab="others"] [data-pane="steps"] { display: none; }
-    body[data-tab="others"] .progress { display: none; }
+    body[data-tab="steps"]  [data-pane="others"],
+    body[data-tab="steps"]  [data-pane="update"],
+    body[data-tab="others"] [data-pane="steps"],
+    body[data-tab="others"] [data-pane="update"],
+    body[data-tab="update"] [data-pane="steps"],
+    body[data-tab="update"] [data-pane="others"] { display: none; }
+    body[data-tab="others"] .progress,
+    body[data-tab="update"] .progress { display: none; }
 
     /* --- レイアウト：>=1000px で左サイドメニュー --- */
     .layout { max-width: 1010px; margin: 0 auto; }
@@ -315,8 +320,9 @@
     <aside class="sidebar" aria-label="ナビゲーション">
       <nav class="side-tabs" role="tablist" aria-label="表示切替">
         <div class="side-nav-group">メニュー</div>
-        <button class="side-tab" type="button" role="tab" data-tab="steps" aria-selected="true">📋 セットアップ手順</button>
-        <button class="side-tab" type="button" role="tab" data-tab="others" aria-selected="false">📚 困ったとき・更新</button>
+        <button class="side-tab" type="button" role="tab" data-tab="steps"  aria-selected="true" >📋 セットアップ手順</button>
+        <button class="side-tab" type="button" role="tab" data-tab="update" aria-selected="false">🔄 更新手順</button>
+        <button class="side-tab" type="button" role="tab" data-tab="others" aria-selected="false">📚 困ったとき</button>
       </nav>
       <nav class="side-nav" data-pane="steps">
         <div class="side-nav-group">セットアップ手順</div>
@@ -328,11 +334,18 @@
         <a href="#s5" data-jump="s5">5 Discord に接続先 URL</a>
         <a href="#s6" data-jump="s6">6 中身を作る</a>
       </nav>
+      <nav class="side-nav" data-pane="update">
+        <div class="side-nav-group">更新手順</div>
+        <a href="#u1" data-jump="u1">1 自分の fork を開く</a>
+        <a href="#u2" data-jump="u2">2 「Sync fork」を押す</a>
+        <a href="#u3" data-jump="u3">3 Cloudflare で再デプロイを確認</a>
+        <a href="#u4" data-jump="u4">4 Discord で動作確認</a>
+        <a href="#u5" data-jump="u5">5 うまくいかないとき（再 fork）</a>
+      </nav>
       <nav class="side-nav" data-pane="others">
-        <div class="side-nav-group">困ったとき・更新</div>
+        <div class="side-nav-group">困ったとき</div>
         <a href="#ref-admintoken" data-jump="ref-admintoken">🔑 ADMIN_TOKEN を忘れたとき</a>
         <a href="#ref-trouble" data-jump="ref-trouble">🆘 うまくいかないときは</a>
-        <a href="#ref-update" data-jump="ref-update">🔄 アップデートのしかた</a>
       </nav>
     </aside>
 
@@ -809,21 +822,91 @@
       </div>
     </details>
 
-    <!-- 参照: アップデートのしかた -->
-    <details class="step" id="ref-update">
+    </section>
+
+    <!-- ===== 更新手順 ペイン ===== -->
+    <section data-pane="update">
+    <div class="note">
+      <b>新バージョンが公開されたら、自分の GitHub の fork で「Sync fork」を 1 回押すだけ</b>で取り込まれます。Cloudflare が自動で再デプロイし、データベースの更新も自動で適用されます。<b>登録済みのメンバー・回答・通知などのデータは保持</b>されます。
+    </div>
+
+    <!-- UPDATE 1 -->
+    <details class="step" id="u1" open>
       <summary>
-        <span class="num">🔄</span>
-        <span class="summary-txt"><h2>アップデートのしかた</h2><span class="sub">新バージョンが出たら GitHub の fork で「Sync fork」を実行</span></span>
+        <span class="num"><span>1</span></span>
+        <span class="summary-txt"><h2>自分の fork を開く</h2><span class="sub">セットアップ手順3 で作った fork ページを開く</span></span>
         <span class="chev">▶</span>
       </summary>
       <div class="body">
-        <p>新しいバージョンが出たら、<b>自分の GitHub の fork ページ</b>（手順3 で作ったコピー）を開いて <b>「Sync fork」</b> ボタンを押します。</p>
-        <ol>
-          <li>Cloudflare が変更を検知して<b>自動で再デプロイ</b>します。</li>
-          <li><b>データベースも自動で最新の状態に更新</b>されます（むずかしい更新作業を自分でやる必要はありません）。</li>
-        </ol>
-        <div class="step-tip">「DB変更あり」と書かれたリリースでも、操作は <b>「Sync fork」</b> で共通です。必要なデータベースの更新も自動で適用されます。</div>
-        <div class="step-tip">この自動更新は、手順3 ③の <b>Deploy command が <span class="pill">npm run deploy</span> のまま</b>であることに依存します（素の <span class="pill">wrangler deploy</span> に変えると、データベースの自動更新が止まります）。<b>同じ Worker に更新する限り、これまでのデータ（メンバー・回答など）は保持</b>されます。</div>
+        <p>セットアップ手順 3 ① で作った<b>自分の GitHub の fork ページ</b>を開きます。アドレスは <span class="pill">https://github.com/&lt;あなた&gt;/discord-event-bot</span> です。</p>
+        <div class="step-tip">新しいバージョンがあれば、ページ上部に <b>「This branch is N commits behind ...」</b>（N コミット遅れています）の表示が出ます。出ていなければ既に最新で、何もする必要はありません。</div>
+      </div>
+    </details>
+
+    <!-- UPDATE 2 -->
+    <details class="step" id="u2">
+      <summary>
+        <span class="num"><span>2</span></span>
+        <span class="summary-txt"><h2>「Sync fork」を押す</h2><span class="sub">プルダウンを開いて Update branch をクリック</span></span>
+        <span class="chev">▶</span>
+      </summary>
+      <div class="body">
+        <p>ページ上部の <b>「Sync fork」</b> ボタン（プルダウン）を開き、出てきた <b>「Update branch」</b>（緑のボタン）を押します。表示が <b>「This branch is up to date」</b> に変われば取り込み完了です。</p>
+        <div class="step-tip">この操作で fork の <span class="pill">main</span> ブランチに新しいコミットが入り、それが Cloudflare の自動デプロイのトリガーになります。</div>
+      </div>
+    </details>
+
+    <!-- UPDATE 3 -->
+    <details class="step" id="u3">
+      <summary>
+        <span class="num"><span>3</span></span>
+        <span class="summary-txt"><h2>Cloudflare で再デプロイを確認する</h2><span class="sub">Deployments タブに新しい行が増えれば OK（所要 1〜3 分）</span></span>
+        <span class="chev">▶</span>
+      </summary>
+      <div class="body">
+        <p>fork に取り込みが入ると、Cloudflare が変更を検知して<b>自動で再デプロイ</b>します。確認するには、<span class="where">Cloudflare ダッシュボード<span class="arr">▸</span>Workers &amp; Pages<span class="arr">▸</span>あなたの Worker<span class="arr">▸</span>Deployments</span> を開きます。新しい行が増え、ステータスが緑の <b>「Active」</b>（または <b>「Success」</b>）になっていれば成功です。</p>
+        <div class="step-tip">行に <b>赤い ✗</b>（失敗）が出ているときはビルド失敗です。行をクリックして「Build log」を確認します。よくある原因は、セットアップ手順3 ③ の <b>Deploy command が <span class="pill">npm run deploy</span> 以外</b>になっていること。</div>
+      </div>
+    </details>
+
+    <!-- UPDATE 4 -->
+    <details class="step" id="u4">
+      <summary>
+        <span class="num"><span>4</span></span>
+        <span class="summary-txt"><h2>Discord で動作確認</h2><span class="sub">/help が反応すれば成功</span></span>
+        <span class="chev">▶</span>
+      </summary>
+      <div class="body">
+        <p>Discord で <span class="pill">/help</span> を実行し、反応すれば成功です。新コマンドが追加されたリリースのときは、リリースノートに書かれた新コマンドも試してください。管理画面（<span class="pill">/manage</span>）の操作感に変化があるかも合わせて確認すると安心です。</p>
+        <div class="step-tip"><b>「DB変更あり」のリリース</b>でも、利用者の操作は <b>「Sync fork」</b> 1 回だけで同じです。データベースのスキーマ更新も自動で適用されます。</div>
+        <div class="step-tip">この自動更新は、セットアップ手順3 ③ の <b>Deploy command が <span class="pill">npm run deploy</span> のまま</b>であることに依存します（素の <span class="pill">wrangler deploy</span> に変えると、データベースの自動更新が止まります）。<b>同じ Worker に更新する限り、これまでのデータ（メンバー・回答など）は保持</b>されます。</div>
+      </div>
+    </details>
+
+    <!-- UPDATE 5 -->
+    <details class="step" id="u5">
+      <summary>
+        <span class="num"><span>5</span></span>
+        <span class="summary-txt"><h2>うまく Sync fork できないとき（再 fork）</h2><span class="sub">履歴が壊れている場合は fork を作り直す（データは保持）</span></span>
+        <span class="chev">▶</span>
+      </summary>
+      <div class="body">
+        <p>次のような表示が出た場合は、fork そのものが壊れている可能性があります（過去に「Deploy to Cloudflare」ボタン経由で作られた／別経路で clone された／upstream の履歴が書き換わった など）。</p>
+        <ul>
+          <li><b>「This branch has conflicts that must be resolved」</b>（コンフリクト）— 通常は「Sync fork」プルダウン内のオプションで解消できますが、進まないときは下の対処へ。</li>
+          <li><b>「entirely different commit histories」</b>（履歴が完全に別物）— Sync fork は構造的に効かないため、<b>fork し直し</b>が必要です。</li>
+        </ul>
+
+        <h3 class="substep"><span class="n">1</span>壊れた fork を削除する</h3>
+        <p>GitHub で<b>自分の壊れた fork</b> のページを開き、<span class="where">Settings<span class="arr">▸</span>General<span class="arr">▸</span>Danger Zone</span> 最下部の <b>「Delete this repository」</b> で削除します。</p>
+
+        <h3 class="substep"><span class="n">2</span>公開リポジトリから fork し直す</h3>
+        <p>セットアップ手順 3 ① と同じ要領で、<b>公開リポジトリから fork し直します</b>。</p>
+
+        <h3 class="substep"><span class="n">3</span>Cloudflare を新 fork に接続し直す</h3>
+        <p>セットアップ手順 3 ②〜⑤ と同じ要領で、Cloudflare 側を新 fork に接続し直します。新しい Worker を作る場合は <b>Secrets 4 つ</b>と、Discord Developer Portal の <b>Interaction Endpoint URL</b> も再設定してください。</p>
+
+        <div class="step-tip"><b>データは消えません</b>: Cloudflare 側の D1 データベースを削除しない限り、同名の D1 が自動で再利用されるため、メンバー・回答・通知などのデータは保持されます。心配なときは、再 fork 前に管理画面からエクスポートしてバックアップを取っておくと万全です。</div>
       </div>
     </details>
     </section>
@@ -1008,9 +1091,9 @@
       function markValid(id, ok) { var el = $(id); if (el) el.classList.toggle("valid", !!(ok && el.value)); }
       function toggleErr(id, show) { var el = $(id); if (el) el.hidden = !show; }
 
-      // --- タブ切替（サイドメニュー上段の 📋 / 📚） ---
+      // --- タブ切替（サイドメニュー上段の 📋 / 🔄 / 📚） ---
       function setTab(name) {
-        if (name !== "steps" && name !== "others") name = "steps";
+        if (name !== "steps" && name !== "update" && name !== "others") name = "steps";
         document.body.dataset.tab = name;
         document.querySelectorAll(".side-tab").forEach(function (b) {
           b.setAttribute("aria-selected", b.getAttribute("data-tab") === name ? "true" : "false");
@@ -1039,7 +1122,7 @@
         });
       });
 
-      setTab(state.tab === "others" ? "others" : "steps");
+      setTab(state.tab === "others" ? "others" : state.tab === "update" ? "update" : "steps");
       render();
     })();
   </script>

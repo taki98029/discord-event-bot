@@ -217,6 +217,7 @@ async function handleNotify(
 function handleHelp(): InteractionResponse {
   const content = [
     '📖 **EventMasterBot — 使い方ガイド**',
+    '_バージョン v8.3.0_',
     '',
     'このサーバーで **イベントの告知と出欠集計** を行う Bot です。',
     'イベントの開催情報をチャンネルに自動で投稿し、あなたは **ボタンを押すだけ** で参加/不参加を伝えられます。',
