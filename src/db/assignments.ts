@@ -24,10 +24,10 @@ export async function assignNumbers(
   all: { user_id: string; number: number; name: string }[];
 }> {
   // 既存 assignments を全クリア（振り直し）
-  await db
-    .prepare('DELETE FROM assignments WHERE occurrence_id = ?')
-    .bind(occurrenceId)
-    .run();
+  // await db
+  //   .prepare('DELETE FROM assignments WHERE occurrence_id = ?')
+  //   .bind(occurrenceId)
+  //  .run();
 
   // 参加者を順序付きで取得（早い順は SQL ORDER BY、ランダムはアプリ層シャッフル）
   const orderBy =
@@ -107,6 +107,16 @@ export async function getAssignments(
          FROM assignments a
          LEFT JOIN members m ON m.user_id = a.user_id
         WHERE a.occurrence_id = ?
+          AND NOT EXISTS (
+              SELECT 1
+                FROM group_members gm
+                JOIN groups g
+                  ON g.id = gm.group_id
+                JOIN groupings gp
+                  ON gp.id = g.grouping_id
+               WHERE gm.user_id = a.user_id
+                 AND gp.occurrence_id = a.occurrence_id
+              )
         ORDER BY a.number ASC`,
     )
     .bind(occurrenceId)
