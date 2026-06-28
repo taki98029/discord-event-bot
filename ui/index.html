@@ -614,6 +614,19 @@
             <div class="modal-body" id="occBox"></div>
             <div class="modal-foot"><button type="button" class="btn ghost" data-occ-close>閉じる</button></div>
           </dialog>
+          <dialog class="modal-lg as-page" id="assignmentDialog" aria-labelledby="assignmentTitle">
+            <div class="modal-head">
+              <div>
+                <div class="page-crumb"><a href="#" id="assignmentCrumbBack">番号割り当て/グループ分け</a> <span>›</span> <span>番号割り当て</span></div>
+                <h3 id="assignmentTitle">番号割り当て</h3>
+              </div>
+              <button type="button" class="page-back" id="assignmentClose" aria-label="戻る">← 戻る</button>
+            </div>
+            <div class="modal-body" id="assignmentBox"></div>
+            <div class="modal-foot">
+              <button type="button" class="btn ghost" id="assignmentCancel">閉じる</button>
+            </div>
+          </dialog>
           <dialog class="modal-lg as-page" id="groupingDialog" aria-labelledby="groupingTitle">
             <div class="modal-head">
               <div>
@@ -861,6 +874,7 @@
             if (rest[2] === 'edit') return { kind: 'notif-edit', nuuid: rest[1] };
             if (rest[2] === 'occurrences') {
               if (rest[4] === 'grouping') return { kind: 'grouping', nuuid: rest[1], ouuid: rest[3] };
+              if (rest[4] === 'assignment') return { kind: 'assignment', nuuid: rest[1], ouuid: rest[3] };
               return { kind: 'occurrences', nuuid: rest[1] };
             }
           }
@@ -881,14 +895,15 @@
             await tryCloseModal('nDialog', attemptCloseNotif);
             closeIfOpen('#occDialog');
             await tryCloseModal('groupingDialog', attemptCloseGrouping);
+            closeIfOpen('#assignmentDialog');
             closeIfOpen('#segMembersDialog');
             return;
           case 'notif-new':
-            closeIfOpen('#occDialog'); closeIfOpen('#groupingDialog'); closeIfOpen('#segMembersDialog');
+            closeIfOpen('#occDialog'); closeIfOpen('#groupingDialog'); closeIfOpen('#assignmentDialog'); closeIfOpen('#segMembersDialog');
             if (!$('#nDialog')?.open) openNotifModal(null);
             return;
           case 'notif-edit': {
-            closeIfOpen('#occDialog'); closeIfOpen('#groupingDialog'); closeIfOpen('#segMembersDialog');
+            closeIfOpen('#occDialog'); closeIfOpen('#groupingDialog'); closeIfOpen('#assignmentDialog'); closeIfOpen('#segMembersDialog');
             const n = cacheNotifs.find((x) => x.uuid === want.nuuid);
             if (n) { if (!$('#nDialog')?.open) openNotifModal(n); }
             else { try {
@@ -898,15 +913,19 @@
             return;
           }
           case 'occurrences':
-            closeIfOpen('#nDialog'); closeIfOpen('#groupingDialog'); closeIfOpen('#segMembersDialog');
+            closeIfOpen('#nDialog'); closeIfOpen('#groupingDialog'); closeIfOpen('#assignmentDialog'); closeIfOpen('#segMembersDialog');
             loadOccurrences(want.nuuid);
             return;
           case 'grouping':
-            closeIfOpen('#nDialog'); closeIfOpen('#occDialog'); closeIfOpen('#segMembersDialog');
+            closeIfOpen('#nDialog'); closeIfOpen('#occDialog'); closeIfOpen('#assignmentDialog'); closeIfOpen('#segMembersDialog');
             openGroupingDialog(want.ouuid, want.nuuid);
             return;
+          case 'assignment':
+            closeIfOpen('#nDialog'); closeIfOpen('#occDialog'); closeIfOpen('#groupingDialog'); closeIfOpen('#segMembersDialog');
+            openAssignmentDialog(want.ouuid, want.nuuid);
+            return;
           case 'seg-members':
-            closeIfOpen('#nDialog'); closeIfOpen('#occDialog'); closeIfOpen('#groupingDialog');
+            closeIfOpen('#nDialog'); closeIfOpen('#occDialog'); closeIfOpen('#groupingDialog'); closeIfOpen('#assignmentDialog');
             loadSegmentMembers(want.suuid);
             return;
         }
@@ -1650,7 +1669,7 @@
             <div>${esc(occLabel(o, n && n.duration_minutes))} <span class="pill ${pillCls}">${label}</span>
               <br><span class="muted" id="tally-${cssId(o.uuid)}" style="font-size:12px">集計中…</span></div>
             <div class="actions">${decideBtn}${undecideBtn}
-              <button class="btn sm secondary" data-occ="${esc(o.uuid)}">番号割り当て</button>
+              <button class="btn sm secondary" data-assign-occ="${esc(o.uuid)}" data-nuuid="${esc(notifUuid)}">番号割り当て</button>
               <button class="btn sm secondary" data-grouping-occ="${esc(o.uuid)}" data-nuuid="${esc(notifUuid)}">グループ分け</button></div></div>`;
         }).join('');
         const recruitBtn = n
@@ -1658,10 +1677,11 @@
         $('#occTitle').textContent = `番号割り当て/グループ分け: ${n ? n.name : notifUuid} (${occs.length})`;
         const _occCrumb = $('#occCrumb'); if (_occCrumb) _occCrumb.textContent = n ? n.name : '番号割り当て/グループ分け';
         $('#occBox').innerHTML = `${recruitBtn}
-          ${occs.length ? rows : '<div class="empty">対象の開催日がまだありません。<br>単発は保存時に候補が、繰り返しは募集タイミングで生成されます。</div>'}
-          <div id="assignBox"></div>`;
+          ${occs.length ? rows : '<div class="empty">対象の開催日がまだありません。<br>単発は保存時に候補が、繰り返しは募集タイミングで生成されます。</div>'}`;
         openAsPage($('#occDialog'));
-        document.querySelectorAll('[data-occ]').forEach((b) => { b.onclick = () => loadAssignments(b.dataset.occ); });
+        document.querySelectorAll('[data-assign-occ]').forEach((b) => {
+          b.onclick = () => navigate('notifications/' + b.dataset.nuuid + '/occurrences/' + b.dataset.assignOcc + '/assignment');
+        });
         document.querySelectorAll('[data-grouping-occ]').forEach((b) => {
           b.onclick = () => navigate('notifications/' + b.dataset.nuuid + '/occurrences/' + b.dataset.groupingOcc + '/grouping');
         });
@@ -1692,7 +1712,7 @@
       }
       function renderAssignments(occUuid, list) {
         const rows = (list || []).map((a) => `<tr><td>#${a.number}</td><td>${esc(a.name || a.user_id)}</td><td class="muted">${esc(a.user_id)}</td></tr>`).join('');
-        $('#assignBox').innerHTML = `<h3 style="margin-top:14px">番号割り当て</h3>
+        $('#assignmentBox').innerHTML = `
           ${list && list.length ? `<table><thead><tr><th>番号</th><th>表示名</th><th>User ID</th></tr></thead><tbody>${rows}</tbody></table>`
             : '<p class="muted">割り当てはまだありません。</p>'}
           <p class="muted" style="font-size:12px;margin-top:8px">実行すると既存の番号は破棄され、参加者全員に 1..N で振り直します（ADR 0018）。</p>
@@ -1713,6 +1733,20 @@
       }
       async function loadAssignments(occUuid) {
         try { renderAssignments(occUuid, await api('/occurrences/' + occUuid + '/assignments')); } catch (e) { toast(e.message, true); }
+      }
+      // 番号割り当てを子ページとして開く（グループ分けと同じパターン）。
+      async function openAssignmentDialog(occUuid, notifUuid) {
+        const dlg = $('#assignmentDialog');
+        $('#assignmentBox').innerHTML = '<p class="muted">読み込み中…</p>';
+        openAsPage(dlg);
+        const closeBack = () => {
+          closeAsPage(dlg);
+          if (notifUuid) navigate('notifications/' + notifUuid + '/occurrences');
+        };
+        $('#assignmentClose').onclick = $('#assignmentCancel').onclick = closeBack;
+        const cb = $('#assignmentCrumbBack');
+        if (cb) cb.onclick = (e) => { e.preventDefault(); closeBack(); };
+        try { await loadAssignments(occUuid); } catch (e) { toast(e.message, true); }
       }
 
       // ----- グループ分け（ADR 0015）-----
