@@ -158,7 +158,9 @@ export async function setGroupMembers(
   db: D1Database,
   groupingId: number,
   assignments: { group_id: number; user_ids: string[] }[],
+  preserveExisting = false,
 ): Promise<void> {
+  if (!preserveExisting) {
   // 同 grouping 配下の group_id 全てから group_members を削除
   await db
     .prepare(
@@ -166,6 +168,7 @@ export async function setGroupMembers(
     )
     .bind(groupingId)
     .run();
+  }
   for (const a of assignments) {
     for (const uid of a.user_ids) {
       await db
