@@ -688,26 +688,15 @@ export async function handleAdmin(request: Request, env: Env): Promise<Response>
       const view = await getGroupingView(db, occ.id);
       if (!view.grouping) return json({ error: 'grouping not initialized' }, 400);
       const constraints = await listConstraints(db, occ.notification_id);
-      const participantIds = [
-        ...view.pool.map((p) => p.user_id),
-        ...view.groups.flatMap((g) =>
-          g.members
-            .filter(
-              (m) =>
-                !view.diff.no_longer_participating.some(
-                  (x) => x.user_id === m.user_id && x.group_id === g.id,
-                ),
-            )
-            .map((m) => m.user_id),
-        ),
-      ];
+      // 未配置メンバーのみを自動配置対象とする
+      const participantIds = view.pool.map((m) => m.user_id);
       const groupIds = view.groups.map((g) => g.id);
       const result = autoAssign(participantIds, groupIds, constraints);
       const assignments = Array.from(result.byGroupId.entries()).map(([group_id, user_ids]) => ({
         group_id,
         user_ids,
       }));
-      await setGroupMembers(db, view.grouping.id, assignments);
+      await setGroupMembers(db, view.grouping.id, assignments, true);
       return json(await getGroupingView(db, occ.id));
     }
     // /occurrences/:uuid/grouping/announce  POST
@@ -725,12 +714,19 @@ export async function handleAdmin(request: Request, env: Env): Promise<Response>
       );
       lines.push('');
       for (const g of view.groups) {
-        const names = g.members.map((m) => m.name).join(', ');
-        lines.push(`**${g.name}** (${g.members.length}名): ${names || '—'}`);
+        //const names = g.members.map((m) => `　${m.name}`).join('\n');
+        //lines.push(`**${g.name}** (${g.members.length}名):\n　${names || '—'}`);
+        const names = g.members
+            .map((m, index) => `　${String(index + 1).padStart(2, ' ')}　${m.name}`)
+            .join('\n');
+
+        lines.push(`**${g.name}** (${g.members.length}名):`);
+        lines.push(names || '　—');
+        lines.push(''); // ← グループ間に空行を追加
       }
       if (view.pool.length > 0) {
         lines.push('');
-        lines.push(`未割り当て (${view.pool.length}名): ${view.pool.map((m) => m.name).join(', ')}`);
+        lines.push(`未割り当て (${view.pool.length}名):\n${view.pool.map((m) => m.name).join('\n')}`);
       }
       const announced = await sendChannelMessage(env, n.channel_id, lines.join('\n'));
       return json({ ok: announced, content: lines.join('\n') });

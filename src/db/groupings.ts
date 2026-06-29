@@ -151,14 +151,15 @@ export async function renameGroup(
 
 /**
  * メンバーの所属を一括設定する。assignments は [{group_id, user_ids[]}] の形式。
- * 既存の group_members を全削除して新しい所属で置き換える。
  * user_ids に登場しない参加者は未割り当て（プール）扱い。
  */
 export async function setGroupMembers(
   db: D1Database,
   groupingId: number,
   assignments: { group_id: number; user_ids: string[] }[],
+  preserveExisting = false,
 ): Promise<void> {
+  if (!preserveExisting) {
   // 同 grouping 配下の group_id 全てから group_members を削除
   await db
     .prepare(
@@ -166,16 +167,39 @@ export async function setGroupMembers(
     )
     .bind(groupingId)
     .run();
+  }
+
   for (const a of assignments) {
-    for (const uid of a.user_ids) {
+    let nextIndex = 0;
+
+    // preserveExisting=true の場合は現在の末尾を取得
+    if (preserveExisting) {
+      const result = await db
+        .prepare(
+          `SELECT COALESCE(MAX(members_index), -1) AS max_index
+             FROM group_members
+            WHERE group_id = ?`,
+        )
+        .bind(a.group_id)
+        .first<{ max_index: number }>();
+
+      nextIndex = (result?.max_index ?? -1) + 1;
+    }
+
+    for (const [index, uid] of a.user_ids.entries()) {
+      const memberIndex = preserveExisting ? nextIndex++ : index;
+
       await db
         .prepare(
-          'INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES (?, ?)',
+          `INSERT OR IGNORE INTO group_members
+             (group_id, members_index, user_id)
+           VALUES (?, ?, ?)`,
         )
-        .bind(a.group_id, uid)
+        .bind(a.group_id, memberIndex, uid)
         .run();
     }
   }
+
   await db
     .prepare('UPDATE groupings SET updated_at = ? WHERE id = ?')
     .bind(new Date().toISOString(), groupingId)
@@ -198,11 +222,24 @@ export async function moveMemberToGroup(
     .bind(userId, groupingId)
     .run();
   if (toGroupId !== null) {
+    const result = await db
+      .prepare(
+        `SELECT COALESCE(MAX(members_index), -1) AS max_index
+           FROM group_members
+          WHERE group_id = ?`,
+      )
+      .bind(toGroupId)
+      .first<{ max_index: number }>();
+
+    const nextIndex = (result?.max_index ?? -1) + 1;
+
     await db
       .prepare(
-        'INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES (?, ?)',
+        `INSERT INTO group_members
+          (group_id, members_index, user_id)
+         VALUES (?, ?, ?)`,
       )
-      .bind(toGroupId, userId)
+      .bind(toGroupId, nextIndex, userId)
       .run();
   }
   await db
@@ -289,7 +326,9 @@ export async function getGroupingView(
                   m.created_at AS created_at
              FROM group_members gm
              LEFT JOIN members m ON m.user_id = gm.user_id
-            WHERE gm.group_id = ?`,
+            WHERE gm.group_id = ?
+            ORDER BY members_index ASC
+          `,
         )
         .bind(g.id)
         .all<{

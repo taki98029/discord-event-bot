@@ -26,6 +26,7 @@ CREATE INDEX IF NOT EXISTS idx_groups_grouping ON groups(grouping_id);
 -- グループへのメンバー所属。未割り当ては行を持たない（プールはアプリ層で計算）。
 CREATE TABLE IF NOT EXISTS group_members (
   group_id INTEGER NOT NULL,
+  members_index  INTEGER NOT NULL,
   user_id  TEXT    NOT NULL,
   PRIMARY KEY (group_id, user_id)
 );
