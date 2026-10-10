@@ -44,6 +44,19 @@ export async function getGroupingByUuid(
   return row ?? null;
 }
 
+/** グループ枠 [from, to) の INSERT 文（1 batch で流す。グループ数ぶん個別に実行すると最大 100 枠で D1 50 回を超える・A3-01） */
+function groupInserts(db: D1Database, groupingId: number, from: number, to: number): D1PreparedStatement[] {
+  const stmts: D1PreparedStatement[] = [];
+  for (let i = from; i < to; i++) {
+    stmts.push(
+      db
+        .prepare('INSERT INTO groups (uuid, grouping_id, group_index, name) VALUES (?, ?, ?, ?)')
+        .bind(newUuid(), groupingId, i, `グループ ${i + 1}`),
+    );
+  }
+  return stmts;
+}
+
 /**
  * Grouping を upsert する。group_count が変わった場合:
  * - 増やす: 既存 groups を維持し、不足分を「グループ N」名で追加
@@ -67,14 +80,7 @@ export async function upsertGrouping(
       .bind(groupingUuid, occurrenceId, groupCount, ts, ts)
       .run();
     const groupingId = res.meta.last_row_id as number;
-    for (let i = 0; i < groupCount; i++) {
-      await db
-        .prepare(
-          'INSERT INTO groups (uuid, grouping_id, group_index, name) VALUES (?, ?, ?, ?)',
-        )
-        .bind(newUuid(), groupingId, i, `グループ ${i + 1}`)
-        .run();
-    }
+    await db.batch(groupInserts(db, groupingId, 0, groupCount));
     return {
       id: groupingId,
       uuid: groupingUuid,
@@ -87,26 +93,15 @@ export async function upsertGrouping(
 
   if (existing.group_count !== groupCount) {
     if (groupCount > existing.group_count) {
-      for (let i = existing.group_count; i < groupCount; i++) {
-        await db
-          .prepare(
-            'INSERT INTO groups (uuid, grouping_id, group_index, name) VALUES (?, ?, ?, ?)',
-          )
-          .bind(newUuid(), existing.id, i, `グループ ${i + 1}`)
-          .run();
-      }
+      await db.batch(groupInserts(db, existing.id, existing.group_count, groupCount));
     } else {
       // 末尾を削除（メンバーも削除＝プールに戻る）
-      const { results: removed } = await db
-        .prepare(
-          'SELECT id FROM groups WHERE grouping_id = ? AND group_index >= ?',
-        )
-        .bind(existing.id, groupCount)
-        .all<{ id: number }>();
-      for (const r of removed) {
-        await db.prepare('DELETE FROM group_members WHERE group_id = ?').bind(r.id).run();
-        await db.prepare('DELETE FROM groups WHERE id = ?').bind(r.id).run();
-      }
+      await db.batch([
+        db
+          .prepare('DELETE FROM group_members WHERE group_id IN (SELECT id FROM groups WHERE grouping_id = ? AND group_index >= ?)')
+          .bind(existing.id, groupCount),
+        db.prepare('DELETE FROM groups WHERE grouping_id = ? AND group_index >= ?').bind(existing.id, groupCount),
+      ]);
     }
     await db
       .prepare('UPDATE groupings SET group_count = ?, updated_at = ? WHERE id = ?')
@@ -125,15 +120,6 @@ export async function listGroups(db: D1Database, groupingId: number): Promise<Gr
     .bind(groupingId)
     .all<Group>();
   return results;
-}
-
-/** UUID で Group を取得（未登録なら null・ADR 0016） */
-export async function getGroupByUuid(db: D1Database, uuid: string): Promise<Group | null> {
-  const row = await db
-    .prepare('SELECT id, uuid, grouping_id, group_index, name, start_no FROM groups WHERE uuid = ?')
-    .bind(uuid)
-    .first<Group>();
-  return row ?? null;
 }
 
 /** グループ名を更新 */
@@ -172,31 +158,29 @@ export async function setGroupMembers(
   groupingId: number,
   assignments: { group_id: number; members: { user_id: string; label: string | null }[] }[],
 ): Promise<void> {
-  // 同 grouping 配下の group_id 全てから group_members を削除
-  await db
-    .prepare(
-      'DELETE FROM group_members WHERE group_id IN (SELECT id FROM groups WHERE grouping_id = ?)',
-    )
-    .bind(groupingId)
-    .run();
-
+  // 全削除→個別 INSERT を 1 バッチ（D1 の batch はトランザクション）で確定する。
+  // 別々に確定すると同時保存で双方の配置が混ざり、途中失敗で既存配置が部分的に消える（2026-09-24 レビュー #7）
+  const stmts: D1PreparedStatement[] = [
+    // 同 grouping 配下の group_id 全てから group_members を削除
+    db
+      .prepare('DELETE FROM group_members WHERE group_id IN (SELECT id FROM groups WHERE grouping_id = ?)')
+      .bind(groupingId),
+  ];
   for (const a of assignments) {
     for (const [index, m] of a.members.entries()) {
-      await db
-        .prepare(
-          `INSERT OR IGNORE INTO group_members
-             (group_id, members_index, user_id, label)
-           VALUES (?, ?, ?, ?)`,
-        )
-        .bind(a.group_id, index, m.user_id, m.label ?? null)
-        .run();
+      stmts.push(
+        db
+          .prepare(
+            `INSERT OR IGNORE INTO group_members
+               (group_id, members_index, user_id, label)
+             VALUES (?, ?, ?, ?)`,
+          )
+          .bind(a.group_id, index, m.user_id, m.label ?? null),
+      );
     }
   }
-
-  await db
-    .prepare('UPDATE groupings SET updated_at = ? WHERE id = ?')
-    .bind(new Date().toISOString(), groupingId)
-    .run();
+  stmts.push(db.prepare('UPDATE groupings SET updated_at = ? WHERE id = ?').bind(new Date().toISOString(), groupingId));
+  await db.batch(stmts);
 }
 
 /** 1 メンバーをあるグループに移動（既存所属は同 grouping 内で全削除してから追加） */
@@ -275,7 +259,7 @@ export async function getGroupingView(
               COALESCE(gp.display_name, m.display_name) AS display_name,
               m.dm_channel_id AS dm_channel_id,
               m.created_at AS created_at
-         FROM responses r
+         FROM (SELECT occurrence_id,user_id,status,updated_at FROM responses UNION ALL SELECT occurrence_id,user_id,status,'' AS updated_at FROM planning_roster WHERE status!='除外') r
          LEFT JOIN members m ON m.user_id = r.user_id
          LEFT JOIN member_guild_profiles gp ON gp.user_id = r.user_id AND gp.guild_id = ?
         WHERE r.occurrence_id = ? AND r.status = '参加'
@@ -320,57 +304,63 @@ export async function getGroupingView(
 
   const groups = await listGroups(db, grouping.id);
 
-  // 各グループのメンバー一覧（保存されたまま。現在不参加のメンバーも含む）
-  const groupViews = await Promise.all(
-    groups.map(async (g) => {
-      const { results: members } = await db
-        .prepare(
-          `SELECT gm.user_id AS user_id,
-                  gm.label AS label,
-                  m.user_name AS user_name,
-                  COALESCE(gp.display_name, m.display_name) AS display_name,
-                  m.dm_channel_id AS dm_channel_id,
-                  m.created_at AS created_at
-             FROM group_members gm
-             LEFT JOIN members m ON m.user_id = gm.user_id
-             LEFT JOIN member_guild_profiles gp ON gp.user_id = gm.user_id AND gp.guild_id = ?
-            WHERE gm.group_id = ?
-            ORDER BY members_index ASC
-          `,
-        )
-        .bind(guildId, g.id)
-        .all<{
-          user_id: string;
-          label: string | null;
-          user_name: string | null;
-          display_name: string | null;
-          dm_channel_id: string | null;
-          created_at: string | null;
-        }>();
+  // 各グループのメンバー一覧（保存されたまま。現在不参加のメンバーも含む）。
+  // 全グループ分を 1 クエリで取り JS で振り分ける（グループごとに照会すると 14 グループの保存で D1 50 回を超える・A3-01）
+  const { results: memberRows } = await db
+    .prepare(
+      `SELECT gm.group_id AS group_id,
+              gm.user_id AS user_id,
+              gm.label AS label,
+              m.user_name AS user_name,
+              COALESCE(gp.display_name, m.display_name) AS display_name,
+              m.dm_channel_id AS dm_channel_id,
+              m.created_at AS created_at
+         FROM group_members gm
+         JOIN groups g ON g.id = gm.group_id
+         LEFT JOIN members m ON m.user_id = gm.user_id
+         LEFT JOIN member_guild_profiles gp ON gp.user_id = gm.user_id AND gp.guild_id = ?
+        WHERE g.grouping_id = ?
+        ORDER BY gm.group_id, gm.members_index ASC
+      `,
+    )
+    .bind(guildId, grouping.id)
+    .all<{
+      group_id: number;
+      user_id: string;
+      label: string | null;
+      user_name: string | null;
+      display_name: string | null;
+      dm_channel_id: string | null;
+      created_at: string | null;
+    }>();
+  const membersOf = new Map<number, typeof memberRows>();
+  for (const mm of memberRows) {
+    const list = membersOf.get(mm.group_id);
+    if (list) list.push(mm);
+    else membersOf.set(mm.group_id, [mm]);
+  }
+  const groupViews = groups.map((g) => ({
+    id: g.id,
+    uuid: g.uuid,
+    group_index: g.group_index,
+    name: g.name,
+    start_no: g.start_no ?? 1,
+    members: (membersOf.get(g.id) ?? []).map((mm) => {
+      const member: Member = {
+        user_id: mm.user_id,
+        user_name: mm.user_name,
+        display_name: mm.display_name,
+        dm_channel_id: mm.dm_channel_id,
+        created_at: mm.created_at ?? '',
+      };
+      // 名前は participants の名前マップを優先、無ければ member から解決
       return {
-        id: g.id,
-        uuid: g.uuid,
-        group_index: g.group_index,
-        name: g.name,
-        start_no: g.start_no ?? 1,
-        members: members.map((mm) => {
-          const member: Member = {
-            user_id: mm.user_id,
-            user_name: mm.user_name,
-            display_name: mm.display_name,
-            dm_channel_id: mm.dm_channel_id,
-            created_at: mm.created_at ?? '',
-          };
-          // 名前は participants の名前マップを優先、無ければ member から解決
-          return {
-            user_id: mm.user_id,
-            name: nameOf.get(mm.user_id) ?? resolveDisplayName(member),
-            label: mm.label ?? null,
-          };
-        }),
+        user_id: mm.user_id,
+        name: nameOf.get(mm.user_id) ?? resolveDisplayName(member),
+        label: mm.label ?? null,
       };
     }),
-  );
+  }));
 
   // 既に割り当て済みの user_id 集合
   const assignedIds = new Set<string>();

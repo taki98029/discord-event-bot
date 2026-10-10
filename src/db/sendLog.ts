@@ -62,6 +62,18 @@ export async function finishSend(
     .run();
 }
 
+/** 未送信が確実な claim（Discord 429）を消して、次ティックで再送できる状態に戻す。sending 行だけが対象。 */
+export async function releaseClaim(db: D1Database, k: SendKey): Promise<void> {
+  await db
+    .prepare(
+      `DELETE FROM send_log
+         WHERE notification_id = ? AND occurrence_id = ? AND user_id = ? AND kind = ? AND send_date = ?
+           AND status = 'sending'`,
+    )
+    .bind(k.notification_id, k.occurrence_id ?? 0, k.user_id ?? '', k.kind, k.send_date)
+    .run();
+}
+
 /**
  * failed で終わった claim を sending に戻して再取得する（手動再送用）。
  * 同日 UNIQUE 鍵に failed 行が残ると claimSend が弾いて当日中の再送ができないため、
@@ -87,11 +99,12 @@ async function reclaimSend(
 ): Promise<boolean> {
   const res = await db
     .prepare(
-      `UPDATE send_log SET status = 'sending', error = NULL
+      // created_at も取り直す（古いままだと送信中に clearStaleClaims が行を消し、cron が二重投稿する）
+      `UPDATE send_log SET status = 'sending', error = NULL, created_at = ?
          WHERE notification_id = ? AND occurrence_id = ? AND user_id = ? AND kind = ? AND send_date = ?
            AND status = ?`,
     )
-    .bind(k.notification_id, k.occurrence_id ?? 0, k.user_id ?? '', k.kind, k.send_date, status)
+    .bind(new Date().toISOString(), k.notification_id, k.occurrence_id ?? 0, k.user_id ?? '', k.kind, k.send_date, status)
     .run();
   return (res.meta.changes ?? 0) > 0;
 }
@@ -118,13 +131,72 @@ export async function hasSentKind(
   occurrenceId: number,
   kind: SendLogKind,
 ): Promise<boolean> {
+  // 募集は「日程調整の確定でフォーラム投稿済み」も投稿済みと数える。毎分 cron の D1 予算のため 1 クエリにまとめる。
+  const row = await db
+    .prepare(
+      `SELECT 1 WHERE EXISTS (
+         SELECT 1 FROM send_log
+          WHERE notification_id = ? AND occurrence_id = ? AND user_id = '' AND kind = ?
+            AND status IN ('sending', 'sent'))
+       OR (? = 'recruit' AND EXISTS (
+         SELECT 1 FROM planning_occurrences po
+           JOIN planning_deliveries d ON d.plan_id = po.plan_id AND d.slot_id = po.slot_id
+          WHERE po.occurrence_id = ? AND d.kind = 'forum' AND d.status = 'sent'))`,
+    )
+    .bind(notificationId, occurrenceId, kind, kind, occurrenceId)
+    .first();
+  return row != null;
+}
+
+/**
+ * 今日以降の開催回について、チャンネル送信（user_id=''）の記録を 1 クエリでまとめて取る（cron 用）。
+ * 開催回ごとの hasSentKind を毎ティック打つと、何もすることの無い開催回でも D1 予算を使い切り、
+ * 後ろの開催回に届かなかった（再レビュー A2-02）。cron は日程調整の開催回を除外済みのため、
+ * hasSentKind の planning JOIN は要らない。キーは `${occurrence_id}:${kind}`。
+ */
+// CROSS JOIN で occurrences を外側に固定する（send_log は消さずに増え続けるため、内側にして UNIQUE 索引で引く。
+// 普通の JOIN だと統計の無い D1 は send_log を全件走査し、毎回の cron で無料枠の読み取り行数を食う）。
+export async function listChannelSends(
+  db: D1Database,
+  fromDate: string,
+): Promise<Map<string, { send_date: string; status: string }[]>> {
+  const { results } = await db
+    .prepare(
+      `SELECT s.occurrence_id, s.kind, s.send_date, s.status
+         FROM occurrences o
+         CROSS JOIN send_log s ON s.notification_id = o.notification_id AND s.occurrence_id = o.id AND s.user_id = ''
+        WHERE o.occurrence_date >= ?`,
+    )
+    .bind(fromDate)
+    .all<{ occurrence_id: number; kind: string; send_date: string; status: string }>();
+  const map = new Map<string, { send_date: string; status: string }[]>();
+  for (const r of results) {
+    const k = `${r.occurrence_id}:${r.kind}`;
+    const rows = map.get(k);
+    if (rows) rows.push(r);
+    else map.set(k, [r]);
+  }
+  return map;
+}
+
+/**
+ * その開催回にこの種別のチャンネル送信が「指定日に」成功しているか（status='sent' のみ）。
+ * ノルマ督促の「募集を投稿した日に送る」判定に使う（自動・手動どちらの募集投稿も send_log に残る）。
+ */
+export async function hasSentKindOn(
+  db: D1Database,
+  notificationId: number,
+  occurrenceId: number,
+  kind: SendLogKind,
+  sendDate: string,
+): Promise<boolean> {
   const row = await db
     .prepare(
       `SELECT 1 FROM send_log
         WHERE notification_id = ? AND occurrence_id = ? AND user_id = '' AND kind = ?
-          AND status IN ('sending', 'sent') LIMIT 1`,
+          AND send_date = ? AND status = 'sent' LIMIT 1`,
     )
-    .bind(notificationId, occurrenceId, kind)
+    .bind(notificationId, occurrenceId, kind, sendDate)
     .first();
   return row != null;
 }

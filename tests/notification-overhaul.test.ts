@@ -11,7 +11,7 @@ import {
 } from '../src/db/responses';
 import { getOrCreateOccurrence } from '../src/db/occurrences';
 import { createNotification, getNotification, type NotificationInput } from '../src/db/notifications';
-import { claimSend, finishSend, hasSentKind, isSendLogged, listSendLog, clearStaleClaims } from '../src/db/sendLog';
+import { claimSend, finishSend, hasSentKind, hasSentKindOn, isSendLogged, listSendLog, clearStaleClaims } from '../src/db/sendLog';
 import { getSendBudget, setConfig, getConfigInt } from '../src/db/config';
 import { responseDeadline } from '../src/lib/date';
 
@@ -170,6 +170,31 @@ describe('未送信ターゲットの取得（ペース配信・ADR 0013）', ()
     await upsertResponse(db(), occ.id, 'C', 'C', '未定');
     const targets = await remainingUndecidedTargets(db(), seg.id, occ.id, n.id, TODAY, 10);
     expect(targets.map((m) => m.user_id).sort()).toEqual(['A', 'C']);
+  });
+
+  it('hasSentKindOn: その日に sent した募集だけ true（failed・別日・DM 行は false）', async () => {
+    const { n, occ } = await fixture();
+    const k = (send_date: string) => ({ notification_id: n.id, occurrence_id: occ.id, kind: 'recruit' as const, send_date });
+    await claimSend(db(), k('2026/07/07'));
+    await finishSend(db(), k('2026/07/07'), true);
+    expect(await hasSentKindOn(db(), n.id, occ.id, 'recruit', '2026/07/07')).toBe(true);
+    expect(await hasSentKindOn(db(), n.id, occ.id, 'recruit', TODAY)).toBe(false); // 別日
+    await claimSend(db(), k(TODAY));
+    await finishSend(db(), k(TODAY), false, 'boom');
+    expect(await hasSentKindOn(db(), n.id, occ.id, 'recruit', TODAY)).toBe(false); // failed は数えない
+  });
+
+  it('未定リマインドは毎日（当日送信済みだけ除外・前日の送信済みは除外しない）', async () => {
+    const { seg, n, occ } = await fixture();
+    await upsertResponse(db(), occ.id, 'A', 'A', '未定');
+    await upsertResponse(db(), occ.id, 'C', 'C', '未定');
+    const yesterday = '2026/07/07';
+    await claimSend(db(), { notification_id: n.id, occurrence_id: occ.id, user_id: 'A', kind: 'remind_undecided', send_date: yesterday });
+    await finishSend(db(), { notification_id: n.id, occurrence_id: occ.id, user_id: 'A', kind: 'remind_undecided', send_date: yesterday }, true);
+    await claimSend(db(), { notification_id: n.id, occurrence_id: occ.id, user_id: 'C', kind: 'remind_undecided', send_date: TODAY });
+    await finishSend(db(), { notification_id: n.id, occurrence_id: occ.id, user_id: 'C', kind: 'remind_undecided', send_date: TODAY }, true);
+    const targets = await remainingUndecidedTargets(db(), seg.id, occ.id, n.id, TODAY, 10);
+    expect(targets.map((m) => m.user_id)).toEqual(['A']);
   });
 });
 

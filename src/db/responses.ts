@@ -1,7 +1,8 @@
+import { plannedOccurrence } from '../planning/store';
 import type { EventStatusBuckets, Member, Notification, QuotaAlert, Response } from './types';
 import { resolveDisplayName } from './types';
 import { getActiveSegmentMembers } from './segments';
-import { getJSTNow } from '../lib/date';
+import { formatDate, getJSTNow } from '../lib/date';
 
 /**
  * 回答の upsert（旧 upsertEventLog）。
@@ -16,6 +17,7 @@ export async function upsertResponse(
   /** 締切後の変更として記録する場合 true（ADR 0014）。一度立つと sticky（MAX で保持）。 */
   postDeadlineChange = false,
 ): Promise<void> {
+  if (await plannedOccurrence(db, occurrenceId)) throw new Error('開催計画の代理変更を使用してください');
   const ts = new Date().toISOString();
   const flag = postDeadlineChange ? 1 : 0;
   await db.batch([
@@ -59,8 +61,8 @@ export async function getResponsesForOccurrence(
   occurrenceId: number,
 ): Promise<Record<string, { status: string }>> {
   const { results } = await db
-    .prepare('SELECT user_id, status FROM responses WHERE occurrence_id = ?')
-    .bind(occurrenceId)
+    .prepare("SELECT user_id,status FROM responses WHERE occurrence_id=? UNION ALL SELECT user_id,status FROM planning_roster WHERE occurrence_id=? AND status!='除外'")
+    .bind(occurrenceId,occurrenceId)
     .all<{ user_id: string; status: string }>();
   const map: Record<string, { status: string }> = {};
   for (const r of results) map[r.user_id] = { status: r.status };
@@ -90,6 +92,12 @@ export async function getStatusBuckets(
   /** 同一区分で複数回呼ぶ際に区分メンバーの再取得を避けるための事前取得結果（任意）。 */
   preloadedMembers?: Member[],
 ): Promise<EventStatusBuckets> {
+  if (await plannedOccurrence(db,occurrenceId)) {
+    const result: EventStatusBuckets = {参加:[],不参加:[],未定:[],未回答:[]};
+    const rows=await db.prepare("SELECT name,status FROM planning_roster WHERE occurrence_id=? AND status!='除外'").bind(occurrenceId).all<{name:string;status:'参加'|'不参加'|'未定'}>();
+    for(const r of rows.results) result[r.status].push(r.name);
+    return result;
+  }
   const members = preloadedMembers ?? (await getActiveSegmentMembers(db, segmentId));
   const responses = await getResponsesForOccurrence(db, occurrenceId);
 
@@ -112,6 +120,8 @@ export async function getStatusBuckets(
  * 対象=Notification の Segment のアクティブメンバー。
  * 各人の「この Notification の occurrences における status='参加' の最大 occurrence_date」を求め、
  * interval を超過した者を返す。未参加者は除外（旧仕様）。
+ * 今日（now の日付）すでにノルマを送った人も除く。cron が毎ティック全員の claim を試して D1 予算を使い切り、
+ * 後ろの人に届かなかったため（再レビュー A2-02・remainingUnansweredTargets と同じ考え方）。
  */
 export async function checkQuotaForNotification(
   db: D1Database,
@@ -128,10 +138,15 @@ export async function checkQuotaForNotification(
       `SELECT r.user_id AS user_id, MAX(o.occurrence_date) AS last_date
          FROM responses r
          JOIN occurrences o ON o.id = r.occurrence_id
-        WHERE o.notification_id = ? AND r.status = '参加'
+        WHERE o.notification_id = ? AND r.status = '参加' AND o.status = 'scheduled'
+          AND NOT EXISTS (
+            SELECT 1 FROM send_log s
+             WHERE s.notification_id = ? AND s.occurrence_id = 0 AND s.user_id = r.user_id
+               AND s.kind = 'quota' AND s.send_date = ?
+          )
         GROUP BY r.user_id`,
     )
-    .bind(n.id)
+    .bind(n.id, n.id, formatDate(now))
     .all<{ user_id: string; last_date: string }>();
   const lastMap = new Map<string, string>();
   for (const r of results) lastMap.set(r.user_id, r.last_date);
@@ -227,7 +242,8 @@ export async function remainingUnansweredTargets(
 
 /**
  * 未定リマインドの「未送信ターゲット」を直接取得する（ADR 0013 ペース配信）。
- * 区分アクティブメンバーのうち当該回に「未定」回答済み − 当日すでに送信済み。LIMIT で予算分だけ。
+ * 区分アクティブメンバーのうち当該回に「未定」回答済み − 当日すでに送信済み（未回答リマインドと同じく毎日）。
+ * LIMIT で予算分だけ。
  */
 export async function remainingUndecidedTargets(
   db: D1Database,

@@ -11,7 +11,9 @@ const mkCtx = (config: Record<string, string> = {}) => ({
   today: '2026/07/09',
   hour: 12,
   budget: { n: 45 },
+  d1: { n: 40 },
   config,
+  chan: new Map(),
 });
 
 describe('resolveGuildName（DM のサーバー名付記・1日1回同期）', () => {

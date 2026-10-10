@@ -59,11 +59,11 @@ export function SendLog({ guild, toast }: { guild: Guild; toast: ToastFn }) {
     <>
       <h2>送信履歴</h2>
       <p className="muted">
-        募集・告知・リマインド・ノルマ・締切告知など、自動送信の記録（直近 {rows.length} 件・このサーバー: {guild.name || guild.id}）。DM
+        募集・告知・リマインド・ノルマ・締切告知など、自動送信の履歴（直近 {rows.length} 件・このサーバー: {guild.name || guild.id}）。DM
         拒否などの失敗もここで確認できます。
       </p>
       {rows.length === 0 ? (
-        <div className="empty">まだ送信記録がありません。送信時刻になると cron が送信し、ここに記録されます。</div>
+        <div className="empty">まだ送信履歴がありません。送信時刻になると cron が送信し、ここに残ります。</div>
       ) : (
         <EventBotTable
           options={{
@@ -72,7 +72,7 @@ export function SendLog({ guild, toast }: { guild: Guild; toast: ToastFn }) {
               { id: 'date', header: '送信日', filter: 'date', accessor: (r: LogRow) => r.send_date || '' },
               {
                 id: 'notif',
-                header: 'スケジュール',
+                header: 'テンプレート',
                 filter: 'select',
                 accessor: (r: LogRow) => r.notification_name || '',
                 // スケジュール名が列幅の自動配分で毎行折り返されて読みにくいため折り返さない（M5）
@@ -92,9 +92,10 @@ export function SendLog({ guild, toast }: { guild: Guild; toast: ToastFn }) {
                 id: 'to',
                 header: '宛先',
                 filter: 'combo',
-                accessor: (r: LogRow) => r.user_name || r.user_id || '（チャンネル）',
+                // 'chunk:<位置>' はチャンネルリマインドの 2 通目以降（40 人ずつの分割投稿）
+                accessor: (r: LogRow) => r.user_name || (r.user_id?.startsWith('chunk:') ? '' : r.user_id) || '（チャンネル）',
                 render: (_v: string, r: LogRow) =>
-                  !r.user_id
+                  !r.user_id || r.user_id.startsWith('chunk:')
                     ? '<span class="muted">（チャンネル）</span>'
                     : r.user_name
                       ? `${esc(r.user_name)} <span class="muted" style="font-size:11px">${esc(r.user_id)}</span>`

@@ -3,11 +3,12 @@
 import * as React from 'react';
 import { useEffect, useState } from 'react';
 import { Select } from '../../../design-system/src';
+import { pickable } from '../lib/channels';
 import { api, type Guild } from '../api';
 import { withBusy } from '../lib/dialog';
 import type { ToastFn } from '../App';
 
-type Channel = { id: string; name: string };
+type Channel = { id: string; name: string; enabled?: boolean };
 type Segment = { id: string; uuid: string; name: string };
 type Member = { user_id: string; display_name?: string | null; user_name?: string | null };
 type Constraint = {
@@ -26,11 +27,14 @@ export function GroupingSettings({
   nuuid,
   toast,
   onClose,
+  oneOff,
 }: {
   guild: Guild;
   nuuid: string;
   toast: ToastFn;
   onClose: () => void;
+  /** 単発出欠確認（テンプレート一覧が無いので戻り先・文言を単発に合わせる・P2-15） */
+  oneOff?: boolean;
 }) {
   const [notif, setNotif] = useState<NotifSummary | null>(null);
   const [channels, setChannels] = useState<Channel[]>([]);
@@ -66,7 +70,7 @@ export function GroupingSettings({
         }
       }
     } catch (e) {
-      toast('スケジュールが見つかりません', true);
+      toast('テンプレートが見つかりません', true);
       setNotFound(true);
     } finally {
       setLoading(false);
@@ -140,7 +144,7 @@ export function GroupingSettings({
                 onClose();
               }}
             >
-              スケジュール設定
+              {oneOff ? '単発出欠確認' : 'テンプレート'}
             </a>{' '}
             <span>›</span> <span>メンバー配置設定</span>
           </div>
@@ -152,7 +156,7 @@ export function GroupingSettings({
       </div>
       <div className="modal-body">
         <div className="summary">
-          🧩 <span>このスケジュールの全開催回で共有される、メンバー配置まわりのマスター設定です。変更はその場で保存されます。</span>
+          🧩 <span>{oneOff ? 'この出欠確認のメンバー配置設定です。' : 'このテンプレートで毎回使う、メンバー配置の共通設定です。'}変更はその場で保存されます。</span>
         </div>
 
         <h3 style={{ marginTop: 18 }}>📣 配置結果の投稿先</h3>
@@ -161,7 +165,7 @@ export function GroupingSettings({
         </p>
         <Select style={{ maxWidth: 360 }} value={gChannel} onChange={(e) => saveChannel(e.target.value)}>
           <option value="">募集と同じチャンネル（{chName(notif.channel_id)}）</option>
-          {channels.map((c) => (
+          {pickable(channels, gChannel).map((c) => (
             <option key={c.id} value={c.id}>
               #{c.name}
             </option>

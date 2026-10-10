@@ -158,12 +158,12 @@ export function SegmentMembers({
                 onClose();
               }}
             >
-              メンバー区分
+              メンバー管理
             </a>{' '}
             <span>›</span> <span>メンバー</span>
           </div>
           <h3 id="segMembersTitle">
-            区分メンバー: {seg ? seg.name : segUuid} ({list.length})
+            区分メンバー: {isEveryone ? 'Everyone' : roles?.find((r) => r.id === seg?.mention_role_id)?.name || seg?.name || segUuid} ({list.length})
           </h3>
         </div>
         <button type="button" className="page-back" aria-label="戻る" onClick={onClose}>

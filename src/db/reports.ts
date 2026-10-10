@@ -38,25 +38,27 @@ export async function getAttendanceReport(
   // 対象開催回の日付（母数）。中止回・回答不要（通知のみ）の通知は含めない。
   const occ = await db
     .prepare(
-      `SELECT o.occurrence_date AS d
+      `SELECT o.id, o.occurrence_date AS d, po.plan_id
          FROM occurrences o
          JOIN notifications n ON n.id = o.notification_id
+         LEFT JOIN planning_occurrences po ON po.occurrence_id=o.id
         WHERE n.segment_id = ? AND n.requires_response = 1
           AND o.status = 'scheduled' AND o.occurrence_date <= ?${notifCond}
         ORDER BY o.occurrence_date`,
     )
     .bind(...binds)
-    .all<{ d: string }>();
-  const occDates = occ.results.map((r) => r.d);
+    .all<{ id:number; d: string; plan_id:string|null }>();
+  const roster=(await db.prepare("SELECT occurrence_id,user_id FROM planning_roster WHERE status!='除外'").all<{occurrence_id:number;user_id:string}>()).results;
+  const targets=new Set(roster.map(r=>`${r.occurrence_id}:${r.user_id}`));
 
   // 各メンバーの参加日（初出勤の判定に使うため from では絞らず、上限のみ適用）。
   const att = await db
     .prepare(
       `SELECT r.user_id AS user_id, o.occurrence_date AS d
-         FROM responses r
+         FROM (SELECT occurrence_id,user_id,status FROM responses UNION ALL SELECT occurrence_id,user_id,status FROM planning_roster WHERE status!='除外') r
          JOIN occurrences o ON o.id = r.occurrence_id
          JOIN notifications n ON n.id = o.notification_id
-        WHERE n.segment_id = ? AND r.status = '参加'
+        WHERE n.segment_id = ? AND n.requires_response = 1 AND r.status = '参加'
           AND o.status = 'scheduled' AND o.occurrence_date <= ?${notifCond}
         ORDER BY o.occurrence_date`,
     )
@@ -76,7 +78,7 @@ export async function getAttendanceReport(
     const lower = opts.from ?? first;
     const inRange = (d: string) => lower !== null && d >= lower;
     const attended = all.filter(inRange);
-    const total = lower === null ? 0 : occDates.filter(inRange).length;
+    const total = lower === null ? 0 : occ.results.filter(r=>inRange(r.d)&&(!r.plan_id||targets.has(`${r.id}:${m.user_id}`))).length;
     return {
       user_id: m.user_id,
       name: resolveDisplayName(m),

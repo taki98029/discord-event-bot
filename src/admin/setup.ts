@@ -25,10 +25,11 @@ export interface SetupStatus {
 }
 
 /**
- * 招待時に要求する権限ビット: VIEW_CHANNEL(1024)+SEND_MESSAGES(2048)+MENTION_EVERYONE(131072)。
+ * 招待時に要求する権限ビット: VIEW_CHANNEL(1024)+SEND_MESSAGES(2048)+MENTION_EVERYONE(131072)
+ * +SEND_MESSAGES_IN_THREADS(1<<38=274877906944・日程調整の開催前リマインドをフォーラム投稿内へ送るため・2026-09-23)。
  * セットアップガイド（setup.src.html の INVITE_PERMS）と同値に保つこと。
  */
-export const INVITE_PERMISSIONS = '134144';
+export const INVITE_PERMISSIONS = '274878041088';
 
 /** 招待 URL を組み立てる（scope は bot＋applications.commands＝スラッシュコマンド用）。 */
 export function inviteUrl(applicationId: string): string {

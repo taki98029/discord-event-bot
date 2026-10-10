@@ -6,8 +6,8 @@ import { newUuid } from './uuid';
 const COLS =
   'id, uuid, guild_id, segment_id, name, channel_id, type, rrule, anchor_date, start_time, ' +
   'duration_minutes, recruit_days_before, remind_start_days, remind_undecided_days, ' +
-  'recruit_enabled, remind_unanswered_enabled, remind_undecided_enabled, ' +
-  'quota_enabled, quota_interval_days, assignment_enabled, grouping_enabled, mention_enabled, mention_mode, ' +
+  'recruit_enabled, remind_unanswered_enabled, remind_undecided_enabled, remind_target, remind_undecided_target, share_answers, ' +
+  'quota_enabled, quota_interval_days, quota_message, assignment_enabled, grouping_enabled, mention_enabled, mention_mode, ' +
   'requires_response, message_title, message_body, active, ' +
   'response_deadline_hours, change_alert_channel_id, send_hour, ' +
   'grouping_channel_id, created_at';
@@ -37,8 +37,14 @@ export interface NotificationInput {
   recruit_enabled: number;
   remind_unanswered_enabled: number;
   remind_undecided_enabled: number;
+  /** 未回答・未定リマインドの送り先（省略 = 'dm'・C02） */
+  remind_target?: 'dm' | 'channel';
+  remind_undecided_target?: 'dm' | 'channel';
+  /** 📊 状況確認で全員の回答を見せるか（省略 = 1・公開） */
+  share_answers?: number;
   quota_enabled: number;
   quota_interval_days: number | null;
+  quota_message?: string | null;
   assignment_enabled: number;
   /** グループ分け機能を有効にするか（ADR 0015） */
   grouping_enabled: number;
@@ -116,18 +122,6 @@ export async function getNotificationByUuid(
   return row ?? null;
 }
 
-/** チャンネルに紐づく active な Notification 一覧 */
-export async function listNotificationsByChannel(
-  db: D1Database,
-  channelId: string,
-): Promise<Notification[]> {
-  const { results } = await db
-    .prepare(`SELECT ${COLS} FROM notifications WHERE channel_id = ? AND active = 1 ORDER BY created_at`)
-    .bind(channelId)
-    .all<Notification>();
-  return results;
-}
-
 /** Server(guild_id) 配下の Notification 一覧（一覧用の集計列付き）。today は next_occurrence_date の基準日（JST） */
 export async function listNotificationsByGuild(
   db: D1Database,
@@ -152,11 +146,11 @@ export async function createNotification(
       `INSERT INTO notifications (
          uuid, guild_id, segment_id, name, channel_id, type, rrule, anchor_date, start_time,
          duration_minutes, recruit_days_before, remind_start_days, remind_undecided_days,
-         recruit_enabled, remind_unanswered_enabled, remind_undecided_enabled,
-         quota_enabled, quota_interval_days, assignment_enabled, grouping_enabled, mention_mode, requires_response,
+         recruit_enabled, remind_unanswered_enabled, remind_undecided_enabled, remind_target, remind_undecided_target, share_answers,
+         quota_enabled, quota_interval_days, quota_message, assignment_enabled, grouping_enabled, mention_mode, requires_response,
          message_title, message_body, active,
          response_deadline_hours, change_alert_channel_id, send_hour
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       uuid,
@@ -175,8 +169,12 @@ export async function createNotification(
       input.recruit_enabled,
       input.remind_unanswered_enabled,
       input.remind_undecided_enabled,
+      input.remind_target ?? 'dm',
+      input.remind_undecided_target ?? 'dm',
+      input.share_answers ?? 1,
       input.quota_enabled,
       input.quota_interval_days ?? null,
+      input.quota_message ?? null,
       input.assignment_enabled,
       input.grouping_enabled,
       input.mention_mode,
@@ -201,6 +199,9 @@ export async function createNotification(
       grouping_channel_id: null,
       mention_enabled: input.mention_mode === 'role' ? 1 : 0,
       ...input,
+      remind_target: input.remind_target ?? 'dm',
+      remind_undecided_target: input.remind_undecided_target ?? 'dm',
+      share_answers: input.share_answers ?? 1,
     }
   );
 }
@@ -218,7 +219,8 @@ export async function updateNotification(
          anchor_date = ?, start_time = ?, duration_minutes = ?,
          recruit_days_before = ?, remind_start_days = ?,
          remind_undecided_days = ?, recruit_enabled = ?, remind_unanswered_enabled = ?,
-         remind_undecided_enabled = ?, quota_enabled = ?, quota_interval_days = ?,
+         remind_undecided_enabled = ?, remind_target = ?, remind_undecided_target = ?, share_answers = ?, quota_enabled = ?, quota_interval_days = ?,
+         quota_message = CASE WHEN ? THEN ? ELSE quota_message END,
          assignment_enabled = ?, grouping_enabled = ?, mention_mode = ?, requires_response = ?,
          message_title = ?, message_body = ?, active = ?,
          response_deadline_hours = ?, change_alert_channel_id = ?, send_hour = ?
@@ -240,8 +242,13 @@ export async function updateNotification(
       patch.recruit_enabled,
       patch.remind_unanswered_enabled,
       patch.remind_undecided_enabled,
+      patch.remind_target ?? 'dm',
+      patch.remind_undecided_target ?? 'dm',
+      patch.share_answers ?? 1,
       patch.quota_enabled,
       patch.quota_interval_days ?? null,
+      patch.quota_message === undefined ? 0 : 1,
+      patch.quota_message ?? null,
       patch.assignment_enabled,
       patch.grouping_enabled,
       patch.mention_mode,
@@ -274,60 +281,36 @@ export async function setGroupingChannel(
   return (res.meta.changes ?? 0) > 0;
 }
 
+/** 日程調整（planning_plans.data.schedules）で使用中か。使用中のテンプレートは削除できない */
+export async function isNotificationInPlanning(db: D1Database, id: number): Promise<boolean> {
+  return !!(await db.prepare("SELECT 1 FROM planning_plans p,json_each(p.data,'$.schedules') s WHERE s.value=? LIMIT 1").bind(id).first());
+}
+
 /**
  * Notification 削除。配下 occurrences と、その responses / groupings も削除する。
  * 削除した場合 true。
  */
 export async function deleteNotification(db: D1Database, id: number): Promise<boolean> {
-  await db
-    .prepare(
-      `DELETE FROM responses WHERE occurrence_id IN (
-         SELECT id FROM occurrences WHERE notification_id = ?
-       )`,
-    )
-    .bind(id)
-    .run();
-  await db
-    .prepare(
-      `DELETE FROM response_log WHERE occurrence_id IN (
-         SELECT id FROM occurrences WHERE notification_id = ?
-       )`,
-    )
-    .bind(id)
-    .run();
-  // グループ分け関連のカスケード削除（ADR 0015）
-  await db
-    .prepare(
-      `DELETE FROM group_members WHERE group_id IN (
-         SELECT g.id FROM groups g
-         JOIN groupings gp ON gp.id = g.grouping_id
-         JOIN occurrences o ON o.id = gp.occurrence_id
-         WHERE o.notification_id = ?
-       )`,
-    )
-    .bind(id)
-    .run();
-  await db
-    .prepare(
-      `DELETE FROM groups WHERE grouping_id IN (
-         SELECT gp.id FROM groupings gp
-         JOIN occurrences o ON o.id = gp.occurrence_id
-         WHERE o.notification_id = ?
-       )`,
-    )
-    .bind(id)
-    .run();
-  await db
-    .prepare(
-      `DELETE FROM groupings WHERE occurrence_id IN (
-         SELECT id FROM occurrences WHERE notification_id = ?
-       )`,
-    )
-    .bind(id)
-    .run();
-  await db.prepare('DELETE FROM grouping_constraints WHERE notification_id = ?').bind(id).run();
-  await db.prepare('DELETE FROM occurrences WHERE notification_id = ?').bind(id).run();
-
-  const res = await db.prepare('DELETE FROM notifications WHERE id = ?').bind(id).run();
+  if (await isNotificationInPlanning(db, id)) throw new Error('日程調整で使用中のテンプレートは削除できません。無効化してください。');
+  // 途中で失敗して回答だけ消える等の中途半端を避けるため、1 つの batch（全部成功か全部取り消し）で消す
+  const occs = 'SELECT id FROM occurrences WHERE notification_id = ?';
+  const results = await db.batch([
+    db.prepare(`DELETE FROM responses WHERE occurrence_id IN (${occs})`).bind(id),
+    db.prepare(`DELETE FROM response_log WHERE occurrence_id IN (${occs})`).bind(id),
+    // グループ分け関連のカスケード削除（ADR 0015）
+    db
+      .prepare(
+        `DELETE FROM group_members WHERE group_id IN (
+           SELECT g.id FROM groups g JOIN groupings gp ON gp.id = g.grouping_id WHERE gp.occurrence_id IN (${occs})
+         )`,
+      )
+      .bind(id),
+    db.prepare(`DELETE FROM groups WHERE grouping_id IN (SELECT id FROM groupings WHERE occurrence_id IN (${occs}))`).bind(id),
+    db.prepare(`DELETE FROM groupings WHERE occurrence_id IN (${occs})`).bind(id),
+    db.prepare('DELETE FROM grouping_constraints WHERE notification_id = ?').bind(id),
+    db.prepare('DELETE FROM occurrences WHERE notification_id = ?').bind(id),
+    db.prepare('DELETE FROM notifications WHERE id = ?').bind(id),
+  ]);
+  const res = results[results.length - 1];
   return (res.meta.changes ?? 0) > 0;
 }

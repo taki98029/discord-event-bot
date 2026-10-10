@@ -13,7 +13,7 @@ export type GroupingView = {
   pool: GroupMember[];
   diff: { no_longer_participating: { user_id: string; group_id: number }[] };
   /** どの開催回の配置か見出しに出すための表示情報（API が同送・M4） */
-  occurrence?: { occurrence_date: string; start_time: string | null };
+  occurrence?: { occurrence_date: string; start_time: string | null; duration_minutes?: number | null };
   notification?: { name: string; start_time: string | null; duration_minutes: number | null } | null;
 };
 export type Constraint = {

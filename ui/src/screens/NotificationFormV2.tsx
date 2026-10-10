@@ -1,36 +1,42 @@
-// スケジュールの新規作成・編集ページ（ウィザード型・ルート notifications/new・<uuid>/edit）。
+// スケジュールの新規作成・編集ページ（ウィザード型・ルート notifications/new[/irregular]・<uuid>/edit）。
 // 設計: 左にステップレール、右に1ステップずつ表示。新規=基本情報から順に、編集=確認（サマリー）から各項目へジャンプ。
-// 「開催日時」は 4 カード（毎日／毎週／毎月／毎年）＋間隔＋次回の開催日（間隔 ≥ 2）。
-// 不定期（rrule NULL）はリリース保留のため入口を閉鎖中: カード非表示・既存行は編集不可の案内のみ（2026-08-24）。
+// 種別（定期／不定期）は入口から引き継いで固定（irregular prop・切替 UI は無い・ADR 0025/0040）。
+// 定期の「開催日時」は 4 カード（毎日／毎週／毎月／毎年）＋間隔＋次回の開催日（間隔 ≥ 2）。
+// 不定期（rrule NULL）は開催日を持たず（開催回は「単発出欠確認」で都度追加）、配信設定は募集の自動/手動のみ（flow-settings-spec §3）。
 // 保存形は RRULE サブセット文法（src/lib/rruleGrammar.ts・不定期は null）。開催日の列挙はサーバー
 // POST /notifications/preview-plan（cron と同じ評価関数）。設計: docs/dev/schedule-recurrence-redesign.md §6。
 import * as React from 'react';
 import { useEffect, useState } from 'react';
+import { RecurrenceFields } from '../components/RecurrenceFields';
+import { Tip } from '../components/InfoTip';
 import { Pill, Select, Switch, TextField, Textarea } from '../../../design-system/src';
+import { pickable } from '../lib/channels';
 import { api, type Guild } from '../api';
 import { confirmDialog, withBusy } from '../lib/dialog';
 import { FLOW_STEP_NAMES, buildRecruitPreviewParts, flowWarnings, notifPreviewSummary } from '../lib/notifPreview';
+import { DEFAULT_QUOTA_MESSAGE, QUOTA_MESSAGE_FIELDS, QUOTA_MESSAGE_MAX, quotaMessage, quotaMessageError } from '../../../src/lib/quotaMessage';
 import {
   DEFAULT_RULE_FORM,
   INTERVAL_MAX,
-  NTH,
-  WEEKDAYS,
-  WEEKDAYS_MON_FRI,
   daysFromToday,
+  jstToday,
   dedupeMonthlyRules,
   describeRule,
   formatRule,
   modelFromRuleForm,
+  occurrenceLabel,
   parseRule,
   ruleFormFromModel,
   shortDateWithWeekday,
   type Freq,
   type RuleForm,
-  type WeekdayCode,
 } from '../lib/rrule';
 import type { ToastFn } from '../App';
+import { useStickyHeight } from '../components/FlowGuide';
+import { ScheduleFlow } from './NotifOps';
+import { SCHEDULE_LABELS } from '../lib/route';
 
-type Channel = { id: string; name: string };
+type Channel = { id: string; name: string; enabled?: boolean };
 type Segment = { id: string; uuid: string; name: string; mention_role_id?: string | null };
 type NotifDetail = {
   uuid: string;
@@ -51,8 +57,12 @@ type NotifDetail = {
   recruit_enabled?: 0 | 1 | boolean;
   remind_unanswered_enabled?: 0 | 1 | boolean;
   remind_undecided_enabled?: 0 | 1 | boolean;
+  remind_target?: 'dm' | 'channel';
+  remind_undecided_target?: 'dm' | 'channel';
+  share_answers?: 0 | 1 | boolean;
   quota_enabled: 0 | 1 | boolean;
   quota_interval_days: number | null;
+  quota_message?: string | null;
   mention_mode: 'role' | 'members' | 'none';
   requires_response: 0 | 1 | boolean | null;
   send_hour: number | null;
@@ -62,45 +72,38 @@ type NotifDetail = {
 };
 
 const numOrNull = (s: string) => (s.trim() === '' ? null : Number(s));
+/** リマインドの送り先の表示名（カードの選択肢と確認ステップで共用） */
+const TARGET_LABEL = { dm: '本人へDM', channel: '投稿チャンネルに投稿' } as const;
 
 type StepKey = 'basic' | 'when' | 'message' | 'flow' | 'confirm';
 const STEPS: { key: StepKey; icon: string; label: string }[] = [
   { key: 'basic', icon: '📌', label: '基本情報' },
   { key: 'when', icon: '🗓️', label: '開催日時' },
   { key: 'message', icon: '📝', label: '投稿メッセージ' },
-  { key: 'flow', icon: '📤', label: '配信設定' },
+  { key: 'flow', icon: '📤', label: '投稿設定' },
   { key: 'confirm', icon: '✅', label: '確認して保存' },
 ];
 const ALL_STEPS = STEPS.map((s) => s.key);
 
-/** 「開催日時」の繰り返しカード（不定期カードはリリース保留につき非表示・既存の不定期行は irregularRow で案内） */
-const CARDS: { key: RuleForm['freq']; label: string; desc: string }[] = [
-  { key: 'DAILY', label: '毎日', desc: 'N日おきも' },
-  { key: 'WEEKLY', label: '毎週', desc: '隔週・平日・複数曜日' },
-  { key: 'MONTHLY', label: '毎月', desc: '第N曜 または 日付' },
-  { key: 'YEARLY', label: '毎年', desc: '月日を指定' },
-];
-/** 間隔セグメントの文言（毎／隔／N…）。隔が無い FREQ は N が 2 から */
-const INTERVAL_LABELS: Record<Freq, { every: string; alt?: string; unit: string }> = {
-  DAILY: { every: '毎日', unit: '日おき' },
-  WEEKLY: { every: '毎週', alt: '隔週', unit: '週おき' },
-  MONTHLY: { every: '毎月', alt: '隔月', unit: 'か月おき' },
-  YEARLY: { every: '毎年', unit: '年おき' },
-};
-const customIntervalMin = (freq: Freq) => (INTERVAL_LABELS[freq].alt ? 3 : 2);
 
 type PreviewPlan = { dates: string[]; anchor_candidates: string[]; error?: string };
 
 export function NotificationFormV2({
   guild,
   nuuid,
+  irregular: irregularNew,
+  oneOff: oneOffNew,
   toast,
   onDirtyChange,
   onClose,
   onSaved,
+  copyFrom,
 }: {
   guild: Guild;
   nuuid?: string; // 未指定 = 新規
+  copyFrom?: string; // 指定 = その行の内容を初期値にした新規作成（複製・2026-09-20）。開催回・回答は写さない
+  irregular?: boolean; // 新規作成の種別（true=不定期）。編集時は読み込んだ行の rrule で決まる
+  oneOff?: boolean; // 新規作成が単発か（irregular も true）。編集・複製時は読み込んだ行の type で決まる
   toast: ToastFn;
   onDirtyChange: (dirty: boolean) => void;
   onClose: () => void;
@@ -110,8 +113,6 @@ export function NotificationFormV2({
   const [channels, setChannels] = useState<Channel[]>([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
-  // 不定期（rrule NULL・旧単発からの変換行）はリリース保留中: フォームは出さず案内だけ表示する
-  const [irregularRow, setIrregularRow] = useState(false);
 
   // ---- フォーム状態（v1 と同一の既定値） ----
   const [name, setName] = useState('');
@@ -120,8 +121,10 @@ export function NotificationFormV2({
   const [segmentUuid, setSegmentUuid] = useState('');
   const [channelId, setChannelId] = useState('');
   const [extraChannelOpt, setExtraChannelOpt] = useState<Channel | null>(null);
-  const [rule, setRule] = useState<RuleForm>(DEFAULT_RULE_FORM);
-  const [intervalCustom, setIntervalCustom] = useState(false); // 間隔セグメントが「N…」
+  // 種別は作成時に固定: 不定期の新規は freq='IRREGULAR' で始まり、カード UI が無いため以後変わらない
+  const [rule, setRule] = useState<RuleForm>(() =>
+    !nuuid && irregularNew ? { ...DEFAULT_RULE_FORM, freq: 'IRREGULAR' } : DEFAULT_RULE_FORM,
+  );
   const [ruleUnreadable, setRuleUnreadable] = useState(false); // 既存の rrule が文法外（再選択するまで保存不可）
   const [anchorDate, setAnchorDate] = useState(''); // 次回の開催日（間隔 ≥ 2 のときだけ保存）
   const [plan, setPlan] = useState<PreviewPlan | null>(null); // サーバー preview-plan の結果
@@ -135,22 +138,34 @@ export function NotificationFormV2({
   const [remindUndecidedDays, setRemindUndecidedDays] = useState('1');
   // 配信の流れの工程スイッチ（案A・ADR 0026）。OFF でも日数の入力値は保持する（ON に戻すと復帰）。
   // 締切だけは response_deadline_hours の有無（NULL=締切なし）がそのままスイッチ。
-  // 募集は定期では常時 ON（手動投稿は不定期専用・リリース保留中）のためスイッチを持たない。
+  // 募集スイッチ（自動/手動）は不定期専用（定期は常時 ON・flow-settings-spec §3）。
+  const [recruitOn, setRecruitOn] = useState(true);
   const [remindUnansweredOn, setRemindUnansweredOn] = useState(true);
   const [remindUndecidedOn, setRemindUndecidedOn] = useState(true);
+  // 未回答／未定リマインドの送り先（C02 2026-09-20・2026-09-23 に個別化。カードの中で選ぶ）
+  const [remindTarget, setRemindTarget] = useState<'dm' | 'channel'>('dm');
+  const [remindUndecidedTarget, setRemindUndecidedTarget] = useState<'dm' | 'channel'>('dm');
+  // 📊 状況確認で全員の回答を見せるか（初期値=公開・2026-09-23）
+  const [shareAnswers, setShareAnswers] = useState(true);
   const [deadlineOn, setDeadlineOn] = useState(false);
   const [quotaEnabled, setQuotaEnabled] = useState(false);
   const [quotaInterval, setQuotaInterval] = useState('');
+  const [quotaText, setQuotaText] = useState(DEFAULT_QUOTA_MESSAGE);
   const [sendHour, setSendHour] = useState('21');
   const [alertChannelId, setAlertChannelId] = useState('');
   const [extraAlertChannelOpt, setExtraAlertChannelOpt] = useState<Channel | null>(null);
   const [active, setActive] = useState(true);
+  // 単発（type 'oneoff'）: テンプレートと開催回 1 件を同時に作る（2026-10-02）。開催日はこの画面で入れ、
+  // 開催日・開始時刻・回答締切は作成後は変えない（不定期の開催回と同じ・ADR 0032）。送信時刻と投稿の流れはテンプレートに保存し、開催回は NULL＝それに従う
+  const [oneOff, setOneOff] = useState(!!oneOffNew);
+  const [eventDate, setEventDate] = useState(''); // 'YYYY-MM-DD'（input[type=date] の値）
+  const [occLocked, setOccLocked] = useState(false); // 編集時＝開催回は登録済み
   const [formErr, setFormErr] = useState('');
   const [dirty, setDirty] = useState(false);
 
   // ---- ウィザード状態 ----
   const [step, setStep] = useState<StepKey>(nuuid ? 'confirm' : 'basic');
-  const [visited, setVisited] = useState<Set<StepKey>>(() => new Set(nuuid ? ALL_STEPS : ['basic']));
+  const [visited, setVisited] = useState<Set<StepKey>>(() => new Set(nuuid || copyFrom ? ALL_STEPS : ['basic']));
   const [attempted, setAttempted] = useState(false); // 保存を試みた後は未入力を強調表示
 
   const markDirty = () => {
@@ -171,14 +186,32 @@ export function NotificationFormV2({
         if (!alive) return;
         setSegs(s);
         setChannels(c);
-        if (nuuid) {
-          const n: NotifDetail = await api('/notifications/' + nuuid);
+        const source = nuuid ?? copyFrom;
+        if (source) {
+          const n: NotifDetail = await api('/notifications/' + source);
           if (!alive) return;
           fillForm(n, s, c);
+          if (copyFrom) setName(`${n.name || ''}のコピー`);
+          // 単発は開始時刻と回答締切を開催日時の側に持つ。編集では読み込んでロックし、複製では開催日だけ空のまま引き継ぐ
+          if (n.type === 'oneoff') {
+            const occs: { occurrence_date: string; start_time?: string | null; response_deadline_hours?: number | null }[] =
+              await api(`/notifications/${source}/occurrences`);
+            if (!alive) return;
+            const o = occs[0];
+            if (o) {
+              if (o.start_time) setStartTime(o.start_time);
+              setDeadlineOn(o.response_deadline_hours != null);
+              setDeadlineHours(o.response_deadline_hours == null ? '' : String(o.response_deadline_hours));
+              if (nuuid) {
+                setEventDate(o.occurrence_date.replace(/\//g, '-'));
+                setOccLocked(true);
+              }
+            }
+          }
         }
       } catch (e) {
-        if (nuuid) {
-          toast('スケジュールが見つかりません', true);
+        if (nuuid || copyFrom) {
+          toast('テンプレートが見つかりません', true);
           setNotFound(true);
         } else {
           toast(e instanceof Error ? e.message : String(e), true);
@@ -191,15 +224,11 @@ export function NotificationFormV2({
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nuuid, guild.id]);
+  }, [nuuid, copyFrom, guild.id]);
 
   function fillForm(n: NotifDetail, s: Segment[], c: Channel[]) {
     setName(n.name || '');
-    if (!n.rrule) {
-      // 不定期は編集フォームを出さない（保留中）。開催回の運用（追加・📣投稿）は「📅 開催回」画面で生きている
-      setIrregularRow(true);
-      return;
-    }
+    setOneOff(n.type === 'oneoff');
     setTitle(n.message_title || '');
     setBody(n.message_body || '');
     if (n.channel_id && !c.some((x) => x.id === n.channel_id)) setExtraChannelOpt({ id: n.channel_id, name: 'ID: ' + n.channel_id });
@@ -214,7 +243,6 @@ export function NotificationFormV2({
     } else {
       const f = ruleFormFromModel(model);
       setRule(f);
-      setIntervalCustom(f.freq !== 'IRREGULAR' && f.interval >= customIntervalMin(f.freq));
     }
     setAnchorDate(n.anchor_date || '');
     setStartTime(n.start_time || '21:00');
@@ -222,11 +250,16 @@ export function NotificationFormV2({
     setRecruitDays(String(n.recruit_days_before));
     setRemindStartDays(String(n.remind_start_days));
     setRemindUndecidedDays(String(n.remind_undecided_days));
+    setRecruitOn(n.recruit_enabled == null ? true : !!n.recruit_enabled);
     setRemindUnansweredOn(n.remind_unanswered_enabled == null ? true : !!n.remind_unanswered_enabled);
     setRemindUndecidedOn(n.remind_undecided_enabled == null ? true : !!n.remind_undecided_enabled);
+    setRemindTarget(n.remind_target === 'channel' ? 'channel' : 'dm');
+    setRemindUndecidedTarget(n.remind_undecided_target === 'channel' ? 'channel' : 'dm');
+    setShareAnswers(n.share_answers == null ? true : !!n.share_answers);
     setDeadlineOn(n.response_deadline_hours != null);
     setQuotaInterval(n.quota_interval_days == null ? '' : String(n.quota_interval_days));
     setQuotaEnabled(!!n.quota_enabled);
+    setQuotaText(n.quota_message || DEFAULT_QUOTA_MESSAGE);
     setMention((n.mention_mode as any) || 'role');
     setRequireResponse(n.requires_response == null ? true : !!n.requires_response);
     setActive(!!n.active);
@@ -242,10 +275,22 @@ export function NotificationFormV2({
     setRule((r) => ({ ...r, ...patch }));
     markDirty();
   };
+  // 不定期＝rrule NULL。新規は irregular prop・編集は読み込んだ行の rrule で決まり、切替 UI が無いため以後固定
+  const irregular = rule.freq === 'IRREGULAR';
+  // 不定期のテンプレート（開催日時・送信時刻・投稿の流れは開催日時ごと）。単発はこの画面で全部決めるので含めない
+  const tmpl = irregular && !oneOff;
+  const kind = oneOff ? 'oneoff' : irregular ? 'irregular' : 'regular';
+  const nameLabel = oneOff ? '名前' : 'テンプレート名';
+  const eventDateSlash = eventDate ? eventDate.replace(/-/g, '/') : '';
+  const todaySlash = jstToday();
+  // 編集画面は流れの表 → 見出し → ステップ一覧の順にスクロールしても残す（日程調整と同じ・2026-09-23 試作）
+  const pageRef = React.useRef<HTMLDialogElement>(null);
+  useStickyHeight(pageRef, '.modal-head', '--planning-head-h', [loading, irregular]);
   const model = ruleUnreadable ? null : modelFromRuleForm(rule);
   const rrule = model ? formatRule(model) : null;
   const needsAnchor = !!model && model.interval >= 2;
-  const intervalBad = !Number.isInteger(rule.interval) || rule.interval < 1 || rule.interval > INTERVAL_MAX[rule.freq as Freq];
+  const intervalBad =
+    !irregular && (!Number.isInteger(rule.interval) || rule.interval < 1 || rule.interval > INTERVAL_MAX[rule.freq as Freq]);
 
   // サーバープレビュー（cron と同じ評価）: 次の開催日・次回の開催日の候補・anchor の整合。入力が落ち着いてから取得。
   // 間隔 ≥ 2 で次回の開催日が未選択／ルールと不一致なら、候補の先頭に取り直す（曜日変更で旧起点が残らないように）。
@@ -274,7 +319,7 @@ export function NotificationFormV2({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rrule, anchorDate, startTime, needsAnchor]);
-  const nextDate = plan?.dates[0] ?? null;
+  const nextDate = oneOff ? eventDateSlash || null : plan?.dates[0] ?? null;
   const anchorCandidates = plan?.anchor_candidates ?? [];
   const anchorOptions = anchorDate && !anchorCandidates.includes(anchorDate) ? [anchorDate, ...anchorCandidates] : anchorCandidates;
 
@@ -282,33 +327,53 @@ export function NotificationFormV2({
   const deadlineNum = deadlineOn && deadlineHours.trim() !== '' ? Number(deadlineHours) : null;
   const announceOnly = !requireResponse;
   // 間隔 ≥ 2 の「次回」はサーバー計算の先頭日（anchor が過去でも実際の次回を出す）。未取得の間は anchor
+  // 単発出欠確認のテンプレートは開始時刻・開催時間を持たない（開催日時ごとに「＋ 開催日時を追加」で入れる・2026-09-23）。
+  // 保存値は触らずに送り返し（既存行の値は残る・新規はサーバー既定）、表示と入力欄からだけ外す
+  const shownStart = tmpl ? '' : startTime;
+  const shownDuration = tmpl ? null : durationNum;
   const scheduleText = ruleUnreadable
     ? '⚠️ 繰り返し設定を読み取れません（設定し直してください）'
-    : describeRule(model, startTime, durationNum, needsAnchor ? nextDate ?? (anchorDate || null) : null);
+    : oneOff
+      ? eventDateSlash ? occurrenceLabel(eventDateSlash, startTime, durationNum) : '開催日 未入力'
+      : irregular
+      ? '不定期'
+      : describeRule(model, startTime, durationNum, needsAnchor ? nextDate ?? (anchorDate || null) : null);
+  // 定期は「募集/告知を投稿」常時 ON（手動投稿は不定期専用・flow-settings-spec §3）。不定期だけスイッチを出す
+  const effRecruitOn = irregular ? recruitOn : true;
   // 工程オフは null（文から省く／判定から外す）・未入力は NaN（「—」・判定しない）
   const flowInput = {
     requireResponse,
-    recruitDays: numOrNull(recruitDays) ?? NaN,
+    recruitDays: effRecruitOn ? (numOrNull(recruitDays) ?? NaN) : null,
     remindStartDays: remindUnansweredOn ? (numOrNull(remindStartDays) ?? NaN) : null,
     remindUndecidedDays: remindUndecidedOn ? (numOrNull(remindUndecidedDays) ?? NaN) : null,
-    deadlineHours: deadlineNum,
+    // 不定期の締切は開催回ごと（ADR 0032）。単発は開催回の締切をここで決める（手動募集なら 📣 の投稿時に選ぶので無し）
+    deadlineHours: tmpl || (irregular && !effRecruitOn) ? null : deadlineNum,
     sendHour: Number(sendHour),
   };
   const timelineText = notifPreviewSummary({ ...flowInput, scheduleText });
-  // 順序ルール E1〜E6（判定は src/lib/flowRules に一本化）。違反は保存不可（flow-settings-spec §4）
-  const flowIssues = flowWarnings({ ...flowInput, startTime: startTime || '21:00' });
+  // 順序ルール E1〜E6（判定は src/lib/flowRules に一本化）。違反は種別を問わず保存不可（flow-settings-spec §4。
+  // 不定期は④を雛形に持たないため E3/E5/E6 は出ない。募集が手動なら①が無いので E1/E2 も出ない）
+  // 単発は開始時刻を開催日時ごとに持つので、当日×開始時刻の E4 はテンプレートでは判定しない（サーバーの validateFlow と同じ）
+  // 単発は投稿の流れを開催日時ごとに持つ（テンプレートに入力欄なし）ので、テンプレートでは判定しない
+  const flowIssues = tmpl ? [] : flowWarnings({ ...flowInput, startTime: startTime || '21:00' });
   const warnOf = (step: 'recruit' | 'remind' | 'undecided' | 'deadline') => flowIssues.find((w) => w.step === step) ?? null;
   const previewParts = buildRecruitPreviewParts({
     title,
     body,
     nextDate,
-    startTime,
-    duration: durationNum,
+    startTime: shownStart,
+    duration: shownDuration,
     deadlineHours: deadlineNum,
     mention,
     requireResponse,
   });
   const mentionSeg = segs.find((s) => s.uuid === segmentUuid);
+  const quotaError = quotaMessageError(quotaText);
+  const quotaPreviewText = quotaMessage(
+    { quota_interval_days: numOrNull(quotaInterval) ?? 30, quota_message: quotaText },
+    { user_id: 'sample', user_name: 'サンプル', display_name: '田中太郎', lastDateStr: '2026/08/01', daysSinceLast: (Number(quotaInterval) || 30) + 7 },
+    guild.name || guild.id,
+  );
   const mentionWarn = mention === 'members' && !!mentionSeg && mentionSeg.mention_role_id === '@everyone';
   const chLabel = (id: string) => {
     const all = extraChannelOpt ? [extraChannelOpt, ...channels] : channels;
@@ -324,7 +389,7 @@ export function NotificationFormV2({
   const [evH, evM] = (startTime || '21:00').split(':').map((x) => Number(x) || 0);
   const exampleEventDate = nextDate;
   // 密度警告（Q9）: 募集窓（今日〜募集 N 日前・両端含む）に入るルール回が 3 件以上なら常に複数回が並行する
-  const rDaysForDense = numOrNull(recruitDays);
+  const rDaysForDense = effRecruitOn ? numOrNull(recruitDays) : null;
   const denseCount =
     plan && rDaysForDense != null && isFinite(rDaysForDense)
       ? plan.dates.filter((d) => {
@@ -372,6 +437,13 @@ export function NotificationFormV2({
     const num = (v: string, set: (s: string) => void, placeholder?: string) => (
       <TextField type="number" min={0} placeholder={placeholder} value={v} onChange={(e) => set(e.target.value)} />
     );
+    // 送り先はカードの中で選ぶ（日程調整の「未回答者へ催促」と同じ形・2026-09-23）。チャンネルなら該当メンバーを個別メンションして投稿する
+    const targetSelect = (label: string, v: 'dm' | 'channel', set: (t: 'dm' | 'channel') => void) => (
+      <select aria-label={label} value={v} onChange={(e) => { set(e.target.value as 'dm' | 'channel'); markDirty(); }}>
+        <option value="dm">{TARGET_LABEL.dm}</option>
+        <option value="channel">{TARGET_LABEL.channel}（該当メンバーを個別メンション）</option>
+      </select>
+    );
     type FlowNode = {
       key: string;
       sort: number;
@@ -393,12 +465,15 @@ export function NotificationFormV2({
       {
         key: 'recruit',
         sort: minBeforeDay(rDaysN, 7),
-        when: whenDay(rDaysN),
+        when: effRecruitOn ? whenDay(rDaysN) : '手動',
         icon: '📣',
         title: `${recruitWord}を投稿`,
         chip: 'ch' as const,
         warn: warnOf('recruit'),
-        on: true,
+        on: effRecruitOn,
+        // 単発で締切を登録済みなら募集の自動/手動は変えない（締切は自動募集が前提・ADR 0032）
+        onToggle: irregular && !(occLocked && deadlineOn) ? setRecruitOn : undefined,
+        offText: `自動では投稿しません。「${SCHEDULE_LABELS[kind]}」の「📣 今すぐ${recruitWord}」で手動投稿します。`,
         body: (
           <div className="nf2-tl-inline">
             <span>開催の</span>
@@ -408,7 +483,7 @@ export function NotificationFormV2({
           </div>
         ),
       },
-      // 告知（回答不要）は②③④を持たない
+      // 告知（回答不要）は②③④を持たない。不定期は②③を持ち、④（締切）は雛形ではなく開催回ごと（ADR 0032）
       ...(announceOnly
         ? []
         : ([
@@ -418,7 +493,7 @@ export function NotificationFormV2({
               when: remindUnansweredOn ? whenDay(rsDaysN) : '送らない',
               icon: '✉️',
               title: '未回答者へリマインド',
-              chip: 'dm',
+              chip: remindTarget === 'channel' ? 'ch' : 'dm',
               warn: warnOf('remind'),
               on: remindUnansweredOn,
               onToggle: setRemindUnansweredOn,
@@ -428,6 +503,7 @@ export function NotificationFormV2({
                   <span>開催の</span>
                   {num(remindStartDays, setRemindStartDays)}
                   <span>日前から{deadlineOn ? '締切まで' : ''}毎日、未回答のメンバーへ</span>
+                  {targetSelect('未回答リマインドの送り先', remindTarget, setRemindTarget)}
                   {rsDaysN === 0 && <span className="muted">＝ 当日のみ</span>}
                 </div>
               ),
@@ -438,7 +514,7 @@ export function NotificationFormV2({
               when: remindUndecidedOn ? whenDay(ruDaysN) : '送らない',
               icon: '✉️',
               title: '未定者へリマインド',
-              chip: 'dm',
+              chip: remindUndecidedTarget === 'channel' ? 'ch' : 'dm',
               warn: warnOf('undecided'),
               on: remindUndecidedOn,
               onToggle: setRemindUndecidedOn,
@@ -447,12 +523,27 @@ export function NotificationFormV2({
                 <div className="nf2-tl-inline">
                   <span>開催の</span>
                   {num(remindUndecidedDays, setRemindUndecidedDays)}
-                  <span>日前に1回、「未定」回答のメンバーへ</span>
+                  <span>日前から{deadlineOn ? '締切まで' : ''}毎日、「未定」回答のメンバーへ</span>
+                  {targetSelect('未定リマインドの送り先', remindUndecidedTarget, setRemindUndecidedTarget)}
                   {ruDaysN === 0 && <span className="muted">＝ 当日</span>}
                 </div>
               ),
             },
-            {
+            ...(tmpl
+              ? []
+              : irregular && !effRecruitOn
+              ? [
+                  // 単発×手動募集: 締切は 📣 今すぐ募集で投稿するときに選ぶ（ADR 0032）
+                  {
+                    key: 'deadline', sort: 0, when: '投稿時', icon: '⏰', title: '回答締切', chip: 'ch', warn: null, on: false,
+                    body: null,
+                    offText: occLocked && deadlineOn
+                      ? `開始の ${deadlineHours} 時間前（登録後は変更できません）。`
+                      : '「📣 今すぐ募集」で投稿するときに選びます（募集の自動投稿がオフのため）。',
+                  },
+                ]
+              : [
+                  {
               key: 'deadline',
               sort: deadlineNum != null && isFinite(deadlineNum) ? deadlineNum * 60 : 0,
               when: deadlineOn ? whenDeadline(deadlineNum) : '締切なし',
@@ -461,23 +552,25 @@ export function NotificationFormV2({
               chip: 'ch',
               warn: warnOf('deadline'),
               on: deadlineOn,
-              onToggle: setDeadlineOn,
-              offText: '締め切りません（開催までいつでも回答できます）。',
+              // 単発の締切は開催回に保存し、登録後は変えない（不定期の開催回と同じ・ADR 0032）
+              onToggle: occLocked ? undefined : setDeadlineOn,
+              offText: occLocked ? '締め切りません（登録後は変更できません）。' : '締め切りません（開催までいつでも回答できます）。',
               body: (
                 <div className="nf2-tl-inline">
                   <span>開始の</span>
-                  {num(deadlineHours, setDeadlineHours)}
+                  {occLocked ? <b>{deadlineHours}</b> : num(deadlineHours, setDeadlineHours)}
                   <span>時間前</span>
-                  <span className="muted">（締切時に告知をチャンネルへ投稿）</span>
+                  <span className="muted">（締切時刻に「回答を締め切りました」をチャンネルへ投稿）</span>
                 </div>
               ),
-            },
+                  },
+                ]),
           ] as FlowNode[])),
     ].sort((a, b) => b.sort - a.sort);
     nodes.push({
       key: 'event',
       sort: -1,
-      when: eventWhen ?? `開催日 ${startTime}`,
+      when: eventWhen ?? (tmpl || (oneOff && !eventDate) ? '開催日' : `開催日 ${startTime}`),
       icon: '🎉',
       title: '開催',
       chip: null,
@@ -490,10 +583,16 @@ export function NotificationFormV2({
 
   // ---- ステップごとの必須未入力（レール表示・保存前チェックで共用） ----
   const missing: Record<StepKey, string[]> = {
-    basic: [!name.trim() && 'スケジュール名', !segmentUuid && '対象区分', !channelId && '投稿チャンネル'].filter(
+    basic: [!name.trim() && nameLabel, !segmentUuid && '対象区分', !channelId && '投稿チャンネル'].filter(
       (x): x is string => !!x,
     ),
-    when: ruleUnreadable
+    when: oneOff
+      ? [
+          !eventDate && '日付',
+          !occLocked && eventDateSlash && eventDateSlash < todaySlash && '日付（過去の日付は不可）',
+          !startTime.trim() && '開始時刻',
+        ].filter((x): x is string => !!x)
+      : ruleUnreadable
       ? ['繰り返し（設定し直してください）']
       : [
           rule.freq === 'WEEKLY' && !rule.weekdays.length && '曜日',
@@ -501,10 +600,13 @@ export function NotificationFormV2({
           rule.freq === 'MONTHLY' && rule.monthlyMode === 'bymonthday' && !rule.monthDays.length && '日付',
           intervalBad && '間隔',
           needsAnchor && !anchorDate && '次回の開催日',
+          // 不定期のテンプレートは開始時刻の欄が無い（開催日時ごとに指定）
+          !tmpl && !startTime.trim() && '開始時刻',
         ].filter((x): x is string => !!x),
     message: !title.trim() ? ['見出し'] : [],
     flow: [
-      ...(deadlineOn && deadlineNum == null ? ['回答締切の時間'] : []),
+      ...(!tmpl && !(irregular && !effRecruitOn) && deadlineOn && deadlineNum == null ? ['回答締切の時間'] : []),
+      ...(quotaError ? ['ノルマのメッセージ'] : []),
       ...flowIssues.map((w) => w.head),
     ],
     confirm: [],
@@ -545,8 +647,8 @@ export function NotificationFormV2({
       name: name.trim(),
       channel_id: channelId.trim(),
       segment_uuid: segmentUuid,
-      type: 'recurring',
-      rrule, // 正規形の RRULE
+      type: oneOff ? 'oneoff' : 'recurring',
+      rrule, // 正規形の RRULE。不定期・単発は null
       anchor_date: needsAnchor ? anchorDate || null : null,
       start_time: startTime.trim() || '21:00',
       duration_minutes: durationNum,
@@ -555,23 +657,28 @@ export function NotificationFormV2({
       recruit_days_before: numOrNull(recruitDays) ?? 7,
       remind_start_days: numOrNull(remindStartDays) ?? 3,
       remind_undecided_days: numOrNull(remindUndecidedDays) ?? 1,
-      recruit_enabled: 1,
+      recruit_enabled: effRecruitOn ? 1 : 0,
       remind_unanswered_enabled: remindUnansweredOn ? 1 : 0,
+      remind_target: remindTarget,
+      remind_undecided_target: remindUndecidedTarget,
+      share_answers: shareAnswers ? 1 : 0,
       remind_undecided_enabled: remindUndecidedOn ? 1 : 0,
       quota_enabled: quotaEnabled ? 1 : 0,
       quota_interval_days: numOrNull(quotaInterval),
+      quota_message: quotaText.trim() === DEFAULT_QUOTA_MESSAGE ? null : quotaText.trim() || null,
       assignment_enabled: 1,
       grouping_enabled: 1,
       mention_mode: mention,
       requires_response: requireResponse ? 1 : 0,
       send_hour: Number(sendHour),
-      response_deadline_hours: deadlineNum,
+      response_deadline_hours: irregular ? null : deadlineNum,
       change_alert_channel_id: alertChannelId.trim() || null,
       active: active ? 1 : 0,
     };
     await withBusy(btn, async () => {
       try {
-        let msg = '作成しました';
+        // 不定期は保存しただけでは何も起きない（開催回が無い）ため、次の操作へ誘導する
+        let msg = tmpl ? '作成しました。開催日時は「不定期出欠確認」の「＋ 開催日時を追加」で登録してください' : '作成しました';
         if (nuuid) {
           // ルール変更時はサーバーが未投稿のルール回を掃除して作り直す（投稿済みは残す）。件数を案内する
           const r = (await api('/notifications/' + nuuid, { method: 'PUT', body: JSON.stringify(payload) })) as {
@@ -582,12 +689,36 @@ export function NotificationFormV2({
           const pruned = r?.pruned ?? 0;
           msg =
             kept > 0
-              ? `更新しました。投稿済みの ${kept} 件はそのまま残しています（不要なら「開催回」タブで中止）`
+              ? `更新しました。投稿済みの ${kept} 件はそのまま残しています（不要なら出欠一覧で中止）`
               : pruned > 0
-                ? `更新しました（未投稿の予定 ${pruned} 件を新しいルールで作り直します）`
+                ? `更新しました（未投稿の予定 ${pruned} 件を新しい繰り返しで作り直します）`
                 : '更新しました';
         } else {
-          await api('/notifications', { method: 'POST', body: JSON.stringify(payload) });
+          const created = (await api('/notifications', { method: 'POST', body: JSON.stringify(payload) })) as { uuid: string };
+          if (oneOff) {
+            // 単発: 開催回 1 件を続けて作る。送信時刻・投稿の流れ・開催時間は NULL＝テンプレートの値に従う（編集で直せる）。
+            // 開催回を作れなかったら（締切ガード等）テンプレートも消して、何も作らなかった状態に戻す
+            try {
+              await api(`/notifications/${created.uuid}/occurrences`, {
+                method: 'POST',
+                body: JSON.stringify({
+                  date: eventDateSlash,
+                  start_time: startTime.trim(),
+                  status: 'scheduled',
+                  response_deadline_hours: !announceOnly && effRecruitOn ? deadlineNum : null,
+                }),
+              });
+            } catch (e) {
+              const reason = e instanceof Error ? e.message : String(e);
+              // 後始末の DELETE は 1 回だけ再試行する。それでも消せなければ黙らずに伝える（P2-18）。
+              // 開催回の無い単発は一覧に出ず、何も送信されない（不定期と同じく開催回が無ければ cron は動かない）
+              const del = () => api('/notifications/' + created.uuid, { method: 'DELETE' }).then(() => true, () => false);
+              if (!(await del()) && !(await del())) {
+                throw new Error(`開催日時を登録できませんでした（${reason}）。作成途中のデータを削除できませんでしたが、開催日時が無いため一覧には表示されず、何も送信されません。原因を確認して、もう一度「この内容で作成する」を押してください。`);
+              }
+              throw e;
+            }
+          }
         }
         onDirtyChange(false);
         setDirty(false);
@@ -601,48 +732,18 @@ export function NotificationFormV2({
 
   if (notFound) return null;
   if (loading) return <p className="muted">読み込み中…</p>;
-  if (irregularRow) {
-    return (
-      <dialog className="modal-lg as-page" open aria-labelledby="nFormTitle">
-        <div className="modal-head">
-          <div>
-            <div className="page-crumb">
-              <a
-                href="#"
-                onClick={(e) => {
-                  e.preventDefault();
-                  onClose();
-                }}
-              >
-                スケジュール設定
-              </a>{' '}
-              <span>›</span> <span>編集</span>
-            </div>
-            <h3 id="nFormTitle">{name || 'スケジュールを編集'}</h3>
-          </div>
-          <button type="button" className="page-back" aria-label="戻る" onClick={onClose}>
-            ← 戻る
-          </button>
-        </div>
-        <div className="modal-body">
-          <p>このスケジュールは不定期（開催回を都度追加するタイプ）です。不定期の設定編集は準備中のため、この画面では変更できません。</p>
-          <p className="muted">開催回の追加や募集・告知の投稿は、メニューの「📅 開催回」から行えます。</p>
-        </div>
-      </dialog>
-    );
-  }
 
   const segOptions = segs.map((s) => (
     <option key={s.uuid} value={s.uuid}>
       {s.name}
     </option>
   ));
-  const channelOptions = (extraChannelOpt ? [extraChannelOpt, ...channels] : channels).map((c) => (
+  const channelOptions = (extraChannelOpt ? [extraChannelOpt, ...pickable(channels, channelId)] : pickable(channels, channelId)).map((c) => (
     <option key={c.id} value={c.id}>
       #{c.name}
     </option>
   ));
-  const alertChannelOptions = (extraAlertChannelOpt ? [extraAlertChannelOpt, ...channels] : channels).map((c) => (
+  const alertChannelOptions = (extraAlertChannelOpt ? [extraAlertChannelOpt, ...pickable(channels, alertChannelId)] : pickable(channels, alertChannelId)).map((c) => (
     <option key={c.id} value={c.id}>
       #{c.name}
     </option>
@@ -781,7 +882,8 @@ export function NotificationFormV2({
   };
 
   return (
-    <dialog className="modal-lg as-page" open aria-labelledby="nFormTitle">
+    <dialog ref={pageRef} className="modal-lg as-page flow-page" open aria-labelledby="nFormTitle">
+      <ScheduleFlow kind={kind} />
       <div className="modal-head">
         <div>
           <div className="page-crumb">
@@ -792,11 +894,15 @@ export function NotificationFormV2({
                 attemptClose();
               }}
             >
-              スケジュール設定
+              {oneOff ? SCHEDULE_LABELS.oneoff : 'テンプレート'}
             </a>{' '}
-            <span>›</span> <span>{nuuid ? '編集' : '新規'}</span>
+            <span>›</span> <span>{nuuid ? '編集' : copyFrom ? '複製' : '新規'}</span>
           </div>
-          <h3 id="nFormTitle">{nuuid ? 'スケジュールを編集' : '新規スケジュール'}</h3>
+          <h3 id="nFormTitle">
+            {oneOff
+              ? `${SCHEDULE_LABELS.oneoff}を${nuuid ? '編集' : copyFrom ? '複製' : '作成'}`
+              : `${nuuid ? 'テンプレートを編集' : copyFrom ? 'テンプレートを複製' : '新規テンプレート'}（${SCHEDULE_LABELS[kind]}）`}
+          </h3>
         </div>
         <button type="button" className="page-back" aria-label="戻る" onClick={attemptClose}>
           ← 戻る
@@ -829,12 +935,31 @@ export function NotificationFormV2({
           <div className="nf2-main">
             {step === 'basic' && (
               <>
-                <p className="nf2-lead">このスケジュールの名前と、誰に・どこに投稿するかを決めます。</p>
+                {/* Discord-side prerequisites at the top of step 1; the same text for 定期 and 単発 (wording confirmed by the user, 2026-09-20). */}
+                <div className="nf2-prereq" role="note" aria-label="Discord 側で用意しておくもの">
+                  <div className="nf2-prereq-title">
+                    Discord 側で用意しておくもの<span className="muted">初回設定の Bot 招待と Server Members Intent は済んでいる前提</span>
+                  </div>
+                  <ul>
+                    <li><b>対象メンバーのロール</b>: 出欠を聞く人に付けるロール（Everyone でも可）。「メンバー管理」で区分として登録します。</li>
+                    <li>
+                      <b>投稿チャンネル</b>: 募集・告知を投稿するテキストチャンネル。Bot がそのチャンネルを見て投稿できること。
+                      <Tip text="非公開チャンネルの場合は、チャンネルの権限で Bot のロールに「チャンネルを見る」「メッセージを送信」を許可してください。" />
+                    </li>
+                    <li><b>メンバーの DM 設定</b>: 未回答・未定リマインド（送り先が DM のとき）とノルマは本人への DM です。受け取る側が「サーバーメンバーからのダイレクトメッセージを許可」にしていないと届きません。</li>
+                    <li>
+                      <b>ロールでメンションする場合</b>: Bot に「@everyone・全ロールへのメンション」権限があるか、ロールの設定で @mention を許可しておくこと。
+                      <Tip text="初回設定の招待リンクで招待した Bot には付与済みです。投稿や DM に失敗すると、Bot設定で指定したチャンネルにお知らせが投稿されます。" />
+                    </li>
+                    <li><b>任意</b>: 締切後の変更通知を出すチャンネル。送信失敗を知らせるチャンネルは「Bot設定」で指定します。</li>
+                  </ul>
+                </div>
+                <p className="nf2-lead">{oneOff ? 'この出欠確認' : 'このテンプレート'}の名前と、誰に・どこに投稿するかを決めます。</p>
                 <label>
-                  スケジュール名 <span className="req">✱</span> <span className="muted">（管理用の名前・投稿には表示されません）</span>
+                  {nameLabel} <span className="req">✱</span> <span className="muted">（管理用の名前・投稿には表示されません）</span>
                 </label>
                 <TextField placeholder="例: 土曜定例・キャスト出欠" value={name} onChange={(e) => setName(e.target.value)} />
-                {fieldErr(!name.trim(), 'スケジュール名を入力してください')}
+                {fieldErr(!name.trim(), `${nameLabel}を入力してください`)}
                 <label>
                   対象区分 <span className="req">✱</span> <span className="muted">（出欠を聞くメンバーのグループ）</span>
                 </label>
@@ -843,6 +968,7 @@ export function NotificationFormV2({
                   {segOptions}
                 </Select>
                 {fieldErr(!segmentUuid, '対象区分を選択してください')}
+                {!segs.length && <p className="muted">先に<a href={`#g/${guild.id}/segments`}>メンバー管理</a>でメンバー区分を作成してください。</p>}
                 <label>
                   投稿チャンネル <span className="req">✱</span> <span className="muted">（募集・告知を投稿する場所）</span>
                 </label>
@@ -857,268 +983,50 @@ export function NotificationFormV2({
 
             {step === 'when' && (
               <>
-                <p className="nf2-lead">いつ開催するかを決めます。開催日はここから自動で計算され、募集やリマインドの日程の基準になります。</p>
+                <p className="nf2-lead">
+                  {oneOff
+                    ? occLocked
+                      ? '開催日と開始時刻は作成後は変更できません（変える場合は中止して作り直すか、「⧉ 複製」から作ります）。開催時間は変更できます。'
+                      : 'いつ開催するかを決めます。募集やリマインドの日程はこの日から逆算します。'
+                    : irregular
+                    ? '不定期のテンプレートは開催日時を持ちません。開催日時ごとに日付と開始時刻を登録します。'
+                    : 'いつ開催するかを決めます。開催日はここから自動で計算され、募集やリマインドの日程の基準になります。'}
+                </p>
                 {ruleUnreadable && (
                   <p className="nf2-field-err" role="alert">
                     この繰り返し設定は読み取れません（旧形式または未対応の形式）。下から設定し直してください。
                   </p>
                 )}
-                <label>繰り返し</label>
-                <div className="nf2-modes nf2-modes-5" role="radiogroup" aria-label="繰り返し">
-                  {CARDS.map((c) => (
-                    <button
-                      type="button"
-                      key={c.key}
-                      role="radio"
-                      aria-checked={!ruleUnreadable && rule.freq === c.key}
-                      className={'nf2-mode' + (!ruleUnreadable && rule.freq === c.key ? ' on' : '')}
-                      onClick={() => {
-                        setRuleUnreadable(false);
-                        setIntervalCustom(false);
-                        patchRule({ freq: c.key, interval: 1 });
-                      }}
-                    >
-                      <span className="nf2-mode-title">{c.label}</span>
-                      <span className="nf2-mode-desc">{c.desc}</span>
-                    </button>
-                  ))}
-                </div>
-
-                {rule.freq === 'WEEKLY' && (
-                  <>
+                {!irregular && <RecurrenceFields
+                  rule={rule}
+                  unreadable={ruleUnreadable}
+                  showErrors={attempted}
+                  onChange={(patch) => {
+                    if (patch.freq) setRuleUnreadable(false);
+                    patchRule(patch);
+                  }}
+                />}
+                {oneOff && (
+                  <div>
                     <label>
-                      曜日 <span className="muted">（複数選択可）</span>
+                      日付 <span className="req">✱</span>
                     </label>
-                    <div className="nf2-chips" role="group" aria-label="曜日">
-                      {WEEKDAYS.map(([v, l]) => {
-                        const on = rule.weekdays.includes(v);
-                        return (
-                          <button
-                            type="button"
-                            key={v}
-                            role="checkbox"
-                            aria-checked={on}
-                            className={'nf2-chip' + (on ? ' on' : '')}
-                            onClick={() => patchRule({ weekdays: on ? rule.weekdays.filter((x) => x !== v) : [...rule.weekdays, v] })}
-                          >
-                            {l}
-                          </button>
-                        );
-                      })}
-                      <button type="button" className="btn xs ghost" onClick={() => patchRule({ weekdays: [...WEEKDAYS_MON_FRI] })}>
-                        平日
-                      </button>
-                      <button type="button" className="btn xs ghost" onClick={() => patchRule({ weekdays: ['SA', 'SU'] })}>
-                        週末
-                      </button>
-                    </div>
-                    {fieldErr(!rule.weekdays.length, '曜日を 1 つ以上選んでください')}
-                  </>
+                    <TextField type="date" value={eventDate} min={occLocked ? undefined : todaySlash.replace(/\//g, '-')} disabled={occLocked}
+                      onChange={(e) => setEventDate(e.target.value)} />
+                    {fieldErr(!eventDate, '日付を入力してください')}
+                  </div>
                 )}
-
-                {rule.freq === 'MONTHLY' && (
-                  <>
-                    <label>指定方法</label>
-                    <div className="nf2-seg" role="radiogroup" aria-label="毎月の指定方法">
-                      {(
-                        [
-                          ['byday', '第N曜'],
-                          ['bymonthday', '日付'],
-                        ] as const
-                      ).map(([k, l]) => (
-                        <button
-                          type="button"
-                          key={k}
-                          role="radio"
-                          aria-checked={rule.monthlyMode === k}
-                          className={'nf2-seg-btn' + (rule.monthlyMode === k ? ' on' : '')}
-                          onClick={() => patchRule({ monthlyMode: k })}
-                        >
-                          {l}
-                        </button>
-                      ))}
-                    </div>
-                    {rule.monthlyMode === 'byday' ? (
-                      <div>
-                        <label>開催日（第N × 曜日・複数可）</label>
-                        <div className="timechips">
-                          {rule.monthlyRules.map((r, i) => (
-                            <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                              <Select
-                                style={{ width: 'auto' }}
-                                aria-label="第N"
-                                value={r.nth}
-                                onChange={(e) =>
-                                  patchRule({ monthlyRules: rule.monthlyRules.map((x, xi) => (xi === i ? { ...x, nth: e.target.value } : x)) })
-                                }
-                              >
-                                {NTH.map(([v, l]) => (
-                                  <option key={v} value={v}>
-                                    {l}
-                                  </option>
-                                ))}
-                              </Select>
-                              <Select
-                                style={{ width: 'auto' }}
-                                aria-label="曜日"
-                                value={r.byday}
-                                onChange={(e) =>
-                                  patchRule({ monthlyRules: rule.monthlyRules.map((x, xi) => (xi === i ? { ...x, byday: e.target.value } : x)) })
-                                }
-                              >
-                                {WEEKDAYS.map(([v, l]) => (
-                                  <option key={v} value={v}>
-                                    {l}曜
-                                  </option>
-                                ))}
-                              </Select>
-                              <button
-                                type="button"
-                                className="btn xs ghost"
-                                aria-label="このルールを削除"
-                                onClick={() => {
-                                  if (rule.monthlyRules.length > 1) patchRule({ monthlyRules: rule.monthlyRules.filter((_, xi) => xi !== i) });
-                                  else toast('ルールは最低1つ必要です', true);
-                                }}
-                              >
-                                ×
-                              </button>
-                            </span>
-                          ))}
-                        </div>
-                        <button
-                          type="button"
-                          className="btn sm secondary"
-                          style={{ marginTop: 4 }}
-                          onClick={() => patchRule({ monthlyRules: [...rule.monthlyRules, { nth: '1', byday: 'SU' }] })}
-                        >
-                          ＋ ルールを追加
-                        </button>
-                        <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-                          例: 第1・第3・第5 日曜／第1日曜＋第3火曜。「第5」は5週ある月のみ・「最終」は常に最後の週。
-                        </p>
-                      </div>
-                    ) : (
-                      <div>
-                        <label>
-                          日付 <span className="muted">（複数選択可）</span>
-                        </label>
-                        <div className="nf2-chips" role="group" aria-label="日付">
-                          {[...Array.from({ length: 31 }, (_, i) => i + 1), -1].map((d) => {
-                            const on = rule.monthDays.includes(d);
-                            return (
-                              <button
-                                type="button"
-                                key={d}
-                                role="checkbox"
-                                aria-checked={on}
-                                className={'nf2-chip' + (d === -1 ? ' wide' : '') + (on ? ' on' : '')}
-                                onClick={() => patchRule({ monthDays: on ? rule.monthDays.filter((x) => x !== d) : [...rule.monthDays, d] })}
-                              >
-                                {d === -1 ? '月末' : d}
-                              </button>
-                            );
-                          })}
-                        </div>
-                        {rule.monthDays.some((d) => d >= 29) && (
-                          <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-                            29〜31日は、その日が無い月はスキップされます。毎月末に開催するなら「月末」を選んでください。
-                          </p>
-                        )}
-                        {fieldErr(!rule.monthDays.length, '日付を 1 つ以上選んでください')}
-                      </div>
-                    )}
-                  </>
-                )}
-
-                {rule.freq === 'YEARLY' && (
-                  <>
-                    <label>月日</label>
-                    <div className="nf2-inline">
-                      <Select style={{ width: 'auto' }} aria-label="月" value={rule.yearMonth} onChange={(e) => patchRule({ yearMonth: Number(e.target.value) })}>
-                        {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                          <option key={m} value={m}>
-                            {m}月
-                          </option>
-                        ))}
-                      </Select>
-                      <Select style={{ width: 'auto' }} aria-label="日" value={rule.yearDay} onChange={(e) => patchRule({ yearDay: Number(e.target.value) })}>
-                        {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
-                          <option key={d} value={d}>
-                            {d}日
-                          </option>
-                        ))}
-                      </Select>
-                    </div>
-                    {rule.yearMonth === 2 && rule.yearDay === 29 && (
-                      <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-                        2月29日はうるう年（4年に1回）だけ開催されます。
-                      </p>
-                    )}
-                    {[4, 6, 9, 11].includes(rule.yearMonth) && rule.yearDay === 31 && (
-                      <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-                        その月に31日はありません。別の日を選んでください。
-                      </p>
-                    )}
-                  </>
-                )}
-
-                {!ruleUnreadable && (
-                  <>
-                    <label>間隔</label>
-                    <div className="nf2-seg" role="radiogroup" aria-label="間隔">
-                      {(() => {
-                        const freq = rule.freq as Freq;
-                        const L = INTERVAL_LABELS[freq];
-                        const min = customIntervalMin(freq);
-                        const seg = (on: boolean, label: string, onClick: () => void) => (
-                          <button type="button" key={label} role="radio" aria-checked={on} className={'nf2-seg-btn' + (on ? ' on' : '')} onClick={onClick}>
-                            {label}
-                          </button>
-                        );
-                        return (
-                          <>
-                            {seg(!intervalCustom && rule.interval === 1, L.every, () => {
-                              setIntervalCustom(false);
-                              patchRule({ interval: 1 });
-                            })}
-                            {L.alt &&
-                              seg(!intervalCustom && rule.interval === 2, L.alt, () => {
-                                setIntervalCustom(false);
-                                patchRule({ interval: 2 });
-                              })}
-                            {seg(intervalCustom, `N${L.unit}`, () => {
-                              setIntervalCustom(true);
-                              if (rule.interval < min) patchRule({ interval: min });
-                            })}
-                            {intervalCustom && (
-                              <span className="nf2-inline">
-                                <TextField
-                                  type="number"
-                                  min={min}
-                                  max={INTERVAL_MAX[freq]}
-                                  aria-label="間隔"
-                                  style={{ width: 80 }}
-                                  value={Number.isFinite(rule.interval) ? String(rule.interval) : ''}
-                                  onChange={(e) => patchRule({ interval: e.target.value === '' ? NaN : Number(e.target.value) })}
-                                />
-                                <span className="muted">
-                                  {L.unit}（{min}〜{INTERVAL_MAX[freq]}）
-                                </span>
-                              </span>
-                            )}
-                          </>
-                        );
-                      })()}
-                    </div>
-                    {fieldErr(intervalBad, `間隔は ${customIntervalMin(rule.freq as Freq)}〜${INTERVAL_MAX[rule.freq as Freq]} で指定してください`)}
-                  </>
+                {tmpl && (
+                  <p className="muted" style={{ fontSize: 13, margin: '2px 0 10px' }}>
+                    保存後に「不定期出欠確認」の「＋ 開催日時を追加」で日付と開始時刻を登録します（1 回だけでも可）。
+                    募集/告知は登録した開催日時に合わせて、投稿設定どおり自動で投稿されます（手動投稿にもできます）。
+                  </p>
                 )}
 
                 {needsAnchor && (
                   <div>
                     <label>
-                      次にこのスケジュールで開催する日 <span className="muted">（間隔の起点）</span>
+                      次にこのテンプレートで開催する日 <span className="muted">（間隔の起点）</span>
                     </label>
                     <Select
                       value={anchorDate}
@@ -1144,12 +1052,12 @@ export function NotificationFormV2({
                   </div>
                 )}
 
-                <div className="row">
+                {!tmpl && <div className="row">
                   <div>
                     <label>
                       開始時刻 <span className="req">✱</span>
                     </label>
-                    <TextField type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
+                    <TextField type="time" value={startTime} disabled={occLocked} onChange={(e) => setStartTime(e.target.value)} />
                   </div>
                   <div>
                     <label>
@@ -1157,10 +1065,11 @@ export function NotificationFormV2({
                     </label>
                     <TextField type="number" min={0} placeholder="例: 120（2時間）" value={duration} onChange={(e) => setDuration(e.target.value)} />
                   </div>
-                </div>
+                </div>}
 
                 <div className="nf2-live">
                   🗓️ <b>{scheduleText}</b>
+                  {tmpl && <div className="nf2-live-dates">開催日時は保存後に「不定期出欠確認」で追加</div>}
                   {plan && plan.dates.length > 0 && (
                     <div className="nf2-live-dates">
                       次の開催日: {plan.dates.slice(0, 6).map((d) => shortDateWithWeekday(d)).join('　')}
@@ -1216,6 +1125,19 @@ export function NotificationFormV2({
                     />
                   </div>
                 </div>
+                {requireResponse && (
+                  <div className="setting-row">
+                    <div className="setting-row-main">
+                      <div className="setting-row-title">回答者に他の回答者の回答を見せる</div>
+                      <div className="setting-row-desc">
+                        {shareAnswers ? '📊 状況確認で、全員の名前と回答を表示します。' : '📊 状況確認では、本人の回答だけを表示します。'}
+                      </div>
+                    </div>
+                    <div className="setting-row-control">
+                      <Switch aria-label="回答者に他の回答者の回答を見せる" checked={shareAnswers} onChange={(e) => setShareAnswers(e.target.checked)} />
+                    </div>
+                  </div>
+                )}
                 <div className="subhead">📺 プレビュー</div>
                 {discordPreview}
                 {stepNav}
@@ -1225,10 +1147,14 @@ export function NotificationFormV2({
             {step === 'flow' && (
               <>
                 <p className="nf2-lead">
-                  いつ・何が・誰に届くかの流れです。日数を変えると、下のタイムラインが実際に送られる順で並び替わります。
-                  各工程のスイッチをオフにすると、その工程は自動では行いません（0 日前＝開催当日）。
-                  {announceOnly ? '（出欠確認オフのため告知の投稿のみ）' : ''}
+                  {tmpl
+                    ? '不定期出欠確認では、送信時刻・募集の自動投稿・未回答／未定リマインド・回答締切を開催日時ごとに「＋ 開催日時を追加」で決めます。ここではそれ以外を設定します。'
+                    : 'いつ・何が・誰に届くかの流れです。日数を変えると、下のタイムラインが実際に送られる順で並び替わります。各工程のスイッチをオフにすると、その工程は自動では行いません（0 日前＝開催当日）。'}
+                  {!tmpl && announceOnly ? '（出欠確認オフのため告知の投稿のみ）' : ''}
                 </p>
+                {/* 単発は送信時刻と投稿の流れを開催日時ごとに持つ（「＋ 開催日時を追加」・migration 0036）。テンプレートには出さない */}
+                {!tmpl && (
+                  <>
                 <div className="setting-row">
                   <div className="setting-row-main">
                     <div className="setting-row-title">🕘 送信時刻</div>
@@ -1245,7 +1171,7 @@ export function NotificationFormV2({
                   </div>
                 </div>
                 <div className="subhead">
-                  📤 配信の流れ{' '}
+                  📤 投稿の流れ{' '}
                   <span className="muted" style={{ fontWeight: 400 }}>
                     {eventWhen ? `（次回 ${eventWhen} 開催の場合の例）` : '（開催日からの逆算・実際の日付は投稿時に確定）'}
                   </span>
@@ -1288,27 +1214,45 @@ export function NotificationFormV2({
                 </div>
 
                 {denseWarn && <div className="tl-warn">⚠️ {denseWarn}</div>}
+                  </>
+                )}
 
-                {/* 折りたたみにしない: 「有効」「ノルマ」の状態が隠れると気づけないため常時表示（2026-08-03 裁定） */}
+                {/* 折りたたみにしない: 「ノルマ」の状態が隠れると気づけないため常時表示（2026-08-03 裁定）。「有効」は設定一覧の行で切り替える（2026-09-20） */}
                 <div className="nf2-flow-more">
                   {!announceOnly && (
                       <div>
-                        <div className="subhead">締切後の変更通知</div>
-                        <label>
-                          変更通知チャンネル <span className="muted">（締切後の変更を投稿・空欄＝投稿チャンネル）</span>
-                        </label>
-                        <Select value={alertChannelId} onChange={(e) => setAlertChannelId(e.target.value)}>
-                          <option value="">（投稿チャンネルと同じ）</option>
-                          {alertChannelOptions}
-                        </Select>
-                        <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-                          締切後に回答が変更されると、上のチャンネルへメンションなしで記録投稿し、回答履歴に「締切後変更」として残ります。
-                        </p>
+                        {/* 締切後の変更通知は④回答締切とセット。不定期の締切は開催回ごと（ADR 0032）なのでここでも通知先を持つ */}
+                        {(
+                          <>
+                            <div className="subhead">締切後の変更通知</div>
+                            {tmpl && (
+                              <p className="muted" style={{ margin: '0 0 8px', fontSize: 13 }}>
+                                回答締切の時間（開始の何時間前か）は「＋ 開催日時を追加」で開催日時ごとに設定します（募集の自動投稿がオフなら「📣 今すぐ募集」で投稿するときに選びます）。ここでは締切後に回答が変わったときのお知らせの投稿先だけを決めます。
+                              </p>
+                            )}
+                            <label>
+                              変更通知チャンネル{' '}
+                              <span className="muted">
+                                {/* 回答非公開で空欄なら、投稿チャンネルに名前と回答を出さず失敗通知の投稿先へ回す（サーバー側と同じ・P2-01） */}
+                                {shareAnswers ? '（締切後の変更を投稿・空欄＝投稿チャンネル）' : '（締切後の変更を投稿・空欄＝Bot設定の失敗通知の投稿先。未設定なら投稿しない）'}
+                              </span>
+                            </label>
+                            <Select value={alertChannelId} onChange={(e) => setAlertChannelId(e.target.value)}>
+                              <option value="">{shareAnswers ? '（投稿チャンネルと同じ）' : '（失敗通知の投稿先と同じ）'}</option>
+                              {alertChannelOptions}
+                            </Select>
+                            <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                              締切後に回答が変更されると、上のチャンネルへメンションなしで記録投稿し、回答履歴に「締切後変更」として残ります。
+                            </p>
+                          </>
+                        )}
                         <div className="subhead">機能</div>
                         <div className="setting-row">
                           <div className="setting-row-main">
                             <div className="setting-row-title">ノルマ（参加間隔の督促）</div>
-                            <div className="setting-row-desc">前回参加から指定日数を超えたメンバーへ DM で参加を促します（募集を投稿する日に送ります）。</div>
+                            <div className="setting-row-desc">
+                              前回参加から指定日数を超えたメンバーへ DM で参加を促します（募集を投稿した日に送ります。手動投稿なら 📣 で投稿した日）。
+                            </div>
                           </div>
                           <div className="setting-row-control">
                             <Switch
@@ -1319,23 +1263,37 @@ export function NotificationFormV2({
                           </div>
                         </div>
                         {quotaEnabled && (
-                          <div style={{ maxWidth: 280 }}>
-                            <label>ノルマ間隔（日数）</label>
-                            <TextField type="number" placeholder="例: 30" value={quotaInterval} onChange={(e) => setQuotaInterval(e.target.value)} />
-                          </div>
+                          <>
+                            <div style={{ maxWidth: 280 }}>
+                              <label htmlFor="quota-interval">ノルマ間隔（日数）</label>
+                              <TextField id="quota-interval" type="number" placeholder="例: 30" value={quotaInterval} onChange={(e) => setQuotaInterval(e.target.value)} />
+                            </div>
+                            <label htmlFor="quota-message">ノルマのメッセージ（DM）</label>
+                            <Textarea id="quota-message" rows={9} maxLength={QUOTA_MESSAGE_MAX} value={quotaText}
+                              aria-describedby={quotaError ? 'quota-message-help quota-message-error' : 'quota-message-help'} aria-invalid={!!quotaError}
+                              onChange={(e) => setQuotaText(e.target.value)} />
+                            <p className="muted" id="quota-message-help">
+                              {QUOTA_MESSAGE_FIELDS.map((key) => `{{${key}}}`).join('・')} を差し込めます。空欄で保存すると標準の文面を使います。
+                            </p>
+                            <button type="button" className="btn sm secondary" onClick={() => { setQuotaText(DEFAULT_QUOTA_MESSAGE); markDirty(); }}>標準の文面に戻す</button>
+                            <p className="muted">{quotaText.length} / {QUOTA_MESSAGE_MAX}文字</p>
+                            <div className="subhead">送信内容のプレビュー</div>
+                            <div className="nf2-discord" aria-label="ノルマのメッセージのプレビュー">
+                              <div className="nf2-dc-msg">
+                                <div className="nf2-dc-ava">🤖</div>
+                                <div className="nf2-dc-main">
+                                  <div className="nf2-dc-head"><b>EventBot</b><span className="nf2-dc-app">APP</span><span className="nf2-dc-time">DM</span></div>
+                                  <div className="nf2-dc-body">{quotaPreviewText.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
+                                    part.startsWith('**') && part.endsWith('**') ? <strong key={i}>{part.slice(2, -2)}</strong> : part)}</div>
+                                </div>
+                              </div>
+                              <p className="preview-note">名前・最終参加日・経過日数はサンプルです。</p>
+                            </div>
+                          </>
                         )}
+                        {quotaError && <p className="nf2-field-err" id="quota-message-error" role="alert">{quotaError}</p>}
                       </div>
                     )}
-                    <div className="subhead">状態</div>
-                    <div className="setting-row">
-                      <div className="setting-row-main">
-                        <div className="setting-row-title">有効</div>
-                        <div className="setting-row-desc">オフにすると自動送信の対象外になります。</div>
-                      </div>
-                      <div className="setting-row-control">
-                        <Switch aria-label="有効（自動送信の対象）" checked={active} onChange={(e) => setActive(e.target.checked)} />
-                      </div>
-                    </div>
                 </div>
                 {stepNav}
               </>
@@ -1347,7 +1305,7 @@ export function NotificationFormV2({
                 {summaryCard(
                   'basic',
                   <>
-                    {summaryRow('スケジュール名', name.trim() || <span className="nf2-unset">未入力</span>)}
+                    {summaryRow(nameLabel, name.trim() || <span className="nf2-unset">未入力</span>)}
                     {summaryRow('対象区分', mentionSeg ? mentionSeg.name : <span className="nf2-unset">未選択</span>)}
                     {summaryRow('投稿チャンネル', channelId ? chLabel(channelId) : <span className="nf2-unset">未選択</span>)}
                   </>,
@@ -1356,6 +1314,7 @@ export function NotificationFormV2({
                   'when',
                   <>
                     {summaryRow('開催日時', scheduleText)}
+                    {tmpl && summaryRow('開催日時', '保存後に「不定期出欠確認」で追加')}
                     {plan && plan.dates.length > 0 && summaryRow('次の開催日', plan.dates.slice(0, 4).map((d) => shortDateWithWeekday(d)).join('　'))}
                   </>,
                 )}
@@ -1369,14 +1328,15 @@ export function NotificationFormV2({
                     {summaryRow('見出し', title.trim() || <span className="nf2-unset">未入力</span>)}
                     {summaryRow('本文', body.trim() ? `${body.trim().split('\n')[0].slice(0, 30)}${body.trim().length > 30 ? '…' : ''}` : 'なし')}
                     {summaryRow('出欠確認', requireResponse ? 'あり（募集）' : 'なし（告知のみ）')}
+                    {requireResponse && summaryRow('回答の公開', shareAnswers ? 'する' : 'しない')}
                   </>,
                 )}
                 {summaryCard(
                   'flow',
                   <>
-                    {summaryRow('配信', timelineText)}
+                    {tmpl ? summaryRow('投稿の流れ', '開催日時ごとに「＋ 開催日時を追加」で設定') : summaryRow('投稿', timelineText)}
+                    {!announceOnly && !tmpl && summaryRow('リマインドの送り先', `未回答: ${TARGET_LABEL[remindTarget]}／未定: ${TARGET_LABEL[remindUndecidedTarget]}`)}
                     {!announceOnly && summaryRow('ノルマ', quotaEnabled ? `あり（${quotaInterval || '—'}日間隔）` : 'なし')}
-                    {summaryRow('状態', <Pill tone={active ? 'on' : 'off'}>{active ? '有効' : '無効'}</Pill>)}
                   </>,
                 )}
                 {[

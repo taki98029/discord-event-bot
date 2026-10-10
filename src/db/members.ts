@@ -156,24 +156,3 @@ export async function deleteMember(db: D1Database, userId: string): Promise<bool
   const res = await db.prepare('DELETE FROM members WHERE user_id = ?').bind(userId).run();
   return (res.meta.changes ?? 0) > 0;
 }
-
-/**
- * ギルドスコープの表示名解決（display_name はギルド優先 > グローバル）。
- * members 未登録なら null（呼び出し側で user_id 表示等にフォールバック）。
- */
-export async function getMemberGuildName(
-  db: D1Database,
-  guildId: string,
-  userId: string,
-): Promise<string | null> {
-  const row = await db
-    .prepare(
-      `SELECT COALESCE(gp.display_name, m.display_name, m.user_name, m.user_id) AS name
-         FROM members m
-         LEFT JOIN member_guild_profiles gp ON gp.user_id = m.user_id AND gp.guild_id = ?
-        WHERE m.user_id = ?`,
-    )
-    .bind(guildId, userId)
-    .first<{ name: string }>();
-  return row?.name ?? null;
-}

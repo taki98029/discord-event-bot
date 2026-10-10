@@ -1,5 +1,7 @@
+import { planningDeferredResponse, respondToPlanningInteraction } from '../planning/answer-response';
+import { plannedOccurrence } from '../planning/store';
 import type { Env } from '../env';
-import pkg from '../../package.json';
+import { getFailureNotificationSettings, notifyDeliveryFailure } from '../discord/failureNotifications';
 
 // ponytail: (d) discord-interactions の verifyKey と enum を Workers ネイティブの Web Crypto + const で置換。
 // Cloudflare Workers (workerd) は crypto.subtle.importKey('raw', ..., { name: 'Ed25519' }, ...) と
@@ -42,17 +44,14 @@ export async function verifyEd25519(
 }
 
 import { ensureMember, updateMemberDisplayName } from '../db/members';
-import { getNotification, listNotificationsByChannel } from '../db/notifications';
-import { getOccurrence, getOrCreateOccurrence, hasCancelledOccurrenceOnDate, listScheduledOccurrences } from '../db/occurrences';
+import { getNotification } from '../db/notifications';
+import { getOccurrence } from '../db/occurrences';
 import { getSegment, addSegmentMember, getSegmentMemberStatus } from '../db/segments';
 import { upsertResponse, getResponseStatus, getStatusBuckets } from '../db/responses';
-import { API, USER_AGENT, buildStatusMessage, sendChannelMessage, answerLabels } from '../discord/rest';
+import { API, USER_AGENT, buildOwnAnswerMessage, buildStatusMessage, sendChannelMessage, answerLabels } from '../discord/rest';
 import { roleGateAllows } from '../discord/syncSegment';
-import { formatDate, formatOccurrenceLabel, responseDeadline, getJSTNow } from '../lib/date';
-import { nextOccurrenceDates } from '../lib/recurrence';
-import { hasSentKind } from '../db/sendLog';
-import { isAnnounceOnly, type Notification } from '../db/types';
-import { recruitOccurrenceNow } from '../cron/tick';
+import { formatOccurrenceLabel, responseDeadline, getJSTNow } from '../lib/date';
+import { deadlineHoursFor, durationFor, isAnnounceOnly } from '../db/types';
 
 const EPHEMERAL = 64;
 
@@ -82,6 +81,7 @@ interface DiscordInteraction {
   channel_id?: string;
   member?: { user?: DiscordUser; nick?: string; roles?: string[] };
   user?: DiscordUser;
+  message?: { id?: string; flags?: number };
 }
 
 type InteractionResponse = {
@@ -158,7 +158,12 @@ export async function handleInteraction(
 
   // スラッシュコマンド
   if (interaction.type === InteractionType.APPLICATION_COMMAND) {
-    return json(await handleCommand(interaction, env, origin));
+    return json(handleCommand(interaction, origin));
+  }
+
+  if ((interaction.type === 3 || interaction.type === 5) && interaction.data?.custom_id?.startsWith('plan:')) {
+    ctx.waitUntil(respondToPlanningInteraction(interaction, env, origin));
+    return json(planningDeferredResponse(interaction));
   }
 
   // ボタン: D1 直列クエリ＋遅延スパイクで Discord の 3 秒制限を超えることがあるため、
@@ -182,209 +187,9 @@ export async function handleInteraction(
   return json(ephemeral('このインタラクションはサポートされていません'));
 }
 
-async function handleCommand(
-  interaction: DiscordInteraction,
-  env: Env,
-  origin: string,
-): Promise<InteractionResponse> {
-  const name = interaction.data?.name;
-
-  try {
-    switch (name) {
-      case 'notify':
-        return await handleNotify(interaction, env);
-
-      case 'help':
-        return handleHelp();
-
-      case 'manage':
-        return handleManage(origin);
-
-      default:
-        return ephemeral('❌ 不明なコマンドです');
-    }
-  } catch (e) {
-    console.error(`[Command] /${name} error:`, (e as Error).message);
-    return ephemeral('❌ 処理に失敗しました。管理者に連絡してください。');
-  }
-}
-
-/** Discord ボタン label の上限(80字)に合わせて長い通知名を省略する。 */
-function truncateLabel(s: string, max = 80): string {
-  return s.length <= max ? s : s.slice(0, max - 1) + '…';
-}
-
-/** /notify の開催回選択 String Select の custom_id（選んだ値は data.values に入る）。 */
-const NOTIFY_SELECT_ID = 'notifyocc';
-/** Discord String Select の options 上限。 */
-const NOTIFY_OPTION_LIMIT = 25;
-/** 未実体化の予定回をスケジュールごとに何回先まで候補に出すか（直近が投稿済みでもその次を選べるように 2）。 */
-const NOTIFY_PLAN_AHEAD = 2;
-
-/**
- * /notify — このチャンネルのスケジュールについて「まだ投稿していない予定回」を日付順に一覧化し、
- * String Select で 1 回選ばせる（ephemeral）。候補＝実体化済みの予定回（status=scheduled・今日以降・未投稿）
- * ＋各スケジュールの次回 NOTIFY_PLAN_AHEAD 件（RRULE 導出・未実体化・中止の墓石は除く）。一覧表示では実体化しない。
- * 選択時は handleNotifyPick が実体化（upsert）→ recruitOccurrenceNow（管理画面の開催回タブ「今すぐ募集」と同じ経路）。
- */
-async function handleNotify(
-  interaction: DiscordInteraction,
-  env: Env,
-): Promise<InteractionResponse> {
-  const channelId = interaction.channel_id;
-  if (!channelId) return ephemeral('❌ チャンネルを特定できません。');
-  const db = env.DB;
-  const list = await listNotificationsByChannel(db, channelId);
-  if (list.length === 0) {
-    return ephemeral('❌ このチャンネルに紐づくスケジュールがありません。管理画面で作成してください。');
-  }
-  const today = formatDate(getJSTNow());
-  const opts: { n: Notification; date: string; time: string }[] = [];
-  // ponytail: スケジュール数 ×（一覧 1 ＋ 未来回ごとの hasSentKind ＋ 次回ごとの墓石照合）の直列 D1 クエリ。
-  // チャンネルあたり数件想定で 3 秒制限に十分収まる。増えたら hasSentKind の一括化か deferred 応答へ。
-  for (const n of list) {
-    const scheduled = await listScheduledOccurrences(db, n.id);
-    const taken = new Set(scheduled.map((o) => o.occurrence_date));
-    for (const o of scheduled) {
-      if (o.occurrence_date < today) continue;
-      if (await hasSentKind(db, n.id, o.id, 'recruit')) continue;
-      opts.push({ n, date: o.occurrence_date, time: o.start_time || n.start_time });
-    }
-    for (const d of nextOccurrenceDates(n, NOTIFY_PLAN_AHEAD)) {
-      if (taken.has(d) || (await hasCancelledOccurrenceOnDate(db, n.id, d))) continue;
-      opts.push({ n, date: d, time: n.start_time });
-    }
-  }
-  if (opts.length === 0) {
-    return ephemeral(
-      'ℹ️ このチャンネルのスケジュールに、いま投稿できる予定回がありません（すべて投稿済みか中止です）。再送は管理画面の「開催回」から行えます。',
-    );
-  }
-  opts.sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
-  const shown = opts.slice(0, NOTIFY_OPTION_LIMIT);
-  const omitted = opts.length - shown.length;
-  const note = omitted > 0 ? `\n…ほか ${omitted} 件は表示上限のため省略しています。` : '';
-  return {
-    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-    data: {
-      content: `📨 **投稿する開催回を選んでください**${note}`,
-      flags: EPHEMERAL,
-      components: [
-        {
-          type: 1,
-          components: [
-            {
-              type: 3, // String Select
-              custom_id: NOTIFY_SELECT_ID,
-              placeholder: '開催回を選ぶ',
-              options: shown.map((o) => ({
-                label: truncateLabel(formatOccurrenceLabel(o.date, o.time, o.n.duration_minutes), 100),
-                description: truncateLabel(`${o.n.name}${isAnnounceOnly(o.n) ? '（告知）' : ''}`, 100),
-                value: `${o.n.id}:${o.date}:${o.time}`,
-              })),
-            },
-          ],
-        },
-      ],
-    },
-  };
-}
-
-/**
- * /notify の開催回選択（String Select）: value = notificationId:YYYY/MM/DD:HH:MM。
- * 実体化（upsert・中止の墓石ならそのまま拒否）→ recruitOccurrenceNow。
- * 投稿済みは再送しない（確認ダイアログの無い Discord に force の道は作らない・再送は管理画面から）。
- */
-async function handleNotifyPick(
-  interaction: DiscordInteraction,
-  env: Env,
-): Promise<InteractionResponse> {
-  const m = (interaction.data?.values?.[0] ?? '').match(/^(\d+):(\d{4}\/\d{2}\/\d{2}):(\d{2}:\d{2})$/);
-  if (!m) return ephemeral('❌ 不正なインタラクションです');
-  const n = await getNotification(env.DB, Number(m[1]));
-  if (!n) return ephemeral('❌ 対象のスケジュールが見つかりません。');
-  if (n.channel_id !== interaction.channel_id) {
-    return ephemeral('❌ このチャンネル外のスケジュールには投稿できません。');
-  }
-  // 仮想行（RRULE 導出）の実体化は origin='rule'（既存行ならそのまま返るので manual 行の由来は変わらない）。
-  const occ = await getOrCreateOccurrence(env.DB, n.id, m[2], m[3], 'rule');
-  const noun = isAnnounceOnly(n) ? '告知' : '募集';
-  const label = `**${formatOccurrenceLabel(occ.occurrence_date, occ.start_time || n.start_time, n.duration_minutes)}**（${n.name}）`;
-  if (occ.status !== 'scheduled') return ephemeral(`❌ ${label}は中止されているため${noun}できません。`);
-  const r = await recruitOccurrenceNow(env, n, occ);
-  if (r === 'sent') return ephemeral(`✅ ${label}の${noun}メッセージを投稿しました`);
-  if (r === 'already_sent') {
-    return ephemeral(`ℹ️ ${label}の${noun}は投稿済み（または送信中）です。再送する場合は管理画面の「開催回」から行ってください。`);
-  }
-  return ephemeral(`❌ ${noun}メッセージの投稿に失敗しました（文字数超過や Discord エラーの可能性）。`);
-}
-
-/** /help — エンドユーザー向けの使い方ガイドを ephemeral で返す */
-function handleHelp(): InteractionResponse {
-  const content = [
-    '📖 **イベント出欠Bot — 使い方ガイド**',
-    `_バージョン v${pkg.version}_`,
-    '',
-    'このサーバーで **イベントの告知と出欠集計** を行う Bot です。',
-    'イベントの開催情報をチャンネルに自動で投稿し、あなたは **ボタンを押すだけ** で参加/不参加を伝えられます。',
-    '出欠を取らない「告知のみ」の投稿もあり、回答ボタンが無い投稿はそのままお知らせとしてご覧ください。',
-    '未回答のまま放置すると、開催日が近づいたタイミングで DM にリマインドが届きます。',
-    '',
-    '━━━━━━━━━━━━━━━━━',
-    '**■ 回答の仕方**',
-    '',
-    '募集メッセージの下のボタンを押すだけです。',
-    '',
-    '・**参加** … 参加できる',
-    '・**不参加** … 参加できない',
-    '・**未定** … まだ分からない（あとで確定する想定）',
-    '・**📊 状況確認** … 今みんなの回答状況を一覧表示（自分にだけ見えます）',
-    '',
-    '単発イベントの日程調整では、ラベルが **可 / 不可 / 未確定** に切り替わります。',
-    '複数の候補日が同時に出ているときは、**都合のつく候補すべてに「可」を選べます**。',
-    '',
-    '━━━━━━━━━━━━━━━━━',
-    '**■ よくある質問**',
-    '',
-    '**Q. 一度押した回答は変えられますか?**',
-    '→ はい、何度でも押し直せます。最後に押した内容が記録されます。',
-    '',
-    '**Q. 自分の回答は他の人に見えますか?**',
-    '→ はい。「📊 状況確認」ボタンで誰でも参加/不参加/未定/未回答の一覧を見られます。',
-    '押した瞬間の **「✅ 参加 で記録しました!」** などの確認メッセージは自分にしか表示されません。',
-    '',
-    '**Q. 回答締切ってなんですか?**',
-    '→ 募集メッセージに **回答締切: YYYY/MM/DD HH:MM** と書かれていれば、その時刻までの回答が想定されています。',
-    '時刻が来るとチャンネルで「⏰ 回答を締め切りました」と告知されます。',
-    '締切後も回答や変更はできますが、その場合は **管理者へ自動で通知が飛びます**(記録も残ります)。',
-    '締切前に決めておくのが無難です。',
-    '',
-    '**Q. 「未定」と「不参加」の違いは?**',
-    '→ **不参加** は「行かないと決めた」。**未定** は「行けるか分からない」。',
-    '「未定」のまま日が近づくと、「そろそろ参加/不参加を確定してください」という DM が届くことがあります。',
-    '',
-    '**Q. DM が届いたんですが、これは何?**',
-    '→ 3 種類のうちのどれかです。いずれも DM 内のボタンでそのまま回答できます。',
-    '・**⏰ リマインド: ○日のイベント** … まだ未回答です。回答をお願いします。',
-    '・**❓ 未定者へのリマインド** … 「未定」のままなので確定してほしい、という案内です。',
-    '・**📊 参加間隔の確認** … 前回参加から間が空いている方への、次回参加検討の案内です。',
-    '',
-    '**Q. ボタンを押したら「対象ではない」「休止中」と言われました**',
-    '→ **対象ではない**: その募集は特定のロール宛てで、あなたがそのロールを持っていません。管理者に相談してください。',
-    '**休止中**: 管理者があなたを休止扱いに設定しています。解除も管理者側の操作です。',
-    '',
-    '**Q. ニックネームを変えたら反映されますか?**',
-    '→ 次にボタンを押した時点で自動更新されます。特別な操作は不要です。',
-    '',
-    '**Q. 事前登録は必要ですか?**',
-    '→ 不要です。初めて回答ボタンを押した瞬間に、自動でメンバー登録されます。',
-    '',
-    '━━━━━━━━━━━━━━━━━',
-    '**■ 困ったときは**',
-    '',
-    '管理者にご相談ください。',
-  ].join('\n');
-  return ephemeral(content);
+/** スラッシュコマンドは /manage だけ（/help は 2026-09-23、/notify は 2026-10-03 に廃止。登録し直すまで残る旧コマンドは「不明」）。 */
+function handleCommand(interaction: DiscordInteraction, origin: string): InteractionResponse {
+  return interaction.data?.name === 'manage' ? handleManage(origin) : ephemeral('❌ 不明なコマンドです');
 }
 
 /** /manage — 管理画面の URL を ephemeral で返す（管理者のみ） */
@@ -409,9 +214,6 @@ async function handleButton(
   const user = interaction.member?.user || interaction.user;
   if (!customId || !user) return ephemeral('❌ 不正なインタラクションです');
 
-  // /notify の開催回選択（String Select）。custom_id は固定で {action}_{id} 形式ではないため先に分岐する
-  if (customId === NOTIFY_SELECT_ID) return handleNotifyPick(interaction, env);
-
   const userId = user.id;
   const userName = user.username ?? '';
   const displayName = interaction.member?.nick || user.global_name || userName;
@@ -422,6 +224,8 @@ async function handleButton(
   const occurrenceId = sep >= 0 ? Number(customId.slice(sep + 1)) : NaN;
   if (!Number.isInteger(occurrenceId)) return ephemeral('❌ 不正なインタラクションです');
 
+  if (await plannedOccurrence(db, occurrenceId)) return ephemeral('この日時の出欠変更は運営担当者へ個別に連絡してください。');
+
   // 旧 oneoff（日程調整）の「全候補の状況」集約ボタン（statusall）は oneoff 廃止（2026-08-23）で撤去。
   // 過去メッセージのボタンは下の「不明なアクション」に落ちる。
 
@@ -429,12 +233,14 @@ async function handleButton(
   if (action === 'status') {
     try {
       const occ = await getOccurrence(db, occurrenceId);
-      if (!occ) return ephemeral('❌ 対象の開催回が見つかりません。');
+      if (!occ) return ephemeral('❌ 対象の出欠確認が見つかりません。');
       const n = await getNotification(db, occ.notification_id);
-      if (!n) return ephemeral('❌ 対象のスケジュールが見つかりません。');
-      const buckets = await getStatusBuckets(db, occ.id, n.segment_id);
-      const title = formatOccurrenceLabel(occ.occurrence_date, occ.start_time || n.start_time, n.duration_minutes);
+      if (!n) return ephemeral('❌ 対象のテンプレートが見つかりません。');
+      const title = formatOccurrenceLabel(occ.occurrence_date, occ.start_time || n.start_time, durationFor(n, occ));
       const mine = await getResponseStatus(db, occ.id, userId);
+      // 非公開（share_answers=0）は押した本人の回答だけ。押した時点で判定するので投稿済みのボタンにも効く
+      if (!n.share_answers) return ephemeral(buildOwnAnswerMessage(title, mine));
+      const buckets = await getStatusBuckets(db, occ.id, n.segment_id);
       return ephemeral(buildStatusMessage(title, buckets, mine));
     } catch (e) {
       console.error('[Button] status error:', (e as Error).message);
@@ -447,13 +253,15 @@ async function handleButton(
 
   try {
     const occ = await getOccurrence(db, occurrenceId);
-    if (!occ) return ephemeral('❌ 対象の開催回が見つかりません。');
+    if (!occ) return ephemeral('❌ 対象の出欠確認が見つかりません。');
     // 中止（単発の候補落ち含む）の回は回答を受け付けない。
     if (occ.status === 'cancelled') {
-      return ephemeral('⛔ この開催回は中止（または候補から除外）されたため、回答できません。');
+      return ephemeral('⛔ この日時の開催は中止（または候補から除外）されたため、出欠を回答できません。');
     }
     const n = await getNotification(db, occ.notification_id);
-    if (!n) return ephemeral('❌ 対象のスケジュールが見つかりません。');
+    if (!n) return ephemeral('❌ 対象のテンプレートが見つかりません。');
+    // 募集の投稿後にテンプレートを出欠確認なし（告知）に変えたら、古い投稿のボタンからの回答は受け付けない（A1-01）
+    if (isAnnounceOnly(n)) return ephemeral('⛔ この出欠確認は現在、回答を受け付けていません（出欠確認なしに変更されました）。');
 
     // ロール管理区分はロールゲートで判定（@everyone は全員可・ADR 0009）。
     // ギルド内ボタンは member.roles が同梱される（追加API不要）。DM のリマインド回答は member 不在の
@@ -464,20 +272,25 @@ async function handleButton(
       return ephemeral('🚫 この募集の対象（指定ロールの保有者）ではないため、回答できません。');
     }
 
+    // shortcut: DM の認可は同期済み所属を使う。即時失効が必要なら Discord の現在の所属・ロールを照会する。
+    const myStatus = await getSegmentMemberStatus(db, n.segment_id, userId);
+    if (!interaction.member && myStatus === null) {
+      return ephemeral('🚫 現在この募集の対象メンバーではないため、回答できません。');
+    }
+    if (myStatus) {
+      return ephemeral(
+        `⏸️ あなたは現在「${myStatus}」に設定されているため、回答できません。\n解除はサーバーの管理者に依頼してください。`,
+      );
+    }
+
     // メンバーマスタへ自動登録（無ければ）
     await ensureMember(db, userId, userName, displayName).catch((e) =>
       console.error('[Button] ensureMember failed:', (e as Error).message),
     );
 
-    // 区分への自動所属（既存なら no-op、status は維持）。ロール管理区分でも保有者なら整合する。
-    await addSegmentMember(db, { id: n.segment_id, guild_id: n.guild_id }, userId);
-
-    // 休止中なら回答拒否（全員一覧ではなく自分の 1 行だけ引く）
-    const myStatus = await getSegmentMemberStatus(db, n.segment_id, userId);
-    if (myStatus) {
-      return ephemeral(
-        `⏸️ あなたは現在「${myStatus}」に設定されているため、回答できません。\n解除はサーバーの管理者に依頼してください。`,
-      );
+    // 自動所属はギルド内の回答だけ。古い DM から削除済みの所属を復活させない。
+    if (interaction.member) {
+      await addSegmentMember(db, { id: n.segment_id, guild_id: n.guild_id }, userId);
     }
 
     // 回答締切（ADR 0014）: 締切後の変更（未回答→回答の初回を含む）を検知し、印を残して管理者へ通知。
@@ -485,7 +298,7 @@ async function handleButton(
     const shown = (s: string) =>
       ({ 参加: L.participate, 不参加: L.absent, 未定: L.undecided })[s] ?? s;
     const oldStatus = await getResponseStatus(db, occ.id, userId);
-    const dl = responseDeadline(occ.occurrence_date, occ.start_time || n.start_time, n.response_deadline_hours);
+    const dl = responseDeadline(occ.occurrence_date, occ.start_time || n.start_time, deadlineHoursFor(n, occ));
     // 回答不要(announce-only)は締切対象外（response_deadline_hours も null だが二重で守る）。
     const postDeadlineChange =
       !!n.requires_response && dl != null && getJSTNow().getTime() >= dl.getTime() && status !== oldStatus;
@@ -494,17 +307,27 @@ async function handleButton(
 
     if (postDeadlineChange) {
       // 変更通知（メンションなし・change_alert_channel_id / 未指定は投稿チャンネル）。
+      // 回答非公開（share_answers=0）で未指定なら、投稿チャンネルに名前と回答を出さず
+      // 配信失敗の通知先へ回す（そちらも未設定なら送らない）。
       // 応答を遅らせないよう投げっぱなし（ctx.waitUntil）。
-      const alertChannel = n.change_alert_channel_id || n.channel_id;
+      const toFailureChannel = !n.share_answers && !n.change_alert_channel_id;
       const occLabel = formatOccurrenceLabel(
         occ.occurrence_date,
         occ.start_time || n.start_time,
-        n.duration_minutes,
+        durationFor(n, occ),
       );
       const verb = oldStatus ? `**${shown(oldStatus)}** → **${shown(status)}** に変更` : `**${shown(status)}** で新規回答`;
       const alert = `⚠️ **締切後の回答変更**\n${displayName} さんが ${verb}しました（開催: ${occLabel}）。`;
       ctx.waitUntil(
-        sendChannelMessage(env, alertChannel, alert, null, { parse: [] }).catch((e) =>
+        (toFailureChannel
+          ? getFailureNotificationSettings(db, n.guild_id).then((s) => s.channel_id)
+          : Promise.resolve(n.change_alert_channel_id || n.channel_id)
+        ).then(async (alertChannel) => {
+          if (!alertChannel) return;
+          const ok = await sendChannelMessage(env, alertChannel, alert, null, { parse: [] });
+          // 失敗通知の投稿先に送れなかったときは、同じ先へ失敗通知を重ねない。
+          if (!ok && !toFailureChannel) await notifyDeliveryFailure(env, n.guild_id, `締切後の変更通知: ${n.name}\n投稿先: <#${alertChannel}>`);
+        }).catch((e) =>
           console.error('[Button] change alert failed:', (e as Error).message),
         ),
       );

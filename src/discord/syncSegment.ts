@@ -3,11 +3,13 @@ import type { Segment } from '../db/types';
 import { listGuildMembers, type GuildMemberSummary } from './rest';
 import {
   listSegmentMembers,
-  addSegmentMember,
-  removeSegmentMember,
+  addSegmentMemberStatements,
+  removeSegmentMemberStatement,
   setSegmentMembersSyncedAt,
 } from '../db/segments';
 import { upsertGuildDisplayNames } from '../db/members';
+
+const SYNC_BATCH_SIZE = 100;
 
 export interface SegmentSyncResult {
   ok: boolean;
@@ -51,9 +53,9 @@ export function membersWithRole<T extends { roles: string[] }>(members: T[], rol
 /**
  * 回答ボタン押下を許可してよいか（ロールゲート・ADR 0009）。
  * - 手動区分(mentionRoleId=null) / '@everyone' は常に許可。
- * - memberRoles=undefined（DM 由来でロール情報が無い）は許可する。DM のリマインド回答ボタンは
- *   ロール同期で母集団に入った所属メンバーにしか届かないため、ロール判定不能でも通す（後段の
- *   所属・休止チェックに委ねる）。ギルド内ボタンは member.roles が付くのでロールで判定する。
+ * - memberRoles=undefined（DM 由来でロール情報が無い）はロール判定を省略する。
+ *   呼び出し側で書き込み前に現在の所属・休止状態を必ず確認し、DM では自動所属させない。
+ *   ギルド内ボタンは member.roles が付くのでロールで判定する。
  */
 export function roleGateAllows(mentionRoleId: string | null, memberRoles: string[] | undefined): boolean {
   if (!mentionRoleId || mentionRoleId === '@everyone') return true;
@@ -122,23 +124,26 @@ export async function syncSegmentFromRole(
   // batch 1 回 = 1 サブリクエスト。
   await upsertGuildDisplayNames(env.DB, segment.guild_id, wanted);
 
+  // 差分の追加・削除は batch にまとめる（人数分を個別に打つと cron の D1 予算 50 を超える・再レビュー A2-03）。
+  // 文の意味は addSegmentMember（status 維持の upsert）・removeSegmentMember と同じ。表示名は上で書き込み済み。
+  const stmts: D1PreparedStatement[] = [];
   let added = 0;
   for (const m of wanted) {
     if (!currentIds.has(m.user_id)) {
-      await addSegmentMember(env.DB, segment, m.user_id, {
-        user_name: m.user_name,
-        display_name: m.display_name,
-      });
+      stmts.push(...addSegmentMemberStatements(env.DB, segment.id, m.user_id, { user_name: m.user_name, display_name: m.display_name }));
       added++;
     }
   }
   let removed = 0;
   for (const m of current) {
     if (!wantedIds.has(m.user_id)) {
-      await removeSegmentMember(env.DB, segment.id, m.user_id);
+      stmts.push(removeSegmentMemberStatement(env.DB, segment.id, m.user_id));
       removed++;
     }
   }
+  // ponytail: 1 batch の文の数は D1 の上限内に収めるため 100 文（追加 50 人分）で区切る。1 区分の差分が
+  // 1000 人を超えると cron のロール同期の残り（D1_FOR_ROLESYNC=30）に収まらない＝その規模は Paid 前提。
+  for (let i = 0; i < stmts.length; i += SYNC_BATCH_SIZE) await env.DB.batch(stmts.slice(i, i + SYNC_BATCH_SIZE));
   await setSegmentMembersSyncedAt(env.DB, segment.id);
   // 0名一致は「正しいが保有者0人」と「ロールID誤り・ロール削除」の区別がつかないため、成功扱いのまま警告を添える。
   const message =

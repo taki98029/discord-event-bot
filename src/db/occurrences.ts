@@ -1,7 +1,10 @@
-import type { Occurrence, OccurrenceOrigin, OccurrenceStatus } from './types';
+import { OCCURRENCE_FLOW_KEYS, type Occurrence, type OccurrenceFlow, type OccurrenceOrigin, type OccurrenceStatus } from './types';
 import { newUuid } from './uuid';
 
-const COLS = 'id, uuid, notification_id, occurrence_date, start_time, status, origin, note, created_at';
+const COLS =
+  'id, uuid, notification_id, occurrence_date, start_time, status, origin, note, response_deadline_hours, duration_minutes, ' +
+  OCCURRENCE_FLOW_KEYS.join(', ') +
+  ', created_at';
 
 /**
  * Occurrence を取得 or 生成。UNIQUE(notification_id, occurrence_date, start_time) で upsert。
@@ -47,6 +50,17 @@ export async function getOrCreateOccurrence(
       status: 'scheduled',
       origin,
       note: null,
+      response_deadline_hours: null,
+      duration_minutes: null,
+      send_hour: null,
+      recruit_enabled: null,
+      recruit_days_before: null,
+      remind_unanswered_enabled: null,
+      remind_start_days: null,
+      remind_undecided_enabled: null,
+      remind_undecided_days: null,
+      remind_target: null,
+      remind_undecided_target: null,
       created_at: '',
     }
   );
@@ -89,6 +103,27 @@ export async function getLatestScheduledOccurrence(
   return row ?? null;
 }
 
+/**
+ * 中止した開催回を同じ日時で登録し直すとき、新しく作った回と同じ状態に戻す（ADR 0032「中止→登録し直し」・
+ * 2026-10-03 リリース前レビュー R-04）。同じ日時の行は UNIQUE で 1 つなので行は使い回し、中身を消す:
+ * 回答・送信の記録（募集を投稿し直すため）・メンバー配置・開催回ごとの締切／補足／開催時間／投稿の流れ。
+ * 回答の変更履歴（response_log）は残す。状態（scheduled）は呼び出し側が書く。
+ */
+export async function resetCancelledOccurrence(db: D1Database, id: number): Promise<void> {
+  await db.batch([
+    db.prepare('DELETE FROM responses WHERE occurrence_id = ?').bind(id),
+    db.prepare('DELETE FROM send_log WHERE occurrence_id = ?').bind(id),
+    db.prepare('DELETE FROM group_members WHERE group_id IN (SELECT g.id FROM groups g JOIN groupings gp ON gp.id = g.grouping_id WHERE gp.occurrence_id = ?)').bind(id),
+    db.prepare('DELETE FROM groups WHERE grouping_id IN (SELECT id FROM groupings WHERE occurrence_id = ?)').bind(id),
+    db.prepare('DELETE FROM groupings WHERE occurrence_id = ?').bind(id),
+    db
+      .prepare(
+        `UPDATE occurrences SET note = NULL, response_deadline_hours = NULL, duration_minutes = NULL, ${OCCURRENCE_FLOW_KEYS.map((k) => `${k} = NULL`).join(', ')} WHERE id = ?`,
+      )
+      .bind(id),
+  ]);
+}
+
 /** 開催回ステータス更新（'scheduled' / 'cancelled'）。対象が無ければ false */
 export async function setOccurrenceStatus(
   db: D1Database,
@@ -121,26 +156,6 @@ export async function listFutureOccurrencesAll(
   return results;
 }
 
-/**
- * その通知のその日付に中止（cancelled）の回があるか（時刻は無視）。
- * recurring の送信ゲート用の墓石照合。通知の start_time を変更しても
- * 「その日を中止した」意図が生き残るよう、日付だけで判定する。
- */
-export async function hasCancelledOccurrenceOnDate(
-  db: D1Database,
-  notificationId: number,
-  dateStr: string,
-): Promise<boolean> {
-  const row = await db
-    .prepare(
-      `SELECT 1 AS x FROM occurrences
-        WHERE notification_id = ? AND occurrence_date = ? AND status = 'cancelled' LIMIT 1`,
-    )
-    .bind(notificationId, dateStr)
-    .first<{ x: number }>();
-  return !!row;
-}
-
 /** 補足メッセージを更新（NULL=なし）。対象が無ければ false */
 export async function setOccurrenceNote(
   db: D1Database,
@@ -150,6 +165,30 @@ export async function setOccurrenceNote(
   const res = await db
     .prepare('UPDATE occurrences SET note = ? WHERE id = ?')
     .bind(note, id)
+    .run();
+  return (res.meta.changes ?? 0) > 0;
+}
+
+/** 開催回の回答締切（開始の N 時間前・NULL=雛形に従う）を設定する（ADR 0032）。対象が無ければ false */
+export async function setOccurrenceDeadline(db: D1Database, id: number, hours: number | null): Promise<boolean> {
+  const res = await db
+    .prepare('UPDATE occurrences SET response_deadline_hours = ? WHERE id = ?')
+    .bind(hours, id)
+    .run();
+  return (res.meta.changes ?? 0) > 0;
+}
+
+/** 開催回の開催時間（分）を更新。null=雛形に従う。対象が無ければ false */
+export async function setOccurrenceDuration(db: D1Database, id: number, minutes: number | null): Promise<boolean> {
+  const res = await db.prepare('UPDATE occurrences SET duration_minutes = ? WHERE id = ?').bind(minutes, id).run();
+  return (res.meta.changes ?? 0) > 0;
+}
+
+/** 開催回の送信時刻と投稿の流れを更新（単発・migration 0036）。対象が無ければ false */
+export async function setOccurrenceFlow(db: D1Database, id: number, flow: OccurrenceFlow): Promise<boolean> {
+  const res = await db
+    .prepare(`UPDATE occurrences SET ${OCCURRENCE_FLOW_KEYS.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`)
+    .bind(...OCCURRENCE_FLOW_KEYS.map((k) => flow[k]), id)
     .run();
   return (res.meta.changes ?? 0) > 0;
 }
@@ -175,27 +214,11 @@ export async function listOccurrencesForNotification(
 ): Promise<Occurrence[]> {
   const { results } = await db
     .prepare(
-      `SELECT ${COLS} FROM occurrences
+      `SELECT ${COLS}, (SELECT plan_id FROM planning_occurrences WHERE occurrence_id=occurrences.id) AS planning_id FROM occurrences
         WHERE notification_id = ?
         ORDER BY occurrence_date DESC, start_time DESC LIMIT ?`,
     )
     .bind(notificationId, limit)
-    .all<Occurrence>();
-  return results;
-}
-
-/** Notification の予定回（status='scheduled'）を日付昇順で返す。 */
-export async function listScheduledOccurrences(
-  db: D1Database,
-  notificationId: number,
-): Promise<Occurrence[]> {
-  const { results } = await db
-    .prepare(
-      `SELECT ${COLS} FROM occurrences
-        WHERE notification_id = ? AND status = 'scheduled'
-        ORDER BY occurrence_date ASC, start_time ASC`,
-    )
-    .bind(notificationId)
     .all<Occurrence>();
   return results;
 }

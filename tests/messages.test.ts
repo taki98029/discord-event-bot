@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { answerLabels, buildStatusMessage, createButtonComponents } from '../src/discord/rest';
+import { answerLabels, buildOwnAnswerMessage, buildStatusMessage, createButtonComponents } from '../src/discord/rest';
 import type { EventStatusBuckets } from '../src/db/types';
 
 /** バケットを件数だけ指定して組み立てるヘルパ */
@@ -51,5 +51,14 @@ describe('buildStatusMessage', () => {
     expect(unanswered).toContain('👤 あなたの回答: **⚠️ 未回答**');
     const omitted = buildStatusMessage('2026/06/20', bk(1));
     expect(omitted).not.toContain('あなたの回答');
+  });
+});
+
+describe('buildOwnAnswerMessage（回答非公開）', () => {
+  it('本人の回答だけを出し、人数と名前は出さない', () => {
+    const msg = buildOwnAnswerMessage('2026/06/20', '不参加');
+    expect(msg).toContain('👤 あなたの回答: **❌ 不参加**');
+    expect(msg).not.toContain('名)');
+    expect(buildOwnAnswerMessage('2026/06/20', null)).toContain('⚠️ 未回答');
   });
 });

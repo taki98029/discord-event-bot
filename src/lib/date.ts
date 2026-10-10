@@ -114,3 +114,44 @@ export function responseDeadline(
   const start = new Date(y, mo - 1, d, h || 0, mi || 0);
   return new Date(start.getTime() - hoursBefore * 3_600_000);
 }
+
+/** 'M/D HH:MM' 表示（ガードの文言用）。 */
+function fmtDateTime(d: Date): string {
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/**
+ * 自動募集で「次にこの開催回の募集が投稿される時刻」。開催日の N 日前の送信時刻。
+ * それがもう過ぎていれば追いつき投稿＝今日の送信時刻（cron は send_hour まで待つ）。今日の送信時刻も過ぎていれば今。
+ */
+export function nextRecruitAt(
+  n: { recruit_days_before: number; send_hour: number },
+  dateStr: string,
+  now: Date,
+): Date {
+  const [y, mo, d] = dateStr.split('/').map(Number);
+  const at = new Date(y, mo - 1, d - n.recruit_days_before, n.send_hour, 0, 0, 0);
+  if (at.getTime() > now.getTime()) return at;
+  const todayAt = new Date(now.getFullYear(), now.getMonth(), now.getDate(), n.send_hour, 0, 0, 0);
+  return todayAt.getTime() > now.getTime() ? todayAt : now;
+}
+
+/**
+ * 開催回の回答締切ガード（irregular-deadline-design §6.3・ADR 0032）。
+ * 締切が「募集が投稿される時刻」以前なら保存/投稿できない理由文を返す。締切なし（null）は常に OK。
+ * posting=true は 📣 の投稿時（募集時刻＝今）で文言だけ変える。
+ */
+export function occurrenceDeadlineError(args: {
+  dateStr: string;
+  timeStr: string;
+  deadlineHours: number | null;
+  recruitAt: Date;
+  posting?: boolean;
+}): string | null {
+  const dl = responseDeadline(args.dateStr, args.timeStr, args.deadlineHours);
+  if (!dl || dl.getTime() > args.recruitAt.getTime()) return null;
+  const head = `回答締切（開始の ${args.deadlineHours} 時間前 ＝ ${fmtDateTime(dl)}）`;
+  return args.posting
+    ? `${head}をすでに過ぎているため、この締切では投稿できません。締切を短くするか「締切なし」で投稿してください。`
+    : `${head}が募集の投稿予定（${fmtDateTime(args.recruitAt)}）より前になるため登録できません。締切を短くするか、募集を先に投稿してください。`;
+}

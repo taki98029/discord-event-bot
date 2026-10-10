@@ -9,7 +9,7 @@
  *   INTERVAL   := 1..INTERVAL_MAX[FREQ]（省略時 1）
  *   WEEKLY     : BYDAY 必須（序数なし・1 個以上・重複なし）
  *   MONTHLY    : BYDAY（序数 -1,1..5 付き） xor BYMONTHDAY（1..31 と -1=月末）
- *   YEARLY     : BYMONTH（1 個）＋ BYMONTHDAY（1 個・1..31）
+ *   YEARLY     : BYMONTH（1 個）＋ BYMONTHDAY（1 個・その月に実在する日。2月は 29 まで＝うるう年だけ開催）
  *   DAILY      : BYxxx なし
  *   WKST       := MO（任意・省略時も MO）
  *   禁止       : UNTIL, COUNT, BYSETPOS, BYHOUR 等その他すべてのキー（文法外は null = 読み取り不能）
@@ -20,6 +20,9 @@ export type Freq = 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY';
 /** RFC5545 の曜日コード。並びは正規化の順序（WKST=MO 起点） */
 export type WeekdayCode = 'MO' | 'TU' | 'WE' | 'TH' | 'FR' | 'SA' | 'SU';
 export const WEEKDAY_CODES: readonly WeekdayCode[] = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
+
+/** 月ごとの最大日（2月は 29＝うるう年だけ開催）。YEARLY の実在日検証と UI の日の選択肢で共有する */
+export const MONTH_MAX_DAY: readonly number[] = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 
 /** INTERVAL の上限（FREQ 別・2026-08-23 裁定 Q8）。API 検証と UI の入力上限で共有する */
 export const INTERVAL_MAX: Readonly<Record<Freq, number>> = { DAILY: 30, WEEKLY: 26, MONTHLY: 12, YEARLY: 10 };
@@ -98,13 +101,15 @@ export function parseRule(rrule: string | null | undefined): RuleModel | null {
       if (!byday.length || byday.some((d) => d.nth !== 0) || bymonthday.length || bymonth.length) return null;
       break;
     case 'MONTHLY':
-      if (bymonth.length || byday.length === bymonthday.length) return null; // 両方あり（AND で 0 件）／両方なし（dtstart 依存）
+      if (bymonth.length || !byday.length === !bymonthday.length) return null; // 両方あり（AND で 0 件）／両方なし（dtstart 依存）。要素数ではなく有無で比べる
       if (byday.some((d) => d.nth === 0 || d.nth < -1 || d.nth > 5)) return null;
       if (bymonthday.some((d) => !monthdayOk(d, true))) return null;
       break;
     case 'YEARLY':
       if (byday.length || bymonth.length !== 1 || bymonthday.length !== 1) return null;
       if (bymonth[0] < 1 || bymonth[0] > 12 || !monthdayOk(bymonthday[0], false)) return null;
+      // 実在しない月日（2/30・4/31 等）は 0 件のまま rrule が 9999 年まで探索し続ける（1 回 約90ms）ため拒否
+      if (bymonthday[0] > MONTH_MAX_DAY[bymonth[0] - 1]) return null;
       break;
   }
   return { freq, interval, byday, bymonthday, bymonth };

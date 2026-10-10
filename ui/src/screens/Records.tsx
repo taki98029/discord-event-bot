@@ -64,7 +64,7 @@ export function Records({ guild, toast }: { guild: Guild; toast: ToastFn }) {
             search: false,
             columns: [
               { id: 'when', header: '開催日時', filter: 'date', accessor: (r: ResponseRow) => `${r.occurrence_date || ''}${r.occurrence_time ? ' ' + r.occurrence_time : ''}` },
-              { id: 'notif', header: 'スケジュール', filter: 'select', accessor: (r: ResponseRow) => r.notification_name || '' },
+              { id: 'notif', header: 'テンプレート', filter: 'select', accessor: (r: ResponseRow) => r.notification_name || '' },
               { id: 'member', header: 'メンバー', filter: 'combo', accessor: (r: ResponseRow) => r.user_name || r.user_id },
               { id: 'status', header: '回答', filter: 'select', filterOptions: ['参加', '不参加', '未定'], accessor: (r: ResponseRow) => r.status || '' },
               {

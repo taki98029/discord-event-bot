@@ -52,7 +52,8 @@ export function buildRecruitPreviewParts(v: PreviewInput): PreviewParts {
     deadline = `${evt.getFullYear()}/${String(evt.getMonth() + 1).padStart(2, '0')}/${String(evt.getDate()).padStart(2, '0')} ${String(evt.getHours()).padStart(2, '0')}:${String(evt.getMinutes()).padStart(2, '0')}`;
   }
 
-  return { mention, dateText: `${dateStr} ${timeStr}`, deadline };
+  // 日付も時刻も無い＝単発出欠確認のテンプレート（開催日時ごとに登録する）
+  return { mention, dateText: !v.nextDate && !v.startTime ? '(開催日時)' : `${dateStr} ${timeStr}`, deadline };
 }
 
 export type TimelineInput = {
@@ -79,7 +80,8 @@ export function notifPreviewSummary(v: TimelineInput): string {
   const parts = [v.recruitDays == null ? '募集は手動投稿' : `${show(v.recruitDays)}日前に募集`];
   if (v.remindStartDays != null)
     parts.push(`${show(v.remindStartDays)}日前から${v.deadlineHours != null ? '締切まで' : ''}毎日 未回答へ催促`);
-  if (v.remindUndecidedDays != null) parts.push(`${show(v.remindUndecidedDays)}日前に未定へ`);
+  if (v.remindUndecidedDays != null)
+    parts.push(`${show(v.remindUndecidedDays)}日前から${v.deadlineHours != null ? '締切まで' : ''}毎日 未定へ催促`);
   if (v.deadlineHours != null) parts.push(`開始${v.deadlineHours}時間前に締切`);
   parts.push(`🎉 開催（${v.scheduleText}）`);
   return parts.join(' → ') + `／${send}`;

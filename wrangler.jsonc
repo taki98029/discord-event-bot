@@ -33,6 +33,8 @@
   // --- cron（毎分のペース配信。実送信は通知ごとの send_hour で時刻ゲート＋予算ドレイン。
   //     send_log による冪等化で毎分実行でも二重送信しない）---
   // env.staging へは継承される（再記述不要）。
+  // 1 本の毎分 cron を奇数分＝出欠確認・偶数分＝日程調整に振り分け、実行ごとの上限を分離する（ADR 0033・src/index.ts）。
+  // Free の cron トリガー上限はアカウント全体で 5 本のため 1 本に保つ（2 本にすると同一アカウントで 2 インスタンスまでになる）。
   "triggers": {
     "crons": ["* * * * *"]
   },
@@ -43,7 +45,8 @@
   "assets": {
     "directory": "./ui",
     "binding": "ASSETS",
-    "not_found_handling": "single-page-application"
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/interactions"]
   },
 
   // --- staging（保守者の検証環境）上書き ---

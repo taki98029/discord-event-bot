@@ -49,9 +49,10 @@ export interface SegmentMember extends Member {
 
 /**
  * 旧 'oneoff'（単発・日程調整）は 2026-08-23 に廃止し不定期（rrule=NULL）へ吸収（migration 0023・ADR 0025）。
- * 列 `type` は残るが値は 'recurring' のみ。
+ * 2026-10-02 に 'oneoff' を「単発出欠確認」（rrule=NULL・開催回 1 件をテンプレートと同時に作る）の印として再利用。
+ * 作成時に固定（PUT では変えない）。cron・Discord 側は不定期と同じに扱い、type では分岐しない。
  */
-export type NotificationType = 'recurring';
+export type NotificationType = 'recurring' | 'oneoff';
 
 /**
  * メンション方法（ADR 0010）。投稿が対象者をどう名指すか。
@@ -93,15 +94,24 @@ export interface Notification {
   remind_undecided_days: number;
   /**
    * 配信の流れの工程スイッチ（0/1・ADR 0026）。0 でもその日数は保持する（ON に戻すと復帰）。
-   * recruit_enabled=0: 募集/告知を自動投稿しない（📣 今すぐ募集／/notify で手動投稿。ノルマ督促も送られない）
+   * recruit_enabled=0: 募集/告知を自動投稿しない（📣 今すぐ募集で手動投稿。ノルマ督促も送られない）
    * remind_unanswered_enabled=0 / remind_undecided_enabled=0: そのリマインド DM を送らない
    */
   recruit_enabled: number;
   remind_unanswered_enabled: number;
   remind_undecided_enabled: number;
+  /** 未回答・未定リマインドの送り先（1 スケジュールに 1 つ・C02 2026-09-20）。'dm'=本人へ DM / 'channel'=投稿チャンネルへ 1 日 1 投稿で該当メンバーを個別メンション */
+  /** 未回答リマインドの送り先（0031 では両方共通・2026-09-23 に未定と分離） */
+  remind_target: 'dm' | 'channel';
+  /** 未定リマインドの送り先（0035） */
+  remind_undecided_target: 'dm' | 'channel';
+  /** 0/1。1=📊 状況確認で全員の回答を表示 / 0=押した本人の回答だけ（2026-09-23・日程調整 shareAnswers と対） */
+  share_answers: number;
   /** 0/1 */
   quota_enabled: number;
   quota_interval_days: number | null;
+  /** ノルマDMの本文。未設定・空は既定文面（差し込み項目は src/lib/quotaMessage.ts）。 */
+  quota_message?: string | null;
   /** 0/1 */
   assignment_enabled: number;
   /** 0/1 グループ分け機能を有効にするか（ADR 0015） */
@@ -169,7 +179,58 @@ export interface Occurrence {
   origin: OccurrenceOrigin;
   /** 補足メッセージ（臨時回のコラボ説明など）。募集の本文と日時行の間に差し込む。NULL=なし */
   note: string | null;
+  /** この開催回の回答締切（開始の N 時間前）。NULL=雛形（notifications.response_deadline_hours）に従う。不定期で使う（ADR 0032） */
+  response_deadline_hours: number | null;
+  /** この開催回の開催時間（分）。NULL=雛形（notifications.duration_minutes）に従う。単発は開催回ごとに登録する（2026-09-23） */
+  duration_minutes: number | null;
+  /** 送信時刻と投稿の流れ（単発は開催回ごと・migration 0036）。NULL=雛形の保存値に従う。定期の臨時回は常に NULL */
+  send_hour: number | null;
+  recruit_enabled: number | null;
+  recruit_days_before: number | null;
+  remind_unanswered_enabled: number | null;
+  remind_start_days: number | null;
+  remind_undecided_enabled: number | null;
+  remind_undecided_days: number | null;
+  remind_target: 'dm' | 'channel' | null;
+  remind_undecided_target: 'dm' | 'channel' | null;
   created_at: string;
+}
+
+/** 開催回ごとに上書きできる投稿の流れの項目（単発・migration 0036） */
+export const OCCURRENCE_FLOW_KEYS = [
+  'send_hour', 'recruit_enabled', 'recruit_days_before', 'remind_unanswered_enabled', 'remind_start_days',
+  'remind_undecided_enabled', 'remind_undecided_days', 'remind_target', 'remind_undecided_target',
+] as const;
+export type OccurrenceFlowKey = (typeof OCCURRENCE_FLOW_KEYS)[number];
+export type OccurrenceFlow = Pick<Notification, OccurrenceFlowKey>;
+
+/**
+ * 開催回に有効な送信時刻と投稿の流れ: 開催回の値があればそれ、無ければ雛形の値。cron・締切ガード・📣 の手動判定はこれを使う。
+ * 返す形は Notification そのもの（id・channel_id などはそのまま）なので、n の代わりにそのまま渡せる。
+ */
+export function flowFor(n: Notification, occ: { [K in OccurrenceFlowKey]?: OccurrenceFlow[K] | null }): Notification {
+  const out = { ...n };
+  for (const k of OCCURRENCE_FLOW_KEYS) {
+    const v = occ[k];
+    if (v != null) (out as Record<string, unknown>)[k] = v;
+  }
+  return out;
+}
+
+/** 開催回に有効な回答締切（時間前）。開催回の値があればそれ、無ければ雛形の値（ADR 0032）。 */
+export function deadlineHoursFor(
+  n: { response_deadline_hours: number | null },
+  occ: { response_deadline_hours?: number | null },
+): number | null {
+  return occ.response_deadline_hours ?? n.response_deadline_hours;
+}
+
+/** 開催回に有効な開催時間（分）。開催回の値があればそれ、無ければ雛形の値。 */
+export function durationFor(
+  n: { duration_minutes: number | null },
+  occ: { duration_minutes?: number | null },
+): number | null {
+  return occ.duration_minutes ?? n.duration_minutes;
 }
 
 /** responses: 開催回への 1 Member の回答（旧 event_log） */
@@ -199,7 +260,7 @@ export interface QuotaAlert extends Member {
 }
 
 /** 表示名を解決（display_name > user_name > user_id） */
-export function resolveDisplayName(m: Member): string {
+export function resolveDisplayName(m: Pick<Member, 'display_name' | 'user_name' | 'user_id'>): string {
   return m.display_name || m.user_name || m.user_id;
 }
 
@@ -329,3 +390,10 @@ export interface GroupingView {
     newly_participating: { user_id: string; name: string }[];
   };
 }
+
+/** サーバー単位の送信失敗通知。config に JSON で保存する。 */
+export type FailureNotificationSettings = {
+  channel_id: string | null;
+  mention_mode: 'none' | 'users' | 'roles';
+  mention_ids: string[];
+};

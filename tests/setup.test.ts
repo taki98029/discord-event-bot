@@ -23,10 +23,10 @@ describe('getSetupStatus', () => {
     expect(st.admin_url).toBe('https://example.workers.dev/');
   });
 
-  it('招待 URL はアプリ ID から派生（bot＋applications.commands・権限 134144）。未設定なら null', () => {
+  it('招待 URL はアプリ ID から派生（bot＋applications.commands・権限 274878041088＝スレッド送信を含む）。未設定なら null', () => {
     const st = getSetupStatus(makeEnv(), new Request('https://x.dev/api/admin/setup/status'));
     expect(st.invite_url).toBe(
-      'https://discord.com/oauth2/authorize?client_id=aid&scope=bot%20applications.commands&permissions=134144',
+      'https://discord.com/oauth2/authorize?client_id=aid&scope=bot%20applications.commands&permissions=274878041088',
     );
     const none = getSetupStatus(makeEnv({ DISCORD_APPLICATION_ID: '' }), new Request('https://x.dev/api/admin/setup/status'));
     expect(none.invite_url).toBeNull();
@@ -49,8 +49,8 @@ describe('getSetupStatus', () => {
 });
 
 describe('COMMAND_DEFINITIONS（コマンド定義の単一ソース）', () => {
-  it('現行のコマンドを公開している（notify / help / manage）', () => {
+  it('現行のコマンドを公開している（/manage だけ。/help と /notify は廃止）', () => {
     const names = COMMAND_DEFINITIONS.map((c) => c.name).sort();
-    expect(names).toEqual(['help', 'manage', 'notify']);
+    expect(names).toEqual(['manage']);
   });
 });

@@ -79,7 +79,7 @@ export function Reports({ guild, toast }: { guild: Guild; toast: ToastFn }) {
     return (
       <>
         <h2>出勤レポート</h2>
-        <div className="empty">メンバー区分がまだありません。先に「メンバー区分」で区分を作成してください。</div>
+        <div className="empty">メンバー区分がまだありません。先に「メンバー管理」で区分を作成してください。</div>
       </>
     );
   }
@@ -88,7 +88,7 @@ export function Reports({ guild, toast }: { guild: Guild; toast: ToastFn }) {
     <>
       <h2>出勤レポート</h2>
       <p className="muted">
-        区分の開催回（募集対象・中止除く）に対する「参加」回答を出勤として集計します。
+        区分の出欠確認に対する「参加」回答（中止した予定を除く）と、開催計画で運営が確定した参加予定を集計します。
         期間未指定は各メンバーの初出勤日〜現在で計算します。
       </p>
       <div className="row" style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 12 }}>
@@ -98,7 +98,7 @@ export function Reports({ guild, toast }: { guild: Guild; toast: ToastFn }) {
             value={segUuid}
             onChange={(e) => {
               setSegUuid(e.target.value);
-              setNotifUuid(''); // 区分が変わるとスケジュールの候補も変わるためリセット
+              setNotifUuid(''); // 区分が変わるとテンプレートの候補も変わるためリセット
             }}
             style={{ minWidth: 180 }}
           >
@@ -110,9 +110,9 @@ export function Reports({ guild, toast }: { guild: Guild; toast: ToastFn }) {
           </select>
         </div>
         <div>
-          <label>スケジュール</label>
+          <label>テンプレート</label>
           <select value={notifUuid} onChange={(e) => setNotifUuid(e.target.value)} style={{ minWidth: 180 }}>
-            <option value="">すべてのスケジュール</option>
+            <option value="">すべてのテンプレート</option>
             {notifs
               .filter((n) => n.segment_id === (segments.find((s) => s.uuid === segUuid)?.id ?? -1) && n.requires_response)
               .map((n) => (
@@ -122,12 +122,12 @@ export function Reports({ guild, toast }: { guild: Guild; toast: ToastFn }) {
               ))}
           </select>
         </div>
-        <div>
+        <div className="report-period">
           <label>期間</label>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ width: 150 }} />
+            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
             〜
-            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ width: 150 }} />
+            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
           </div>
         </div>
         {(from || to) && (

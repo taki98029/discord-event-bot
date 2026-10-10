@@ -1,3 +1,5 @@
 /* SPA 用 CSS エントリ。design-system/styles が唯一の真実（esbuild が @import を平坦化して ui/app.css を生成） */
 @import "../../design-system/styles/index.css";
 @import "../../design-system/styles/app-ui.css";
+
+@import "../../design-system/styles/planning.css";

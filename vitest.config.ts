@@ -16,6 +16,7 @@ export default defineConfig({
     }),
   ],
   test: {
+    include: ['tests/**/*.test.ts'], // Exclude nested Claude worktree copies.
     setupFiles: ['./tests/apply-migrations.ts'],
   },
 });

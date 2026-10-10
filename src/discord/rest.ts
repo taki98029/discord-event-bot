@@ -134,6 +134,27 @@ export function buildStatusMessage(title: string, s: EventStatusBuckets, myAnswe
   );
 }
 
+/** 回答非公開のスケジュール（share_answers=0）の状況確認: 本人の回答だけを返す。 */
+export function buildOwnAnswerMessage(title: string, myAnswer: string | null): string {
+  return `📅 **${title} の参加状況**
+
+👤 あなたの回答: **${answerEmojiLabel(myAnswer, answerLabels())}**
+
+-# このイベントでは、ほかの人の回答は運営だけが確認できます。`;
+}
+
+/** Discord の 429（未送信が確実）。rateLimitAware で登録した env の送信だけが投げ、他の呼び出し元は従来どおり false。 */
+export class DiscordRateLimited extends Error {}
+const rateLimitAwareEnvs = new WeakSet<Env>();
+// 送信の待ち時間の上限（日程調整の投稿と同じ 15 秒）。応答が 5 分以上遅れて成功すると、送信中の claim が掃除されて二重送信になるため。
+const SEND_TIMEOUT_MS = 15_000;
+
+/** cron のペース配信用: 429 を false ではなく DiscordRateLimited で返させる（claim を消して次ティックで再送するため）。 */
+export function rateLimitAware(env: Env): Env {
+  rateLimitAwareEnvs.add(env);
+  return env;
+}
+
 async function postMessage(
   env: Env,
   channelId: string,
@@ -162,13 +183,16 @@ async function postMessage(
         'User-Agent': USER_AGENT,
       },
       body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
     });
+    if (res.status === 429 && rateLimitAwareEnvs.has(env)) throw new DiscordRateLimited(`429 (channel=${channelId})`);
     if (!res.ok) {
       console.error(`Discord API error ${res.status}: ${await res.text()}`);
       return false;
     }
     return true;
   } catch (e) {
+    if (e instanceof DiscordRateLimited) throw e;
     console.error(`Discord send error: ${(e as Error).message}`);
     return false;
   }
@@ -199,7 +223,9 @@ async function createDM(env: Env, userId: string): Promise<string | null> {
         'User-Agent': USER_AGENT,
       },
       body: JSON.stringify({ recipient_id: userId }),
+      signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
     });
+    if (res.status === 429 && rateLimitAwareEnvs.has(env)) throw new DiscordRateLimited('429 (create DM)');
     if (!res.ok) {
       console.error(`Failed to create DM: ${await res.text()}`);
       return null;
@@ -207,6 +233,7 @@ async function createDM(env: Env, userId: string): Promise<string | null> {
     const data = (await res.json()) as { id: string };
     return data.id;
   } catch (e) {
+    if (e instanceof DiscordRateLimited) throw e;
     console.error(`Create DM error: ${(e as Error).message}`);
     return null;
   }
@@ -346,32 +373,32 @@ export async function listGuildRoles(env: Env, guildId: string): Promise<RoleSum
  * インテント未有効時は Discord が 403 を返すため throw する（呼び出し側でハンドリング）。
  */
 export async function listGuildMembers(env: Env, guildId: string): Promise<GuildMemberSummary[]> {
-  if (env.MOCK_DISCORD) return MOCK_MEMBERS;
   const out: GuildMemberSummary[] = [];
   let after = '0';
   // 上限 20 ページ（2 万件）で打ち切り（暴走防止）。
   for (let i = 0; i < 20; i++) {
-    const res = await fetch(`${API}/guilds/${guildId}/members?limit=1000&after=${after}`, {
-      headers: botHeaders(env),
-    });
-    if (!res.ok) throw new Error(`Discord members ${res.status}: ${await res.text()}`);
-    const page = (await res.json()) as Array<{
-      user?: { id: string; username?: string; global_name?: string | null; bot?: boolean };
-      nick?: string | null;
-      roles?: string[];
-    }>;
-    if (page.length === 0) break;
-    for (const m of page) {
-      if (!m.user || m.user.bot) continue;
-      out.push({
-        user_id: m.user.id,
-        user_name: m.user.username ?? null,
-        display_name: m.nick ?? m.user.global_name ?? m.user.username ?? null,
-        roles: m.roles ?? [],
-      });
-    }
-    after = page[page.length - 1].user?.id ?? after;
-    if (page.length < 1000) break;
+    const page = await listGuildMemberPage(env, guildId, after);
+    out.push(...page.members);
+    after = page.after;
+    if (page.done) break;
   }
   return out;
+}
+
+/** Bounded page for planning refresh. A partial page is never a complete audience. */
+export async function listGuildMemberPage(env: Env, guildId: string, after = '0', limit = 1000) {
+  if (env.MOCK_DISCORD) return { members: MOCK_MEMBERS, after: '0', done: true };
+  const res = await fetch(`${API}/guilds/${guildId}/members?limit=${limit}&after=${after}`, {
+    headers: botHeaders(env), signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) throw new Error(`Discord members ${res.status}`);
+  const page = await res.json() as Array<{
+    user?: { id: string; username?: string; global_name?: string | null; bot?: boolean };
+    nick?: string | null; roles?: string[];
+  }>;
+  const members = page.filter((m) => m.user && !m.user.bot).map((m) => ({
+    user_id: m.user!.id, user_name: m.user!.username ?? null,
+    display_name: m.nick ?? m.user!.global_name ?? m.user!.username ?? null, roles: m.roles ?? [],
+  }));
+  return { members, after: page.at(-1)?.user?.id ?? after, done: page.length < limit };
 }

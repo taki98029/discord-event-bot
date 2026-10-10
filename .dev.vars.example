@@ -4,7 +4,7 @@
 #
 # ※ このファイルに並ぶシークレット名は、利用者が fork を Cloudflare Workers Builds に
 #    接続して設定するシークレット（Worker の Variables and Secrets）と一致します。
-#    実際に必要な4つだけを記載してください。
+#    基本の4つを記載しています。Web回答のための追加シークレットは不要です。
 
 # Discord アプリの公開鍵（General Information の PUBLIC KEY）
 DISCORD_PUBLIC_KEY=your_public_key_here

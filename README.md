@@ -1,6 +1,6 @@
 # discord-event-bot
 
-Discord と連携し、繰り返し/単発イベントの **出欠確認・リマインド・参加ノルマ管理** を自動化する Bot。
+Discord と連携し、イベントの **出欠確認・リマインド・参加ノルマ管理** と、開催日を決める **日程調整** を自動化する Bot。
 1 デプロイで**複数の Discord サーバー**を管理でき、専用の **管理 UI** から設定・メンバー編集ができます。
 登録が必要なサービスは **Discord・Cloudflare・GitHub の 3 つ**（GitHub は公開リポジトリの **Fork** と更新の **Sync fork** に使用。fork を Cloudflare Workers Builds に接続して動かします）。いずれも完全無料枠で自己ホストできます。
 
@@ -35,22 +35,25 @@ Discord と連携し、繰り返し/単発イベントの **出欠確認・リ�
 Discord ──▶ Cloudflare Worker (1 デプロイで複数サーバー)
               ├─ POST /interactions   スラッシュコマンド / ボタン（Ed25519 署名検証）
               ├─ /api/admin/*         管理 API（ADMIN_TOKEN 認証）
-              ├─ /* (静的)            管理 UI（SPA・同梱配信）
-              └─ scheduled()          毎分 cron（募集/リマインド/ノルマのペース配信）
+              ├─ /api/planning/answers/*  日程調整の回答ページ用 API（本人専用リンク＋Cookie）
+              ├─ /* (静的)            管理 UI・回答ページ /answer（SPA・同梱配信）
+              └─ scheduled()          毎分 cron（奇数分＝出欠確認のペース配信／偶数分＝日程調整）
                      │ D1 binding
                      ▼
-              Cloudflare D1 (segments / members / notifications / occurrences / responses / groupings)
+              Cloudflare D1 (segments / members / notifications / occurrences / responses / groupings / planning_*)
 ```
 
 ## 機能
 
-- **イベント募集**: 指定日数前に自動で募集メッセージを送信（メンション対象を設定可能）
+- **出欠確認の 3 種類**: 定期（繰り返しのルールで開催日を自動計算）／不定期（テンプレートに開催日時を都度追加）／単発（テンプレートなしで 1 回分）
+- **イベント募集**: 指定日数前に自動で募集メッセージを投稿（メンション対象を設定可能）。手動の 📣 投稿・再投稿も可
 - **ボタン操作**: 参加/不参加/未定をワンクリック回答（チャンネル・DM 両対応）。未登録者は自動登録
-- **リマインド**: 未回答者・未定者へ個別 DM（休止中メンバーは除外）
+- **リマインド**: 未回答者・未定者へ、DM または投稿チャンネルで（休止中メンバーは除外）
 - **ノルマ確認**: 参加間隔が空いたメンバーへ DM（休止中メンバーは除外）
-- **状況確認**: 「状況確認」ボタンでリアルタイムの参加状況を表示
-- **スラッシュコマンド**: `/notify`（管理者・開催回を選んで募集投稿） / `/help`（誰でも・使い方ガイド） / `/manage`（管理者・管理画面 URL）
-- **管理 UI**: サーバー選択 → 通知・メンバー区分・回答履歴をブラウザから編集/閲覧（トークン認証）
+- **状況確認**: 「状況確認」ボタンでリアルタイムの参加状況を表示（他の人の回答を見せない設定も可）
+- **日程調整**: 日程候補を出し、メンバーは回答ページのカレンダーで 〇△× を回答。回答一覧から開催日を決めてフォーラムに開催案内を作成（定期・単発）
+- **スラッシュコマンド**: `/manage`（管理者・管理画面 URL）。募集の手動投稿は管理画面の 📣 から
+- **管理 UI**: サーバー選択 → 出欠確認・日程調整・メンバー区分・回答履歴をブラウザから編集/閲覧（トークン認証）
 
 ## プロジェクト構成
 
@@ -58,12 +61,13 @@ Discord ──▶ Cloudflare Worker (1 デプロイで複数サーバー)
 src/
   index.ts          Worker 入口（fetch + scheduled）
   interactions/     Discord Interaction（コマンド/ボタン・署名検証）
-  cron/             毎分チェック（募集/リマインド/ノルマのペース配信）
+  cron/             出欠確認のペース配信（募集/リマインド/ノルマ）
+  planning/         日程調整（管理 API・回答ページ API・定期処理）
   admin/            管理 API（トークン認証）・セットアップ支援
   db/               D1 データ層（segments / members / notifications / occurrences / responses / groupings）
   discord/          Discord REST（メッセージ/DM）・コマンド定義（commands.json）
   lib/date.ts       JST 日付計算
-ui/                 管理 SPA（静的アセット）
+ui/                 管理 SPA と回答ページ（静的アセット・ビルド済み）
 migrations/         D1 スキーマ
 scripts/            コマンド登録（CLI フォールバック）
 tests/              vitest（D1 含む）
@@ -90,7 +94,7 @@ Cloudflare に fork を接続する場合は **Worker の Settings → Variables
 
 ## Cron
 
-`wrangler.jsonc` の `triggers.crons = ["* * * * *"]`（毎分）でチェックを実行。実際の送信は通知ごとの「通知配信時刻」でゲートされ、送信ログによる冪等化で二重送信を防ぎます。
+`wrangler.jsonc` の `triggers.crons = ["* * * * *"]`（毎分）でチェックを実行（奇数分＝出欠確認、偶数分＝日程調整。cron トリガーは 1 本だけ使います）。実際の送信は通知ごとの「通知配信時刻」でゲートされ、送信ログによる冪等化で二重送信を防ぎます。
 
 ## ドキュメント
 

@@ -2,7 +2,7 @@
 // メンバー一覧は子ページ（ADR 0016・#g/<gid>/segments/<uuid>/members）。
 import * as React from 'react';
 import { useEffect, useState } from 'react';
-import { Select, TextField } from '../../../design-system/src';
+import { Select } from '../../../design-system/src';
 import { api, type Guild } from '../api';
 import { confirmDialog, withBusy } from '../lib/dialog';
 import { FormDialog } from '../lib/FormDialog';
@@ -22,9 +22,8 @@ export function Segments({
 }) {
   const [segs, setSegs] = useState<Segment[] | null>(null);
   const [roles, setRoles] = useState<Role[] | null>(null);
-  const [editing, setEditing] = useState<Segment | null>(null); // null=閉じる, {}=新規, Segment=編集
+  const [editing, setEditing] = useState<Segment | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [name, setName] = useState('');
   const [roleId, setRoleId] = useState('');
 
   const load = async () => {
@@ -34,60 +33,44 @@ export function Segments({
       setSegs([]);
       toast(e instanceof Error ? e.message : String(e), true);
     }
-    // 一覧のロール pill を名前で出すため取得（失敗時は ID フォールバック・ベストエフォート）
+    // Discordの現在のロール名を表示。取得失敗時は保存済みの区分名を残す。
     if (!roles) {
       try {
         setRoles(await api(`/guilds/${guild.id}/roles`));
       } catch {}
     }
   };
-  /** ロールIDを「@ロール名」で表示（未解決は生IDフォールバック） */
-  const roleLabel = (id: string) =>
-    id === '@everyone' ? '@everyone' : roles?.some((r) => r.id === id) ? '@' + roles.find((r) => r.id === id)!.name : id;
+  const roleName = (id?: string | null) =>
+    id === '@everyone' ? 'Everyone' : roles?.find((r) => r.id === id)?.name;
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [guild.id]);
 
-  const openNew = async () => {
-    setEditing({} as Segment);
-    setName('');
-    setRoleId('');
-    setShowForm(true);
-    if (!roles) {
-      try {
-        setRoles(await api(`/guilds/${guild.id}/roles`));
-      } catch (e) {
-        setRoles([]);
-        toast('ロール一覧の取得に失敗しました: ' + (e instanceof Error ? e.message : String(e)), true);
-      }
-    }
-  };
-  const openEdit = async (s: Segment) => {
+  const openForm = async (s: Segment | null) => {
     setEditing(s);
-    setName(s.name);
-    setRoleId(s.mention_role_id || '');
+    setRoleId(s?.mention_role_id || '');
     setShowForm(true);
-    if (!roles) {
-      try {
-        setRoles(await api(`/guilds/${guild.id}/roles`));
-      } catch (e) {
-        setRoles([]);
-        toast('ロール一覧の取得に失敗しました: ' + (e instanceof Error ? e.message : String(e)), true);
-      }
+    setRoles(null);
+    try {
+      setRoles(await api(`/guilds/${guild.id}/roles`));
+    } catch (e) {
+      setRoles([]);
+      toast('ロール一覧の取得に失敗しました: ' + (e instanceof Error ? e.message : String(e)), true);
     }
   };
 
   const save = async (btn: HTMLElement | null) => {
-    if (!name.trim()) return toast('名前は必須です', true);
+    const name = roleName(roleId);
+    if (!name) return toast('DiscordのロールまたはEveryoneを選んでください', true);
     await withBusy(btn, async () => {
       try {
-        const mention_role_id = roleId || null;
-        if (editing && (editing as Segment).uuid) {
-          await api(`/segments/${(editing as Segment).uuid}`, { method: 'PUT', body: JSON.stringify({ name: name.trim(), mention_role_id }) });
+        const mention_role_id = roleId;
+        if (editing) {
+          await api(`/segments/${editing.uuid}`, { method: 'PUT', body: JSON.stringify({ name, mention_role_id }) });
           toast('更新しました');
         } else {
-          await api('/segments', { method: 'POST', body: JSON.stringify({ guild_id: guild.id, name: name.trim(), mention_role_id }) });
+          await api('/segments', { method: 'POST', body: JSON.stringify({ guild_id: guild.id, name, mention_role_id }) });
           toast('作成しました');
         }
         setShowForm(false);
@@ -100,7 +83,7 @@ export function Segments({
 
   const remove = async (uuid: string) => {
     const ok = await confirmDialog(
-      'この区分を削除します。所属メンバーの登録も解除されます（過去の回答記録は残ります）。元に戻せません。',
+      'この区分を削除します。所属メンバーの登録も解除されます（過去の回答履歴は残ります）。元に戻せません。',
       { danger: true, okLabel: '削除する' },
     );
     if (!ok) return;
@@ -111,7 +94,7 @@ export function Segments({
     } catch (e) {
       // スケジュールの対象になっている区分はサーバー側が 409 で拒否する
       if ((e as { status?: number }).status === 409) {
-        toast('この区分はスケジュールの対象になっているため削除できません。先にスケジュール設定を変更してください。', true);
+        toast('この区分はテンプレートの対象になっているため削除できません。先に「定期出欠確認」「不定期出欠確認」の「テンプレート作成・編集」か「単発出欠確認」の「✏️ 編集」で対象区分を変更してください。', true);
         return;
       }
       toast(e instanceof Error ? e.message : String(e), true);
@@ -122,15 +105,15 @@ export function Segments({
 
   const roleOptions = (
     <>
-      <option value="">（手動管理）</option>
-      <option value="@everyone">@everyone（サーバー全員）</option>
+      <option value="" disabled>選択してください</option>
+      <option value="@everyone">Everyone（サーバー全員）</option>
       {(roles || []).map((r) => (
         <option key={r.id} value={r.id}>
           {r.name}
         </option>
       ))}
       {roleId && roleId !== '@everyone' && roles && !roles.some((r) => r.id === roleId) && (
-        <option value={roleId}>⚠ 不明なロール ({roleId})</option>
+        <option value={roleId} disabled>⚠ 不明なロール ({roleId})</option>
       )}
     </>
   );
@@ -138,38 +121,33 @@ export function Segments({
   return (
     <>
       <div className="sec-head">
-        <h2>メンバー区分 ({segs.length})</h2>
-        <button className="btn" onClick={openNew}>
+        <h2>メンバー管理</h2>
+        <button className="btn" onClick={() => openForm(null)}>
           ＋ 新規区分
         </button>
       </div>
+      <p className="muted">メンバー区分（{segs.length}件）を選び、所属メンバーや休止状態を管理します。</p>
       {segs.length === 0 ? (
         <div className="empty">
           メンバー区分がまだありません。
           <br />
-          例: キャスト / スタッフ などを作成しましょう。
+          DiscordのロールまたはEveryoneを選んで作成してください。
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {segs.map((s) => (
             <div key={s.uuid} className="listrow">
               <div>
-                <div style={{ fontWeight: 600 }}>{s.name}</div>
-                <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
-                  {s.mention_role_id ? (
-                    <>
-                      <span className="pill on">ロール管理</span> <span className="pill">{roleLabel(s.mention_role_id)}</span>
-                    </>
-                  ) : (
-                    <span className="pill off">手動管理</span>
-                  )}
-                </div>
+                <div style={{ fontWeight: 600 }}>{roleName(s.mention_role_id) || s.name}</div>
+                {!s.mention_role_id && (
+                  <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>メンバーを手動で管理</div>
+                )}
               </div>
               <div className="actions">
                 <button className="btn sm secondary" onClick={() => onOpenMembers(s.uuid)}>
                   メンバー
                 </button>
-                <button className="btn sm ghost" onClick={() => openEdit(s)}>
+                <button className="btn sm ghost" onClick={() => openForm(s)}>
                   編集
                 </button>
                 <button className="btn sm ghost danger" onClick={() => remove(s.uuid)}>
@@ -183,35 +161,27 @@ export function Segments({
 
       <FormDialog
         open={showForm}
-        title={editing && (editing as Segment).uuid ? '編集' : '新規区分'}
+        title={editing ? '編集' : '新規区分'}
         onClose={() => setShowForm(false)}
         footer={
           <>
             <button className="btn ghost" type="button" onClick={() => setShowForm(false)}>
               キャンセル
             </button>
-            <button className="btn" onClick={(e) => save(e.currentTarget)}>
+            <button className="btn" disabled={!roleName(roleId)} onClick={(e) => save(e.currentTarget)}>
               保存
             </button>
           </>
         }
       >
-        <div className="row">
-          <div>
-            <label>
-              名前 <span className="req">✱</span>
-            </label>
-            <TextField placeholder="例: キャスト" value={name} onChange={(e) => setName(e.target.value)} />
-          </div>
-          <div>
-            <label>ロール / @everyone（任意）</label>
-            <Select value={roleId} onChange={(e) => setRoleId(e.target.value)}>
-              {roleOptions}
-            </Select>
-            <p className="muted" style={{ fontSize: 12, margin: '6px 0 0' }}>
-              設定するとメンバーをこのロールから自動同期し、メンション先になります。
-            </p>
-          </div>
+        <div>
+          <label htmlFor="segment-role">Discordのロール / Everyone</label>
+          <Select id="segment-role" required value={roleId} onChange={(e) => setRoleId(e.target.value)}>
+            {roleOptions}
+          </Select>
+          <p className="muted" style={{ fontSize: 12, margin: '6px 0 0' }}>
+            区分名には選んだロール名またはEveryoneをそのまま使います。メンバーを自動同期し、メンション先になります。
+          </p>
         </div>
       </FormDialog>
     </>

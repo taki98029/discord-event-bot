@@ -8,8 +8,8 @@ import {
   listFutureOccurrencesAll,
 } from '../src/db/occurrences';
 import { claimSend, finishSend, hasSentKind, reclaimFailedSend, reclaimSentSend } from '../src/db/sendLog';
-import { inSendWindow, rollforwardWindow } from '../src/cron/tick';
-import type { Notification } from '../src/db/types';
+import { beforeStartIfToday, inSendWindow, rollforwardWindow } from '../src/cron/tick';
+import type { Notification, Occurrence } from '../src/db/types';
 
 const db = () => env.DB;
 
@@ -135,19 +135,30 @@ describe('inSendWindow（送信窓の事前判定）', () => {
     expect(inSendWindow(n({ remind_start_days: 10 }), 9)).toBe(true);
   });
 
+  it('未定リマインド窓は 0..remind_undecided_days の範囲判定（遅れて追加した回にも出す）', () => {
+    // 募集窓を当日だけ（0 日前）にして未定リマインド窓を単独で観測する
+    const only = n({ recruit_days_before: 0, remind_unanswered_enabled: 0, remind_undecided_days: 3 });
+    expect(inSendWindow(only, 3)).toBe(true);
+    expect(inSendWindow(only, 1)).toBe(true); // 旧実装（===3）では false だった
+    expect(inSendWindow(only, 4)).toBe(false);
+  });
+
   it('工程スイッチ OFF（ADR 0026）: その工程は窓に数えない・数値は残っていても無視', () => {
-    // 募集 OFF（手動投稿）: 募集窓は無効。リマインド窓だけ残る
+    // 募集 OFF（手動投稿・不定期）: 未来の回は常に窓内（募集投稿済みかは drainOccurrence が send_log で照合・ADR 0032）
     const manual = n({ recruit_enabled: 0 });
-    expect(inSendWindow(manual, 7)).toBe(false);
-    expect(inSendWindow(manual, 3)).toBe(true); // 未回答リマインド
+    expect(inSendWindow(manual, 7)).toBe(true);
+    expect(inSendWindow(manual, 40)).toBe(true);
+    expect(inSendWindow(manual, -1)).toBe(false);
+    expect(inSendWindow(n({ recruit_enabled: 0, requires_response: 0 }), 5)).toBe(false); // 告知×手動は投稿以外に何も無い
     // リマインド両方 OFF: 募集窓だけ
     const noRemind = n({ remind_unanswered_enabled: 0, remind_undecided_enabled: 0, remind_start_days: 30, remind_undecided_days: 20 });
     expect(inSendWindow(noRemind, 20)).toBe(false);
     expect(inSendWindow(noRemind, 7)).toBe(true);
-    // 未定だけ OFF: その日ちょうどでも拾わない
+    // 未定だけ OFF: 窓内でも拾わない
     expect(inSendWindow(n({ remind_undecided_enabled: 0, remind_undecided_days: 9 }), 9)).toBe(false);
-    // 全部 OFF・締切なし: 何も送らない
-    expect(inSendWindow(n({ recruit_enabled: 0, remind_unanswered_enabled: 0, remind_undecided_enabled: 0 }), 0)).toBe(false);
+    expect(inSendWindow(n({ remind_undecided_enabled: 0, remind_undecided_days: 9 }), 8)).toBe(false);
+    // 自動募集で②③ OFF・締切なし: 募集窓の外は何も無い
+    expect(inSendWindow(n({ recruit_days_before: 0, remind_unanswered_enabled: 0, remind_undecided_enabled: 0 }), 1)).toBe(false);
   });
 
   it('回答締切の監視窓は募集窓に同じ（締切あり ⇒ 定期 ⇒ 募集自動、が DB の不変条件・migration 0025）', () => {
@@ -184,5 +195,16 @@ describe('rollforwardWindow（日次ロールフォワードのチャンク進�
     expect(rollforwardWindow(`${today}:-3`, today, 20, 8)).toEqual({ start: 0, end: 8, next: `${today}:8` });
     // 進行中に通知が削除されて offset > total → 空処理で完了形に収束
     expect(rollforwardWindow(`${today}:16`, today, 10, 8)).toEqual({ start: 10, end: 10, next: today });
+  });
+});
+
+describe('beforeStartIfToday（②③の当日ガード）', () => {
+  const n = { start_time: '20:00' } as Notification;
+  const occ = { start_time: '' } as Occurrence;
+  it('前日以前は常に true・当日は開始時刻前だけ true', () => {
+    expect(beforeStartIfToday(n, occ, 1, new Date(2026, 8, 5, 23, 0))).toBe(true);
+    expect(beforeStartIfToday(n, occ, 0, new Date(2026, 8, 5, 19, 59))).toBe(true);
+    expect(beforeStartIfToday(n, occ, 0, new Date(2026, 8, 5, 20, 0))).toBe(false);
+    expect(beforeStartIfToday(n, { start_time: '22:30' } as Occurrence, 0, new Date(2026, 8, 5, 21, 0))).toBe(true); // 開催回の時刻優先
   });
 });

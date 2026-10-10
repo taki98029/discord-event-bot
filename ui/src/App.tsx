@@ -1,7 +1,8 @@
+import { Planning, PlanningSettings } from './screens/Planning';
 // 管理UI SPA ルート。Gate → Picker → Workspace の遷移は旧 ui/index.html と同一契約
 // （TOKEN_KEY / GUILD_KEY / ハッシュ #g/<gid>/... = ADR 0016）。
 import * as React from 'react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Actions,
   Main,
@@ -26,7 +27,7 @@ import {
   type Guild,
 } from './api';
 import { ConfirmHost, confirmDialog } from './lib/dialog';
-import { parseHash, routeFromRest, sectionForRoute, type Route } from './lib/route';
+import { parseHash, routeFromRest, sectionForRoute, scheduleKind, type Route, type Section } from './lib/route';
 import { NotificationsScreen } from './screens/Notifications';
 import { NotifOps } from './screens/NotifOps';
 import { NotificationFormV2 } from './screens/NotificationFormV2';
@@ -38,27 +39,42 @@ import { Records } from './screens/Records';
 import { Reports } from './screens/Reports';
 import { SendLog } from './screens/SendLog';
 import { Setup } from './screens/Setup';
+import { Channels } from './screens/Channels';
 
-type SecKey = 'notif-ops' | 'notifications' | 'segments' | 'records' | 'reports' | 'sendlog' | 'setup';
-
-// 絵文字は VS16（️）付きで統一（🛠・🗒 は無印だと環境によりモノクロ字形になる・M19）
-// グループ = 上段「運用・記録」→ 下段「設定」（設定内はデータ階層順: 区分→スケジュール→Bot）
-const NAV_GROUPS: { label: string; items: { key: SecKey; label: string }[] }[] = [
+// 絵文字はグループ見出しにだけ付ける。VS16（️）付きで統一（🛠・🗒 は無印だと環境によりモノクロ字形になる・M19）
+// 再利用する設定は各運用画面の歯車から開く。メンバーは機能共通の入口。
+// tip はマウスオーバーで出す一言説明（title 属性）。
+const NAV_GROUPS: { label: string; icon: string; items: { key: Section; label: string; tip?: string }[] }[] = [
   {
-    label: '運用・記録',
+    label: '出欠確認', icon: '🙋',
     items: [
-      { key: 'notif-ops', label: '📅 開催回' },
-      { key: 'records', label: '🗒️ 回答履歴' },
-      { key: 'reports', label: '📊 出勤レポート' },
-      { key: 'sendlog', label: '📤 送信履歴' },
+      { key: 'regular', label: '定期', tip: '毎週・毎月など決まった周期の開催について、出欠を自動で募集します' },
+      { key: 'irregular', label: '不定期', tip: 'テンプレートを用意しておき、開催日が決まるたびに追加して出欠を募集します' },
+      { key: 'oneoff', label: '単発', tip: 'テンプレートを作らずに、1回だけの開催の出欠を募集します' },
     ],
   },
   {
-    label: '設定',
+    label: '日程調整', icon: '🗓️',
     items: [
-      { key: 'segments', label: '👥 メンバー区分' },
-      { key: 'notifications', label: '🛠️ スケジュール設定' },
-      { key: 'setup', label: '⚙️ Bot 設定' },
+      { key: 'planning', label: '定期', tip: 'テンプレートを使って、毎回の開催日をメンバーの回答から決めます' },
+      { key: 'oneoff-planning', label: '単発', tip: 'テンプレートを作らずに、1回分の開催日をメンバーの回答から決めます' },
+    ],
+  },
+  {
+    label: '出欠確認記録', icon: '📊',
+    items: [
+      { key: 'reports', label: '出勤レポート' },
+      { key: 'sendlog', label: '送信履歴' },
+      { key: 'records', label: '回答履歴' },
+    ],
+  },
+  {
+    label: '設定', icon: '⚙️',
+    items: [
+      { key: 'segments', label: 'メンバー管理' },
+      { key: 'channels', label: 'チャンネル管理', tip: '投稿先の選択肢に出すチャンネルを選びます' },
+      { key: 'bot-settings', label: 'Bot設定' },
+      { key: 'setup', label: '初回設定' },
     ],
   },
 ];
@@ -69,7 +85,7 @@ function restoreGuild(): Guild | null {
   if (!saved) return null;
   try {
     const g = JSON.parse(saved) as Guild;
-    const { guildId } = parseHash();
+    const { guildId } = parseHash(location.hash);
     if (!guildId || guildId === g.id) return g;
   } catch {}
   return null;
@@ -86,6 +102,16 @@ export function App() {
     setToast({ msg, err });
     window.setTimeout(() => setToast((t) => (t && t.msg === msg ? null : t)), 2800);
   }, []);
+
+  // トーストは popover で top layer に出す。showModal のダイアログの暗幕より前に出すため、出すたびに開き直して最前面へ（P2-12）
+  const toastRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = toastRef.current;
+    if (!toast || !el || !el.showPopover) return;
+    if (!el.hasAttribute('popover')) el.setAttribute('popover', 'manual');
+    if (el.matches(':popover-open')) el.hidePopover();
+    el.showPopover();
+  }, [toast]);
 
   const onApiError = useCallback(
     (e: unknown) => {
@@ -126,9 +152,9 @@ export function App() {
       ) : !guild ? (
         <Picker onSelect={selectGuild} onLogout={logout} onError={onApiError} />
       ) : (
-        <Workspace guild={guild} onSelectGuild={selectGuild} onLogout={logout} onLeftGuild={leftGuild} onError={onApiError} toast={showToast} />
+        <Workspace key={guild.id} guild={guild} onSelectGuild={selectGuild} onLogout={logout} onLeftGuild={leftGuild} onError={onApiError} toast={showToast} />
       )}
-      <div className={'toast' + (toast ? ' show' : '') + (toast?.err ? ' err' : '')}>{toast?.msg}</div>
+      <div ref={toastRef} className={'toast' + (toast ? ' show' : '') + (toast?.err ? ' err' : '')}>{toast?.msg}</div>
       <ConfirmHost />
     </>
   );
@@ -218,13 +244,13 @@ function Picker({
             </div>
           ) : (
             guilds.map((g) => (
-              <div key={g.id} className="card" onClick={() => onSelect(g)}>
+              <button key={g.id} type="button" className="card" onClick={() => onSelect(g)}>
                 <ServerBadge
                   name={<div style={{ fontWeight: 600 }}>{g.name}</div>}
                   subtitle={'ID: ' + g.id}
                   fallback={<GuildIcon g={g} />}
                 />
-              </div>
+              </button>
             ))
           )}
         </div>
@@ -253,20 +279,55 @@ function Workspace({
   onError: (e: unknown) => void;
   toast: ToastFn;
 }) {
-  const [sec, setSec] = useState<SecKey>('notif-ops');
   const [guilds, setGuilds] = useState<Guild[]>([]);
-  const [rest, setRest] = useState<string[]>(() => parseHash().rest);
-  const [dirty, setDirty] = useState(false);
+  const [rest, setRest] = useState<string[]>(() => parseHash(location.hash).rest);
+  const [dirty, updateDirty] = useState(false);
   const [listKey, setListKey] = useState(0); // 一覧の再フェッチトリガ（子ページからの戻り時）
+  const historyIndex = useRef<number>(history.state?.eventbotIndex ?? 0);
+  const dirtyRef = useRef(dirty);
+  const setDirty = useCallback((value: boolean) => {
+    // 子画面で破棄・保存した直後の hashchange にも、最新の状態を渡す。
+    dirtyRef.current = value;
+    updateDirty(value);
+  }, []);
 
   useEffect(() => {
     fetchGuilds().then(setGuilds, () => {}); // rail はベストエフォート（旧実装踏襲）
   }, []);
 
   useEffect(() => {
-    const onHashChange = () => {
-      const parsed = parseHash();
-      if (parsed.guildId === guild.id) setRest(parsed.rest);
+    history.replaceState({ ...history.state, eventbotIndex: historyIndex.current }, '', location.href);
+    let confirming = false;
+    let restored: (() => void) | undefined;
+    const onHashChange = async () => {
+      const next = location.hash;
+      const parsed = parseHash(next);
+      if (parsed.guildId !== guild.id) return;
+      const nextIndex: number = history.state?.eventbotIndex ?? historyIndex.current + 1;
+      history.replaceState({ ...history.state, eventbotIndex: nextIndex }, '', next);
+      if (nextIndex === historyIndex.current) {
+        restored?.();
+        restored = undefined;
+        return;
+      }
+      if (dirtyRef.current) {
+        // URL の書き換えでは戻る履歴が消えるため、元の履歴位置へ戻してから確認する。
+        const delta = nextIndex - historyIndex.current;
+        const restoration = confirming ? null : new Promise<void>(resolve => { restored = resolve; });
+        history.go(-delta);
+        if (confirming) return;
+        confirming = true;
+        await restoration;
+        const discard = await confirmDialog('未保存の変更があります。破棄して移動しますか？', { okLabel: '破棄する', danger: true });
+        confirming = false;
+        if (discard) {
+          setDirty(false);
+          history.go(delta);
+        }
+        return;
+      }
+      historyIndex.current = nextIndex;
+      setRest(parsed.rest);
     };
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
@@ -284,44 +345,95 @@ function Workspace({
   }, [dirty]);
 
   const route: Route = routeFromRest(rest);
-
-  // ルート種別に応じてサイドナビのアクティブ表示を同期（旧 handleHashRoute の switchSection 呼び出し相当）
+  const sec = sectionForRoute(route);
+  const scope = route.scope ?? (sec === 'irregular' || sec === 'oneoff' ? sec : 'regular');
   useEffect(() => {
-    const wantSec = sectionForRoute(route.kind);
-    if (wantSec) setSec(wantSec as SecKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [route.kind]);
+    document.querySelector('.side .navitem.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [sec]);
 
   const navigate = useCallback(
-    (subpath: string) => {
+    (subpath: string, replace = false) => {
       const base = 'g/' + guild.id;
       const next = '#' + (subpath ? base + '/' + subpath : base);
-      if (location.hash === next) setRest(subpath ? subpath.split('/').filter(Boolean) : []);
+      if (replace) {
+        history.replaceState(history.state, '', next);
+        setRest(subpath ? subpath.split('/').filter(Boolean) : []);
+      } else if (location.hash === next) setRest(subpath ? subpath.split('/').filter(Boolean) : []);
       else location.hash = next;
     },
     [guild.id],
   );
 
-  const selectSection = async (s: SecKey) => {
+  const selectSection = async (s: Section) => {
     if (dirty) {
       const ok = await confirmDialog('未保存の変更があります。破棄して移動しますか？', { okLabel: '破棄する', danger: true });
       if (!ok) return;
     }
     setDirty(false);
-    setSec(s);
-    navigate('');
+    navigate(s);
   };
+
+  // 保存済みの旧URLはスケジュールの実際の種別を読み、対応する入口へ引き継ぐ。
+  const legacyUuid = !route.scope && 'nuuid' in route ? route.nuuid : undefined;
+  const legacyPath = rest.join('/');
+  const [legacyError, setLegacyError] = useState('');
+  const [legacyRetry, setLegacyRetry] = useState(0);
+  useEffect(() => {
+    setLegacyError('');
+    if (!legacyUuid) return;
+    let alive = true;
+    api(`/notifications/${legacyUuid}`).then(n => {
+      if (alive) navigate(`${scheduleKind(n)}/${legacyPath}`, true);
+    }, e => {
+      if (alive) { setLegacyError(e.message); onError(e); }
+    });
+    return () => { alive = false; };
+  }, [legacyUuid, legacyPath, legacyRetry, navigate, onError]);
 
   const backToList = () => {
     setListKey((k) => k + 1);
-    navigate('');
+    // 単発は作成・編集のあとも出欠一覧へ戻る（テンプレート一覧を経由しない）
+    navigate(route.kind === 'grouping' || scope === 'oneoff' ? scope : route.kind === 'seg-members' ? 'segments' : `${scope}/settings`);
   };
 
   const renderChildPage = (): React.ReactNode => {
+    if (legacyUuid) return legacyError
+      ? <div className="empty"><p>{legacyError}</p><button className="btn secondary" onClick={() => setLegacyRetry(x => x + 1)}>再読み込み</button></div>
+      : <p className="muted">読み込み中…</p>;
     switch (route.kind) {
+      case 'setup':
+      case 'bot-settings':
+        return <Setup key={guild.id + route.kind} mode={route.kind} guild={guild} toast={toast} onLeft={onLeftGuild} onDirtyChange={setDirty} />;
+      case 'channels':
+        return <Channels key={guild.id} guild={guild} toast={toast} onDirtyChange={setDirty} />;
+      case 'planning-settings':
+        return <PlanningSettings onBack={() => navigate('planning')} onDirtyChange={setDirty} key={guild.id} guild={guild} toast={toast}/>;
+      case 'planning':
+      {
+        const base = route.oneOff ? 'oneoff-planning' : 'planning';
+        return <Planning onOpenSettings={() => navigate('planning-settings')} onDirtyChange={setDirty} key={guild.id + base} guild={guild} toast={toast} planId={route.planId} view={route.view} oneOff={route.oneOff} onNavigate={(id, view)=>navigate(id?`${base}/${id}${view ? `/${view}` : ''}`:base)}/>;
+      }
+      case 'notification-list':
+        return (
+          <NotificationsScreen key={guild.id + scope + listKey} guild={guild} scope={scope} toast={toast} onError={onError}
+            onBack={() => navigate(scope)} onNew={() => navigate(`${scope}/notifications/new`)}
+            onEdit={uuid => navigate(`${scope}/notifications/${uuid}/edit`)}
+            onCopy={uuid => navigate(`${scope}/notifications/${uuid}/copy`)}
+            onGroupingSettings={uuid => navigate(`${scope}/notifications/${uuid}/grouping-settings`)} />
+        );
       case 'notif-new':
         return (
-          <NotificationFormV2 key="new" guild={guild} toast={toast} onDirtyChange={setDirty} onClose={backToList} onSaved={backToList} />
+          <NotificationFormV2
+            key={route.copy ? 'copy-' + route.copy : route.oneOff ? 'new-oneoff' : route.irregular ? 'new-irregular' : 'new'}
+            guild={guild}
+            irregular={route.irregular}
+            oneOff={route.oneOff}
+            copyFrom={route.copy}
+            toast={toast}
+            onDirtyChange={setDirty}
+            onClose={backToList}
+            onSaved={backToList}
+          />
         );
       case 'notif-edit':
         return (
@@ -336,7 +448,7 @@ function Workspace({
           />
         );
       case 'grouping-settings':
-        return <GroupingSettings key={route.nuuid} guild={guild} nuuid={route.nuuid} toast={toast} onClose={backToList} />;
+        return <GroupingSettings key={route.nuuid} guild={guild} nuuid={route.nuuid} toast={toast} onClose={backToList} oneOff={scope === 'oneoff'} />;
       case 'grouping':
         return (
           <GroupingDialog
@@ -347,7 +459,8 @@ function Workspace({
             toast={toast}
             onDirtyChange={setDirty}
             onClose={backToList}
-            onNavigateConstraints={() => navigate('notifications/' + route.nuuid + '/grouping-settings')}
+            onNavigateConstraints={() => navigate(`${scope}/notifications/${route.nuuid}/grouping-settings`)}
+            oneOff={scope === 'oneoff'}
           />
         );
       case 'seg-members':
@@ -368,7 +481,12 @@ function Workspace({
             active={g.id === guild.id}
             label={g.name}
             src={guildIconUrl(g) || undefined}
-            onClick={() => g.id !== guild.id && onSelectGuild(g)}
+            onClick={async () => {
+              if (g.id === guild.id) return;
+              if (dirty && !(await confirmDialog('未保存の変更があります。破棄して移動しますか？', { okLabel: '破棄する', danger: true }))) return;
+              setDirty(false);
+              onSelectGuild(g);
+            }}
           >
             {(g.name || '?').slice(0, 1)}
           </ServerRailItem>
@@ -389,9 +507,9 @@ function Workspace({
           <SideNav>
             {NAV_GROUPS.map((g) => (
               <React.Fragment key={g.label}>
-                <div className="navgroup">{g.label}</div>
+                <div className="navgroup">{g.icon} {g.label}</div>
                 {g.items.map((n) => (
-                  <NavItem key={n.key} active={sec === n.key} onClick={() => selectSection(n.key)} style={{ cursor: 'pointer' }}>
+                  <NavItem key={n.key} active={sec === n.key} onClick={() => selectSection(n.key)} title={n.tip} style={{ cursor: 'pointer' }}>
                     {n.label}
                   </NavItem>
                 ))}
@@ -401,28 +519,23 @@ function Workspace({
           <Main>
             {childPage ? (
               childPage
-            ) : sec === 'notif-ops' ? (
-              <NotifOps key={listKey} guild={guild} toast={toast} onOpenGrouping={(n, o) => navigate(`notifications/${n}/occurrences/${o}/grouping`)} />
-            ) : sec === 'notifications' ? (
-              <NotificationsScreen
-                key={listKey}
-                guild={guild}
-                toast={toast}
-                onError={onError}
-                onNew={() => navigate('notifications/new')}
-                onEdit={(uuid) => navigate(`notifications/${uuid}/edit`)}
-                onGroupingSettings={(uuid) => navigate(`notifications/${uuid}/grouping-settings`)}
-              />
+            ) : sec === 'regular' || sec === 'irregular' || sec === 'oneoff' ? (
+              <NotifOps key={guild.id + scope + listKey} guild={guild} scope={scope} toast={toast}
+                onOpenSettings={() => navigate(`${scope}/settings`)}
+                onCreateSchedule={() => navigate(`${scope}/notifications/new`)}
+                onEditSchedule={(n) => navigate(`${scope}/notifications/${n}/edit`)}
+                onCopySchedule={(n) => navigate(`${scope}/notifications/${n}/copy`)}
+                onOpenGrouping={(n, o) => navigate(`${scope}/notifications/${n}/occurrences/${o}/grouping`)} />
             ) : sec === 'segments' ? (
               <Segments key={listKey} guild={guild} toast={toast} onOpenMembers={(uuid) => navigate(`segments/${uuid}/members`)} />
             ) : sec === 'records' ? (
               <Records guild={guild} toast={toast} />
             ) : sec === 'reports' ? (
-              <Reports guild={guild} toast={toast} />
+              <Reports key={guild.id} guild={guild} toast={toast} />
             ) : sec === 'sendlog' ? (
               <SendLog guild={guild} toast={toast} />
             ) : (
-              <Setup guild={guild} toast={toast} onLeft={onLeftGuild} />
+              <Setup key={guild.id + sec} mode={sec === 'setup' ? 'setup' : 'bot-settings'} guild={guild} toast={toast} onLeft={onLeftGuild} onDirtyChange={setDirty} />
             )}
           </Main>
         </Shell>

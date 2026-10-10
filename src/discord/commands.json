@@ -1,14 +1,5 @@
 [
   {
-    "name": "notify",
-    "description": "開催回を選んで募集/告知を今すぐ投稿します (管理者用)",
-    "default_member_permissions": "8"
-  },
-  {
-    "name": "help",
-    "description": "Bot の使い方とコマンド一覧を表示します"
-  },
-  {
     "name": "manage",
     "description": "管理画面の URL を表示します (管理者用)",
     "default_member_permissions": "8"

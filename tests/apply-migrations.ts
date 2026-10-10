@@ -9,6 +9,21 @@ await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
 // Event 廃止後のテーブル群（Server[guild_id] ＞ notifications → segments ＞ occurrences ほか）。
 beforeEach(async () => {
   await env.DB.batch([
+    // メンバー配置（migration 0011）と回答の変更履歴。子から順に消す
+    env.DB.prepare('DELETE FROM group_members'),
+    env.DB.prepare('DELETE FROM groups'),
+    env.DB.prepare('DELETE FROM groupings'),
+    env.DB.prepare('DELETE FROM grouping_constraints'),
+    env.DB.prepare('DELETE FROM response_log'),
+    env.DB.prepare('DELETE FROM planning_browser_sessions'),
+    env.DB.prepare('DELETE FROM planning_sessions'),
+    env.DB.prepare('DELETE FROM planning_history'),
+    env.DB.prepare('DELETE FROM planning_deliveries'),
+    env.DB.prepare('DELETE FROM planning_roster'),
+    env.DB.prepare('DELETE FROM planning_occurrences'),
+    env.DB.prepare('DELETE FROM planning_cycles'),
+    env.DB.prepare('DELETE FROM planning_plans'),
+
     env.DB.prepare('DELETE FROM responses'),
     env.DB.prepare('DELETE FROM occurrences'),
     env.DB.prepare('DELETE FROM notifications'),

@@ -4,6 +4,7 @@
 // 設計: docs/dev/schedule-recurrence-redesign.md §5.1・§6（2026-08-23）。
 import {
   INTERVAL_MAX,
+  MONTH_MAX_DAY,
   WEEKDAY_CODES,
   formatRule,
   parseRule,
@@ -12,7 +13,7 @@ import {
   type WeekdayCode,
 } from '../../../src/lib/rruleGrammar';
 
-export { INTERVAL_MAX, formatRule, parseRule };
+export { INTERVAL_MAX, MONTH_MAX_DAY, formatRule, parseRule };
 export type { Freq, RuleModel, WeekdayCode };
 
 /** 表示順は日〜土（日本のカレンダー慣行）。保存形の並びは formatRule が月曜起点に正規化する */
@@ -240,3 +241,14 @@ export function daysFromToday(ymd: string, now: Date = new Date()): number {
   const b = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   return Math.round((a - b) / 86_400_000);
 }
+
+/** JST の 'YYYY/MM/DD' と 'HH:MM' → 時刻（ms）。時刻は JST 固定なので端末のタイムゾーンに依らず組み立てる */
+export function jstMs(ymd: string, hm = '00:00'): number {
+  const [y, m, d] = ymd.split('/').map(Number);
+  const [h, mi] = hm.split(':').map(Number);
+  return Date.UTC(y || 0, (m || 1) - 1, d || 1, (h || 0) - 9, mi || 0);
+}
+
+/** 今日（JST）の 'YYYY/MM/DD'（0埋めなので文字列比較で日付比較になる） */
+export const jstToday = (now: number = Date.now()): string =>
+  new Date(now + 9 * 3_600_000).toISOString().slice(0, 10).replace(/-/g, '/');

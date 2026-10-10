@@ -70,6 +70,9 @@ function notif(over: Partial<Notification>): Notification {
     created_at: '',
     mention_enabled: 1,
     grouping_channel_id: null,
+    remind_target: 'dm',
+    remind_undecided_target: 'dm',
+    share_answers: 1,
     ...input('g', 1),
     ...over,
   };
@@ -280,15 +283,16 @@ describe('admin API - 繰り返しの検証・preview-plan・PUT の掃除・ori
     expect([got?.recruit_enabled, got?.remind_unanswered_enabled, got?.remind_undecided_enabled]).toEqual([1, 0, 1]);
     expect(got?.remind_start_days).toBe(5); // OFF でも日数は保持（ON に戻せば復帰）
 
-    // 不定期にすると正規化される: リマインド 0・締切 NULL・募集の手動化は可
+    // 不定期は雛形の締切だけ正規化（NULL・締切は開催回ごと・ADR 0032）。②③は保持・募集の手動化は可
+    const irregular = (await (await call('POST', '/notifications', body(su, { rrule: null }))).json()) as Notification;
     const res2 = await call(
       'PUT',
-      `/notifications/${created.uuid}`,
+      `/notifications/${irregular.uuid}`,
       body(su, { rrule: null, recruit_enabled: false, remind_unanswered_enabled: 1, remind_undecided_enabled: 1, response_deadline_hours: 24 }),
     );
     expect(res2.status).toBe(200);
-    const got2 = await getNotification(db(), created.id);
-    expect([got2?.recruit_enabled, got2?.remind_unanswered_enabled, got2?.remind_undecided_enabled]).toEqual([0, 0, 0]);
+    const got2 = await getNotification(db(), irregular.id);
+    expect([got2?.recruit_enabled, got2?.remind_unanswered_enabled, got2?.remind_undecided_enabled]).toEqual([0, 1, 1]);
     expect(got2?.response_deadline_hours).toBeNull();
   });
 
@@ -309,11 +313,18 @@ describe('admin API - 繰り返しの検証・preview-plan・PUT の掃除・ori
     expect(e5.status).toBe(400);
     expect(((await e5.json()) as { error: string }).error).toContain('締切（開始48時間前）より後');
 
-    // 不定期は②③④を持たないので順序ルール対象外＝受理（リマインド・締切は正規化で落ちる）
-    const ok = await call('POST', '/notifications', body(su, { rrule: null, recruit_days_before: 3, remind_start_days: 5, response_deadline_hours: 48 }));
+    // 不定期×自動募集: ②③は解禁されたので E1（②が①より前）は 400（ADR 0032）。雛形の締切は正規化で NULL
+    const ng = await call('POST', '/notifications', body(su, { rrule: null, recruit_days_before: 3, remind_start_days: 5, response_deadline_hours: 48 }));
+    expect(ng.status).toBe(400);
+    // 不定期×手動募集: ①が無いので E1/E2 は判定対象外＝受理。②③は保持・締切は NULL
+    const ok = await call(
+      'POST',
+      '/notifications',
+      body(su, { rrule: null, recruit_enabled: false, recruit_days_before: 3, remind_start_days: 5, response_deadline_hours: 48 }),
+    );
     expect(ok.status).toBe(201);
     const okBody = (await ok.json()) as Notification;
-    expect([okBody.remind_unanswered_enabled, okBody.remind_undecided_enabled, okBody.response_deadline_hours]).toEqual([0, 0, null]);
+    expect([okBody.remind_unanswered_enabled, okBody.remind_undecided_enabled, okBody.response_deadline_hours]).toEqual([1, 1, null]);
 
     // 正しい順序の定期は受理（募集7 → 未回答3 → 未定3 → 締切48h → 開催）
     const ok2 = await call(
@@ -395,12 +406,12 @@ describe('admin API - 繰り返しの検証・preview-plan・PUT の掃除・ori
     expect(await t.json()).toEqual({ ok: true, pruned: 1, kept_posted: 0 });
     expect(await getOccurrence(db(), r2.id)).toBeNull();
 
-    // 定期 → 不定期の切替もルール変更
+    // 定期 → 不定期の切替は 400（種別は作成時に固定・P2-04）。開催回にも触れない
     const r3 = await getOrCreateOccurrence(db(), created.id, '2099/01/17', '20:00', 'rule');
     const irregular = await call('PUT', `/notifications/${created.uuid}`, body(su, { rrule: '', start_time: '20:00' }));
-    expect(await irregular.json()).toEqual({ ok: true, pruned: 1, kept_posted: 0 });
-    expect(await getOccurrence(db(), r3.id)).toBeNull();
-    expect((await getNotification(db(), created.id))?.rrule).toBeNull();
+    expect(irregular.status).toBe(400);
+    expect(await getOccurrence(db(), r3.id)).not.toBeNull();
+    expect((await getNotification(db(), created.id))?.rrule).toBe('FREQ=WEEKLY;BYDAY=SU');
   });
 
   it('POST /notifications/:id/occurrences は origin を受け付ける（既定 manual）', async () => {

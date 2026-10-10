@@ -1,11 +1,12 @@
-// スケジュール設定（マスター一覧）。新規/編集/メンバー配置設定は子ページへ遷移（ADR 0016）、
+// 出欠確認の基本設定（スケジュール一覧）。新規/編集/メンバー配置設定は子ページへ遷移（ADR 0016）、
 // 削除はその場でアクション（今すぐ募集/告知は開催回タブに一本化・2026-08-23）。Phase 4 ブループリント（.design-sync/templates/NotificationList.dc.html）準拠。
 import * as React from 'react';
-import { useEffect, useState } from 'react';
-import { Actions, Pill } from '../../../design-system/src';
+import { useEffect, useRef, useState } from 'react';
+import { Actions, Pill, Switch } from '../../../design-system/src';
 import { api, type Guild } from '../api';
 import { confirmDialog } from '../lib/dialog';
 import { describeRule, parseRule } from '../lib/rrule';
+import { scheduleKind, SCHEDULE_LABELS, type ScheduleKind } from '../lib/route';
 import type { ToastFn } from '../App';
 
 type Segment = { id: string; name: string };
@@ -44,18 +45,24 @@ function schedText(n: Notification): string {
 
 export function NotificationsScreen({
   guild,
+  scope,
   toast,
   onError,
   onNew,
   onEdit,
+  onCopy,
   onGroupingSettings,
+  onBack,
 }: {
   guild: Guild;
+  scope: ScheduleKind;
   toast: ToastFn;
   onError: (e: unknown) => void;
   onNew: () => void;
   onEdit: (uuid: string) => void;
+  onCopy: (uuid: string) => void;
   onGroupingSettings: (uuid: string) => void;
+  onBack: () => void;
 }) {
   const [segs, setSegs] = useState<Segment[]>([]);
   const [notifs, setNotifs] = useState<Notification[] | null>(null);
@@ -63,7 +70,11 @@ export function NotificationsScreen({
   const [est, setEst] = useState<Estimate | null>(null);
   const [filter, setFilter] = useState<Filter>('all');
 
+  // 読み込みの世代番号。サーバー切替後に前のサーバーの応答が遅れて届いても画面へ反映しない（古い一覧の行を削除する事故防止）
+  const loadSeq = useRef(0);
   const load = async () => {
+    const seq = ++loadSeq.current;
+    const stale = () => seq !== loadSeq.current;
     try {
       const g = encodeURIComponent(guild.id);
       const [s, n, c] = await Promise.all([
@@ -71,28 +82,29 @@ export function NotificationsScreen({
         api('/notifications?guild_id=' + g),
         api(`/guilds/${guild.id}/channels`).catch(() => []),
       ]);
+      if (stale()) return;
       setSegs(s);
-      setNotifs(n);
+      setNotifs(n.filter((x: Notification) => scheduleKind(x) === scope));
       setChannels(c);
     } catch (e) {
+      if (stale()) return;
       setNotifs([]);
       onError(e);
     }
     try {
-      setEst(await api('/send-estimate?guild_id=' + encodeURIComponent(guild.id)));
+      const e = await api('/send-estimate?guild_id=' + encodeURIComponent(guild.id));
+      if (!stale()) setEst(e);
     } catch {}
   };
 
   useEffect(() => {
-    let alive = true;
-    load().then(() => {
-      if (!alive) return;
-    });
+    setNotifs(null);
+    void load();
     return () => {
-      alive = false;
+      loadSeq.current++;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [guild.id]);
+  }, [guild.id, scope]);
 
   const segName = (id: string) => segs.find((x) => x.id === id)?.name ?? '?';
   const chName = (id: string) => {
@@ -101,7 +113,7 @@ export function NotificationsScreen({
   };
 
   const remove = async (uuid: string) => {
-    const ok = await confirmDialog('このスケジュールを、配下の開催日・回答ごとすべて削除します。元に戻せません。', { danger: true, okLabel: '削除する' });
+    const ok = await confirmDialog('このテンプレートを、配下の開催日・回答ごとすべて削除します。元に戻せません。', { danger: true, okLabel: '削除する' });
     if (!ok) return;
     try {
       await api('/notifications/' + uuid, { method: 'DELETE' });
@@ -112,6 +124,18 @@ export function NotificationsScreen({
     }
   };
 
+  // 一覧の「有効」スイッチ（C03・2026-09-20）: フォームを開かずに切り替える。失敗時は読み直して実際の状態に戻す。
+  const toggle = async (uuid: string, on: boolean) => {
+    setNotifs((prev) => prev && prev.map((x) => (x.uuid === uuid ? { ...x, active: on ? 1 : 0 } : x)));
+    try {
+      await api('/notifications/' + uuid + '/active', { method: 'POST', body: JSON.stringify({ active: on }) });
+      toast(on ? '有効にしました（自動送信の対象）' : '無効にしました（自動送信の対象外）');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), true);
+      await load();
+    }
+  };
+
   if (notifs === null) return <p className="muted">読み込み中…</p>;
 
   const over = est && (est.overDaily || est.overWindow);
@@ -119,6 +143,11 @@ export function NotificationsScreen({
 
   return (
     <>
+      <div className="page-crumb">
+        <a href={`#g/${guild.id}/${scope}`} onClick={e => { e.preventDefault(); onBack(); }}>{SCHEDULE_LABELS[scope]}</a>
+        <span>›</span><span>テンプレート</span>
+      </div>
+      <button className="page-back" onClick={onBack}>← {SCHEDULE_LABELS[scope]}へ戻る</button>
       {over && est && (
         <div className="alert warn" style={{ marginBottom: 14 }}>
           <div className="alert-icon">⚠️</div>
@@ -133,13 +162,14 @@ export function NotificationsScreen({
         </div>
       )}
 
-      <div className="sec-head">
-        <h2>スケジュール設定 ({notifs.length})</h2>
-        <button className="btn" disabled={!segs.length} onClick={() => onNew()}>
-          ＋ 新規スケジュール
+      <div className="sec-head occurrence-head">
+        <h2>{SCHEDULE_LABELS[scope]}のテンプレート ({notifs.length})</h2>
+        <button className="btn" disabled={!segs.length} onClick={onNew}>
+          ＋ 新規テンプレート
         </button>
       </div>
-      {!segs.length && <p className="muted">※ 先に「メンバー区分」を作成してください（スケジュールの対象になります）。</p>}
+      <p className="muted">{SCHEDULE_LABELS[scope]}で使う対象者・投稿先・募集やリマインドを設定します。</p>
+      {!segs.length && <p className="muted">先に「メンバー管理」でメンバー区分を作成してください（テンプレートの対象になります）。</p>}
 
       <Actions style={{ margin: '4px 0 12px' }}>
         {(
@@ -159,12 +189,12 @@ export function NotificationsScreen({
         <div className="empty">
           {notifs.length === 0 ? (
             <>
-              まだスケジュールがありません。
+              まだテンプレートがありません。
               <br />
-              「＋ 新規スケジュール」から最初のスケジュールを作成しましょう。
+              「＋ 新規テンプレート」から最初のテンプレートを作成しましょう。
             </>
           ) : (
-            '該当するスケジュールがありません。'
+            '該当するテンプレートがありません。'
           )}
         </div>
       ) : (
@@ -181,12 +211,18 @@ export function NotificationsScreen({
                 </div>
               </div>
               <Actions>
-                <Pill tone={n.active ? 'on' : 'off'}>{n.active ? '有効' : '無効'}</Pill>
+                <span className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }} title="オフにすると自動送信の対象外になります">
+                  <Switch aria-label={`${n.name} を有効にする（自動送信の対象）`} checked={!!n.active} onChange={(e) => toggle(n.uuid, e.target.checked)} />
+                  {n.active ? '有効' : '無効'}
+                </span>
                 <button className="btn sm ghost" onClick={() => onGroupingSettings(n.uuid)}>
                   メンバー配置設定
                 </button>
                 <button className="btn sm ghost" onClick={() => onEdit(n.uuid)}>
                   編集
+                </button>
+                <button className="btn sm ghost" onClick={() => onCopy(n.uuid)} title="この内容を初期値にして新しいテンプレートを作ります">
+                  複製
                 </button>
                 <button className="btn sm ghost danger" onClick={() => remove(n.uuid)}>
                   削除

@@ -173,30 +173,44 @@ export async function addSegmentMember(
   userId: string,
   names: { user_name?: string | null; display_name?: string | null } = {},
 ): Promise<void> {
+  if (names.display_name && segment.guild_id) {
+    await upsertGuildDisplayName(db, segment.guild_id, userId, names.display_name);
+  }
+  await db.batch(addSegmentMemberStatements(db, segment.id, userId, names));
+}
+
+/**
+ * 所属追加の書き込み文（members マスタの確実化＋所属の upsert）。ロール同期が人数分を batch に並べるために分けてある。
+ * ギルドごとの表示名は含まない（addSegmentMember／ロール同期の upsertGuildDisplayNames が別に書く）。
+ */
+export function addSegmentMemberStatements(
+  db: D1Database,
+  segmentId: number,
+  userId: string,
+  names: { user_name?: string | null; display_name?: string | null } = {},
+): D1PreparedStatement[] {
   // members マスタを確実化する。segment_members は一覧/集計時に members と INNER JOIN される
   // ため、マスタに存在しない user_id を所属させると、一覧・アクティブ母集団・リマインド・
   // ノルマ・集計のすべてから孤立して消える。所属追加の不変条件として db 層で保証する。
   // members.display_name はグローバルフォールバックのため「未設定の場合のみ」埋める
   // （他ギルドの nick を上書きしない・ADR 0022 で ADR 0006 の COALESCE 上書きを置換）。
-  await db
-    .prepare(
-      `INSERT INTO members (user_id, user_name, display_name) VALUES (?, ?, ?)
-       ON CONFLICT(user_id) DO UPDATE SET
-         user_name = COALESCE(excluded.user_name, members.user_name),
-         display_name = COALESCE(members.display_name, excluded.display_name)`,
-    )
-    .bind(userId, names.user_name ?? null, names.display_name ?? null)
-    .run();
-  if (names.display_name && segment.guild_id) {
-    await upsertGuildDisplayName(db, segment.guild_id, userId, names.display_name);
-  }
-  await db
-    .prepare(
-      `INSERT INTO segment_members (segment_id, user_id) VALUES (?, ?)
-       ON CONFLICT(segment_id, user_id) DO NOTHING`,
-    )
-    .bind(segment.id, userId)
-    .run();
+  return [
+    db
+      .prepare(
+        `INSERT INTO members (user_id, user_name, display_name) VALUES (?, ?, ?)
+         ON CONFLICT(user_id) DO UPDATE SET
+           user_name = COALESCE(excluded.user_name, members.user_name),
+           display_name = COALESCE(members.display_name, excluded.display_name)`,
+      )
+      .bind(userId, names.user_name ?? null, names.display_name ?? null),
+    // status は既存維持（休止中を壊さない）
+    db
+      .prepare(
+        `INSERT INTO segment_members (segment_id, user_id) VALUES (?, ?)
+         ON CONFLICT(segment_id, user_id) DO NOTHING`,
+      )
+      .bind(segmentId, userId),
+  ];
 }
 
 /** 所属ステータスを更新（'' / '休止中'）。対象が無ければ false */
@@ -219,11 +233,13 @@ export async function removeSegmentMember(
   segmentId: number,
   userId: string,
 ): Promise<boolean> {
-  const res = await db
-    .prepare('DELETE FROM segment_members WHERE segment_id = ? AND user_id = ?')
-    .bind(segmentId, userId)
-    .run();
+  const res = await removeSegmentMemberStatement(db, segmentId, userId).run();
   return (res.meta.changes ?? 0) > 0;
+}
+
+/** 所属解除の文（ロール同期が batch に並べる用） */
+export function removeSegmentMemberStatement(db: D1Database, segmentId: number, userId: string): D1PreparedStatement {
+  return db.prepare('DELETE FROM segment_members WHERE segment_id = ? AND user_id = ?').bind(segmentId, userId);
 }
 
 /** ロール管理区分のメンバー同期完了時刻を現在時刻で記録する（ADR 0009）。 */
