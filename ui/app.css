@@ -1475,6 +1475,20 @@ dialog.modal-lg.as-page .modal-foot {
   color: var(--text);
   text-decoration: underline;
 }
+.page-crumb,
+.occurrence-row {
+  overflow-wrap: anywhere;
+}
+.page-crumb > :last-child,
+.occurrence-row > * {
+  min-width: 0;
+}
+.page-crumb > :not(:last-child) {
+  flex: none;
+}
+html {
+  scroll-padding-top: calc(64px + var(--planning-flow-h, 0px) + var(--planning-head-h, 0px) + 16px);
+}
 .page-back {
   flex: none;
   display: inline-flex;
@@ -3336,6 +3350,8 @@ dialog.modal-lg.as-page.flow-page > .modal-head {
   position: sticky;
   top: 64px;
   z-index: 6;
+  max-height: 40vh;
+  overflow-y: auto;
   margin: 0;
   padding: 8px 12px 6px;
   border: 1px solid var(--border2);

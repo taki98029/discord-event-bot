@@ -297,6 +297,8 @@ export async function deleteNotification(db: D1Database, id: number): Promise<bo
   const results = await db.batch([
     db.prepare(`DELETE FROM responses WHERE occurrence_id IN (${occs})`).bind(id),
     db.prepare(`DELETE FROM response_log WHERE occurrence_id IN (${occs})`).bind(id),
+    // 送信履歴も消す（残すと履歴画面に出ない親なしの行が増え続けるだけ）
+    db.prepare('DELETE FROM send_log WHERE notification_id = ?').bind(id),
     // グループ分け関連のカスケード削除（ADR 0015）
     db
       .prepare(

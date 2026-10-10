@@ -102,7 +102,8 @@ export function PlanningCandidates({
   let changed = value !== initial;
   let valid: CandidateInput[] | null = null;
   try {
-    const parsed = parseCandidateLines(value, year);
+    // 空欄は「読めない入力」ではなく「候補なし」（作成画面の案内を分けるため）
+    const parsed = value.trim() ? parseCandidateLines(value, year) : [];
     valid = parsed.some((c) => !c.time) ? null : parsed;
     for (const c of parsed) selected.set(c.date, (selected.get(c.date) ?? 0) + 1);
     const original = data.candidates.filter((c) => c.active);

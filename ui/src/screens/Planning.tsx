@@ -155,7 +155,7 @@ function ChannelChoice({
   );
 }
 export function Planning({ guild, toast, planId, view, onNavigate, onDirtyChange, onOpenSettings, oneOff = false }: Props) {
-  const [plans, setPlans] = useState<Plan[]>([]),
+  const [plans, setPlans] = useState<Plan[] | null>(null),
     [p, setP] = useState<Plan | null>(null),
     [schedules, setSchedules] = useState<Schedule[]>([]),
     [channels, setChannels] = useState<Channel[]>([]),
@@ -208,9 +208,12 @@ export function Planning({ guild, toast, planId, view, onNavigate, onDirtyChange
     setDirty(false);
     setCreating(false);
     setDraftFrom(undefined);
+    // 作成画面は一覧と同じ URL なので、effect では消えない作成失敗のエラーをここで消す
+    setError('');
     onNavigate();
   }
-  const kindPlans = plans.filter((plan) => !!plan.data.oneOff === oneOff);
+  // null = 一覧の読み込み中（読み込み前に「0 件・まだありません」と出していた）
+  const kindPlans = (plans ?? []).filter((plan) => !!plan.data.oneOff === oneOff);
   const visiblePlans = kindPlans.filter(
     (plan) =>
       (!search || plan.data.name.includes(search)) &&
@@ -247,15 +250,19 @@ export function Planning({ guild, toast, planId, view, onNavigate, onDirtyChange
       setPlans(await api(`/planning?guild_id=${guild.id}`));
     }
   }
+  // 作成の途中で失敗して下書きへ移るとき、そのエラーを移った先の画面に残す（下の 2 つの effect が消さないように）
+  const carriedError = React.useRef('');
   useEffect(() => {
     setP(null);
     setDirty(false);
-    setError('');
+    setError(carriedError.current);
+    if (planId) setCreating(false);
     reload().catch(fail);
   }, [planId, guild.id]);
   useEffect(() => {
     setDirty(false);
-    setError('');
+    setError(carriedError.current);
+    carriedError.current = '';
     setEditingCandidates(false);
   }, [view, planId]);
   useEffect(() => {
@@ -294,7 +301,7 @@ export function Planning({ guild, toast, planId, view, onNavigate, onDirtyChange
       } while (token && !controller?.signal.aborted);
       if (controller?.signal.aborted) return false;
       setDirty(false);
-      if (action === 'cancel') setPlans((current) => current.map((plan) => plan.id === target.id ? updated : plan));
+      if (action === 'cancel') setPlans((current) => current && current.map((plan) => plan.id === target.id ? updated : plan));
       if (['publish', 'confirm', 'confirm-selection', 'cancel'].includes(action)) {
         setListFilter(
           action === 'cancel' ? 'cancelled' : action.startsWith('confirm') ? 'confirmed' : 'active',
@@ -335,6 +342,7 @@ export function Planning({ guild, toast, planId, view, onNavigate, onDirtyChange
   async function create({ candidates, ...data }: PlanData | (PlanData & { candidates?: { date: string; time: string }[] }), publish = false) {
     setBusy(true);
     let plan: any;
+    let stage = '';
     const step = (action: string, body: object) =>
       api(`/planning/${plan.id}/${action}`, { method: 'POST', body: JSON.stringify({ ...body, version: plan.version }) });
     try {
@@ -342,7 +350,9 @@ export function Planning({ guild, toast, planId, view, onNavigate, onDirtyChange
         method: 'POST',
         body: JSON.stringify({ ...data, guild_id: guild.id }),
       });
+      stage = 'candidates';
       if (candidates?.length) plan = await step('candidates', { candidates });
+      stage = 'publish';
       if (publish) plan = await step('publish', {});
       setDirty(false);
       setCreating(false);
@@ -350,6 +360,8 @@ export function Planning({ guild, toast, planId, view, onNavigate, onDirtyChange
       if (publish) {
         setListFilter('active');
         onNavigate();
+        // 一覧の URL のままなので effect では読み直されない。作った日程調整を一覧に出す
+        reload().catch(fail);
         toast('回答案内の投稿を受け付けました。回答が集まったら「回答確認・開催決定」を開いてください。');
       } else {
         onNavigate(plan.id, 'prepare');
@@ -360,6 +372,10 @@ export function Planning({ guild, toast, planId, view, onNavigate, onDirtyChange
       if (plan) {
         setDirty(false);
         setCreating(false);
+        setDraftFrom(undefined);
+        carriedError.current = `${(e as Error).message} ${stage === 'candidates'
+          ? '下書きは作成しましたが、日程候補は保存されていません。日程候補を入力し直してから投稿してください。'
+          : '下書きと日程候補は保存しました。内容を確認して、回答案内を投稿し直してください。'}`;
         onNavigate(plan.id, 'prepare');
       }
       fail(e);
@@ -388,7 +404,7 @@ export function Planning({ guild, toast, planId, view, onNavigate, onDirtyChange
           {(p || creating) && (
             <div className="page-crumb">
               <a
-                href={`#g/${guild.id}/planning`}
+                href={`#g/${guild.id}/${oneOff ? 'oneoff-planning' : 'planning'}`}
                 onClick={(e) => {
                   e.preventDefault();
                   leave();
@@ -397,13 +413,13 @@ export function Planning({ guild, toast, planId, view, onNavigate, onDirtyChange
                 {label}
               </a>
               <span>›</span>
-              <span>{creating ? '新規' : p?.data.name}</span>
+              <span>{creating && !planId ? '新規' : p?.data.name}</span>
             </div>
           )}
           <h2>
             {p
-              ? p.data.oneOff && currentView === 'details' ? '設定の編集' : VIEWS[currentView]
-              : creating ? (oneOff ? '単発日程調整を作成' : '新しい日程調整') : `${label} (${kindPlans.length})`}
+              ? p.data.oneOff && p.data.state === 'draft' && currentView === 'details' ? '設定の編集' : VIEWS[currentView]
+              : creating ? (oneOff ? '単発日程調整を作成' : '新しい日程調整') : plans ? `${label} (${kindPlans.length})` : label}
           </h2>
           <p className="muted occurrence-description">
             {p
@@ -415,7 +431,7 @@ export function Planning({ guild, toast, planId, view, onNavigate, onDirtyChange
         </div>
         <div className="actions">
           {planId || creating ? (
-            <button className="page-back" aria-label="一覧へ" disabled={busy} onClick={leave}>
+            <button className="page-back" disabled={busy} onClick={leave}>
               ← {label}一覧へ
             </button>
           ) : oneOff ? (
@@ -475,7 +491,9 @@ export function Planning({ guild, toast, planId, view, onNavigate, onDirtyChange
           {kindPlans.length > 0 && visiblePlans.length === 0 && (
             <div className="empty">この条件に一致する日程調整はありません。</div>
           )}
-          {kindPlans.length === 0 ? (
+          {!plans ? (
+            <p>{error ? '一覧を読み込めませんでした。「画面を再読み込み」を押してください。' : '読み込み中…'}</p>
+          ) : kindPlans.length === 0 ? (
             <div className="empty">
               {oneOff ? (
                 <>まだ単発日程調整がありません。<br />「＋ 新しく作る」で、回答対象や投稿先も含めてその場で入力して始められます。</>
@@ -551,30 +569,26 @@ export function Planning({ guild, toast, planId, view, onNavigate, onDirtyChange
         </div>
       )}
       {planId && !p && !error && <p>読み込み中…</p>}
-      {planId && p && p.data.oneOff && currentView === 'details' && (
+      {/* 単発は下書きのうちだけ全設定を直せる。投稿後は定期と同じ「名前・締切・補足」の画面（サーバーも同じ） */}
+      {planId && p && p.data.oneOff && p.data.state === 'draft' && currentView === 'details' && (
         <>
           <p>
             <button className="btn sm ghost" onClick={() => move('prepare')}>
               ← 日程候補の作成へ
             </button>
           </p>
-          {['draft', 'open'].includes(p.data.state) ? (
-            <Cycles
-              key={`${p.id}:${p.version}`}
-              oneOff={{ initial: p.data, isNew: false, onSubmit: (b) => mutate('settings', b) }}
-              onDirtyChange={setDirty}
-              guild={guild}
-              schedules={segments}
-              channels={channels}
-              toast={toast}
-            />
-          ) : (
-            // 確定・中止のあとはサーバーも設定の変更を拒否する（URL を直接開いたとき用）
-            <p className="muted">{p.data.state === 'cancelled' ? '中止済み' : '開催日を確定済み'}のため、設定は変更できません。</p>
-          )}
+          <Cycles
+            key={`${p.id}:${p.version}`}
+            oneOff={{ initial: p.data, isNew: false, onSubmit: (b) => mutate('settings', b) }}
+            onDirtyChange={setDirty}
+            guild={guild}
+            schedules={segments}
+            channels={channels}
+            toast={toast}
+          />
         </>
       )}
-      {planId && p && !(p.data.oneOff && currentView === 'details') && (
+      {planId && p && !(p.data.oneOff && p.data.state === 'draft' && currentView === 'details') && (
         <div className="nf2-layout">
         <StepRail
           label="日程調整の工程"
@@ -643,7 +657,7 @@ export function Planning({ guild, toast, planId, view, onNavigate, onDirtyChange
                   )}
                   {(p.data.state === 'draft' || p.data.state === 'open') && (
                     <button className="btn secondary sm" onClick={() => move('details')}>
-                      {p.data.oneOff ? '設定を編集' : '名前・締切・補足を編集'}
+                      {p.data.oneOff ? (p.data.state === 'draft' ? '設定を編集' : '名前・補足を編集') : '名前・締切・補足を編集'}
                     </button>
                   )}
                 </section>
@@ -961,9 +975,9 @@ const ONEOFF_PLAN_STEPS: StepItem[] = [
 ];
 const ONEOFF_FLOW_ROWS: FlowRow[] = [
   ['出欠管理者の​画面操作', '単発日程調整画面', '日程調整のたびに行う作業', [
-    ['「＋ 新しく作る」で名前・回答締切・回答対象・投稿先・催促・開催案内と日程候補をまとめて決める', '「確認・日程調整依頼を投稿」で回答案内を投稿する', '前回の内容を使うなら「⧉ 複製」'],
+    ['「＋ 新しく作る」で名前・回答締切・回答対象・投稿先・催促・開催案内と日程候補をまとめて決める', '「確認・日程調整依頼を投稿」で回答案内を投稿する', '前回の内容を使うなら「⧉ 複製」', '投稿前は「設定を編集」で全設定を直せる。投稿後に変えられるのは名前・補足と日程候補だけ（ほかは中止して「⧉ 複製」で作り直す）'],
     [],
-    ['回答一覧から開催日時と参加者を選んで確定する', '確定までは「設定を編集」で設定を直せる'],
+    ['回答一覧から開催日時と参加者を選んで確定する'],
     [],
   ]],
 ];
@@ -1156,6 +1170,9 @@ function Settings({
       <Field label="回答案内の補足">
         <textarea maxLength={1000} value={d.note} onChange={(e) => patch({ note: e.target.value })} />
       </Field>
+      {d.oneOff && d.state === 'open' && (
+        <p className="muted">回答案内の投稿後は、回答対象・投稿先・催促などの設定は変更できません。変えるときは日程調整を中止し、一覧の「⧉ 複製」で作り直してください。</p>
+      )}
       <button className="btn" disabled={busy}>
         設定を保存
       </button>
@@ -2240,7 +2257,7 @@ function Cycles({
   const issues = [
     !d.name.trim() ? (oneOff ? '名前を入力してください。' : '設定名を入力してください。') : '',
     oneOff && !oneOffDeadline ? '回答締切を入力してください。' : '',
-    oneOff?.isNew && !candidates ? '日程候補の書き方を確認してください（各候補に開始時刻が必要です）。' : '',
+    oneOff?.isNew && !candidates?.length ? (candidates ? '日程候補を1件以上入力してください。' : '日程候補の書き方と件数（1〜200件）を確認してください（各候補に開始時刻が必要です。「重複整理・日付順」で理由が出ます）。') : '',
     oneOff && !deadlineLocked && oneOffDeadline && Date.parse(jst(oneOffDeadline)) <= Date.now() ? '回答締切は今より後にしてください。' : '',
     !(legacy ? d.schedules : (d.segments ?? [])).length ? '回答対象の区分を選択してください。' : '',
     enabled && (!rrule || !d.anchor || !d.adminChannel || !d.mentions.length)

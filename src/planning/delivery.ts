@@ -6,6 +6,7 @@ import { requireValue, unanswered, planningGroups } from './model';
 import { planningClosed, planningDeadline } from './answer-view';
 import { notifyDeliveryFailure } from '../discord/failureNotifications';
 import { announcementText } from './announcement';
+import { cutText } from '../lib/text';
 
 export async function discord(env: Env, path: string, method = 'GET', body?: unknown): Promise<any> {
   if (env.MOCK_DISCORD) {
@@ -110,7 +111,7 @@ export function slotPayload(p: Plan, slot: Slot, mention: boolean) {
     '名簿と連絡事項が長すぎます。連絡事項を短くしてください',
   );
   return {
-    name: `${c.date} ${c.time} ${p.data.name}`.slice(0, 100),
+    name: cutText(`${c.date} ${c.time} ${p.data.name}`, 100),
     message: {
       content: `${slot.cancelled ? '【中止】' : '開催案内'} ${c.date} ${c.time}\n${mention && !slot.cancelled ? users.map((u) => `<@${u}>`).join(' ') : ''}`,
       embeds: [
@@ -142,15 +143,27 @@ export function deliveryStatement(
     )
     .bind(id, p.id, kind, slot, channel, JSON.stringify(payload), now, now);
 }
+const DELIVERY_KINDS: Record<string, string> = { publish: '回答案内', repost: '回答案内の再投稿', candidates: '候補追加の案内', reminder: '未回答の催促', 'answer-dm': '未回答の催促DM', 'event-reminder': '開催前リマインド', forum: '開催枠の案内', task: '日程候補作成のリマインド' };
+const deliveryTarget = (j: { kind: string; payload: string; channel_id: string }) =>
+  j.kind === 'answer-dm' ? `送信先: <@${JSON.parse(j.payload).user}>` : `投稿先: <#${j.channel_id}>`;
 /** Unknown outcomes are never blindly retried. Admin can associate an existing message/thread. */
 export async function deliverPending(env: Env, limit = 5) {
   const db = env.DB;
-  await db
+  // Worker が送信中に止まった投稿は結果不明にして、ほかの失敗と同じく管理者に知らせる
+  const stale = (await db
     .prepare(
-      "UPDATE planning_deliveries SET status='unknown',error='処理結果を確認してください' WHERE status='sending' AND updated_at < ?",
+      `UPDATE planning_deliveries SET status='unknown',error='処理結果を確認してください' WHERE status='sending' AND updated_at < ?
+       RETURNING kind,payload,channel_id,
+         COALESCE((SELECT guild_id FROM planning_plans p WHERE p.id=plan_id),(SELECT guild_id FROM planning_cycles c WHERE c.id=plan_id)) AS guild_id,
+         COALESCE((SELECT json_extract(data,'$.name') FROM planning_plans p WHERE p.id=plan_id),(SELECT json_extract(data,'$.name') FROM planning_cycles c WHERE c.id=plan_id)) AS name`,
     )
     .bind(new Date(Date.now() - 300000).toISOString())
-    .run();
+    .all<{ kind: string; payload: string; channel_id: string; guild_id: string | null; name: string | null }>()).results;
+  for (const j of stale) {
+    if (j.guild_id) await notifyDeliveryFailure(env, j.guild_id, `日程調整「${j.name}」の${DELIVERY_KINDS[j.kind] ?? '投稿'}
+${deliveryTarget(j)}
+処理が途中で止まり、結果が不明です。送信・投稿履歴を確認してから復旧してください。`);
+  }
   const jobs = await db
     .prepare(
       `SELECT * FROM planning_deliveries d WHERE status='pending'
@@ -314,9 +327,8 @@ export async function deliverPending(env: Env, limit = 5) {
         .prepare('UPDATE planning_deliveries SET status=?,error=?,updated_at=? WHERE id=?')
         .bind(status, msg, new Date().toISOString(), j.id)
         .run();
-      const kinds: Record<string, string> = { publish: '回答案内', repost: '回答案内の再投稿', candidates: '候補追加の案内', reminder: '未回答の催促', 'answer-dm': '未回答の催促DM', 'event-reminder': '開催前リマインド', forum: '開催枠の案内', task: '日程候補作成のリマインド' };
-      const targetLabel = j.kind === 'answer-dm' ? `送信先: <@${JSON.parse(j.payload).user}>` : `投稿先: <#${j.channel_id}>`;
-      if (failedPlan) await notifyDeliveryFailure(env, failedPlan.guild_id, `日程調整「${failedPlan.data.name}」の${kinds[j.kind] ?? '投稿'}\n${targetLabel}\n${status === 'unknown' ? '処理結果が不明です。送信・投稿履歴を確認してから復旧してください。' : 'Discordが送信・投稿を受け付けませんでした。'}`);
+      const targetLabel = deliveryTarget(j);
+      if (failedPlan) await notifyDeliveryFailure(env, failedPlan.guild_id, `日程調整「${failedPlan.data.name}」の${DELIVERY_KINDS[j.kind] ?? '投稿'}\n${targetLabel}\n${status === 'unknown' ? '処理結果が不明です。送信・投稿履歴を確認してから復旧してください。' : 'Discordが送信・投稿を受け付けませんでした。'}`);
     }
   }
 }

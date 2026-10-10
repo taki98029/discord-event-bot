@@ -264,6 +264,8 @@ function GuildIcon({ g }: { g: Guild }) {
   return u ? <img src={u} alt="" loading="lazy" /> : <>{(g.name || '?').slice(0, 1)}</>;
 }
 
+/** 表示中の Workspace のサーバー（Workspace は guild.id を key に作り直すので、古い画面の遅れた navigate を見分ける） */
+let activeGuildId = '';
 function Workspace({
   guild,
   onSelectGuild,
@@ -351,8 +353,15 @@ function Workspace({
     document.querySelector('.side .navitem.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [sec]);
 
+  activeGuildId = guild.id;
+  // サーバー選択画面へ戻ったとき（退出・ログアウト）も、前のサーバーの遅れた navigate を止める
+  useEffect(() => () => {
+    if (activeGuildId === guild.id) activeGuildId = '';
+  }, [guild.id]);
   const navigate = useCallback(
     (subpath: string, replace = false) => {
+      // 保存中にサーバーを切り替えたあと、前のサーバーの画面から遅れて呼ばれた移動は無視する（URL と表示が食い違っていた）
+      if (activeGuildId !== guild.id) return;
       const base = 'g/' + guild.id;
       const next = '#' + (subpath ? base + '/' + subpath : base);
       if (replace) {

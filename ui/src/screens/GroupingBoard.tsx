@@ -4,6 +4,7 @@
 // 旧 vanilla 実装の render/wire 関数群をほぼそのまま 1つの imperative コントローラに移植する。
 import { createSortableGroup } from '../lib/sortable';
 import { esc } from '../lib/esc';
+import { cutText } from '../../../src/lib/text';
 
 export type GroupMember = { user_id: string; name: string; label?: string | null };
 export type Group = { id: number; uuid: string; name: string; start_no?: number | null; members: GroupMember[]; group_index: number };
@@ -242,7 +243,7 @@ export function mountBoard(
       no.contentEditable = 'false';
       no.onkeydown = null;
       no.onblur = null;
-      const v = cancelled ? prev : stripLabelSep(no.textContent?.trim() || '').slice(0, 20);
+      const v = cancelled ? prev : cutText(stripLabelSep(no.textContent?.trim() || ''), 20);
       if (v) card.dataset.label = v;
       else delete card.dataset.label;
       if (v !== prev) opts.onDirty();

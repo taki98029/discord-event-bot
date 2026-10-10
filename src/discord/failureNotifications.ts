@@ -2,6 +2,7 @@ import type { Env } from '../env';
 import { getConfig } from '../db/config';
 import { sendChannelMessage } from './rest';
 import type { FailureNotificationSettings } from '../db/types';
+import { cutText } from '../lib/text';
 
 export const failureNotificationKey = (guildId: string) => `failure_notification:${guildId}`;
 const emptyFailureNotificationSettings = (): FailureNotificationSettings => ({
@@ -52,7 +53,7 @@ export async function notifyDeliveryFailure(env: Env, guildId: string, detail: s
     await sendChannelMessage(
       env,
       s.channel_id,
-      `${mentions ? mentions + '\n' : ''}⚠️ **メッセージの送信失敗**\n${detail.slice(0, 1300)}\n\n管理画面の送信履歴・日程調整の投稿状況と、Discordの投稿権限やDM受信設定を確認してください。`,
+      `${mentions ? mentions + '\n' : ''}⚠️ **メッセージの送信失敗**\n${cutText(detail, 1300)}\n\n管理画面の送信履歴・日程調整の投稿状況と、Discordの投稿権限やDM受信設定を確認してください。`,
       null,
       {
         parse: [],

@@ -102,10 +102,12 @@ function loadPlanCount(): number {
 /** ステータスフィルタも localStorage 保存（既知キーだけ取り込み・壊れた値は既定に戻す）。 */
 const STATUS_FILTER_KEY = 'eventbot_status_filter';
 const DEFAULT_STATUS_FILTER: Record<Derived, boolean> = { 予定: true, 投稿済み: true, 終了: false, 中止: false };
-function loadStatusFilter(): Record<Derived, boolean> {
-  const out = { ...DEFAULT_STATUS_FILTER };
+// 単発は 1 行＝1 件で、終了した行から「⧉ 複製」するので既定ですべて表示（定期・不定期と別に保存）
+const ONEOFF_STATUS_FILTER_KEY = 'eventbot_status_filter_oneoff';
+function loadStatusFilter(oneOff = false): Record<Derived, boolean> {
+  const out = oneOff ? { 予定: true, 投稿済み: true, 終了: true, 中止: true } : { ...DEFAULT_STATUS_FILTER };
   try {
-    const saved = JSON.parse(localStorage.getItem(STATUS_FILTER_KEY) || '{}');
+    const saved = JSON.parse(localStorage.getItem(oneOff ? ONEOFF_STATUS_FILTER_KEY : STATUS_FILTER_KEY) || '{}');
     for (const k of Object.keys(out) as Derived[]) if (typeof saved[k] === 'boolean') out[k] = saved[k];
     // 旧名「通知済み」（2026-08-03 改名）→「開始済み」（2026-08-05 改名）で保存された設定を引き継ぐ
     const legacy = typeof saved['開始済み'] === 'boolean' ? saved['開始済み'] : saved['通知済み'];
@@ -139,7 +141,7 @@ export function NotifOps({ guild, scope, toast, onOpenGrouping, onOpenSettings, 
   const [notifs, setNotifs] = useState<Notification[] | null>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [filter, setFilter] = useState(() => localStorage.getItem(filterKey) ?? localStorage.getItem(NOTIF_FILTER_KEY + guild.id) ?? '');
-  const [statusFilter, setStatusFilter] = useState<Record<Derived, boolean>>(loadStatusFilter);
+  const [statusFilter, setStatusFilter] = useState<Record<Derived, boolean>>(() => loadStatusFilter(oneOff));
   const [planCount, setPlanCount] = useState(loadPlanCount);
   const [sortOrder, setSortOrder] = useState<SortOrder>(loadSortOrder);
   const [tallies, setTallies] = useState<Record<string, string>>({});
@@ -322,7 +324,21 @@ export function NotifOps({ guild, scope, toast, onOpenGrouping, onOpenSettings, 
    * 開催回の即時募集/告知（旧「スケジュール一覧の今すぐ募集」はここに一本化・2026-08-23）。
    * 仮想行（未実体化の予定回）は scheduled で実体化してから投稿する。投稿済みの回は同じボタンが「再投稿」になり、確認のうえ force で投稿する。
    */
-  async function recruitOne(it: Item) {
+  // 送信中の行（📣・削除）。確認の後もボタンが押せて同じ POST/DELETE が重ねて送られていた
+  const inFlight = React.useRef(new Set<string>());
+  async function once(key: string, run: () => Promise<unknown>) {
+    if (inFlight.current.has(key)) return;
+    inFlight.current.add(key);
+    try {
+      await run();
+    } finally {
+      inFlight.current.delete(key);
+    }
+  }
+  function recruitOne(it: Item) {
+    return once(`recruit:${it.n.uuid}:${it.o.occurrence_date}:${it.o.start_time}`, () => recruitOneNow(it));
+  }
+  async function recruitOneNow(it: Item) {
     // 出欠確認なし（告知のみ）のスケジュールは操作名も「告知」で統一する（用語は CONTEXT.md）
     const noun = it.n.requires_response === 0 ? '告知' : '募集';
     // 不定期×手動募集×出欠あり: 締切は投稿の瞬間に選ぶ（確認ダイアログの代わりに締切ダイアログ・ADR 0032）
@@ -397,7 +413,10 @@ export function NotifOps({ guild, scope, toast, onOpenGrouping, onOpenSettings, 
   }
 
   /** 単発の削除（テンプレートごと・開催回と回答も消える） */
-  async function removeOneOff(n: Notification) {
+  function removeOneOff(n: Notification) {
+    return once(`delete:${n.uuid}`, () => removeOneOffNow(n));
+  }
+  async function removeOneOffNow(n: Notification) {
     const ok = await confirmDialog(`「${n.name}」を、回答・配置ごとすべて削除します。元に戻せません。`, { title: '単発出欠確認を削除', okLabel: '削除する', danger: true });
     if (!ok) return;
     try {
@@ -533,7 +552,7 @@ export function NotifOps({ guild, scope, toast, onOpenGrouping, onOpenSettings, 
               onChange={(e) => {
                 const next = { ...statusFilter, [s]: e.target.checked };
                 setStatusFilter(next);
-                localStorage.setItem(STATUS_FILTER_KEY, JSON.stringify(next));
+                localStorage.setItem(oneOff ? ONEOFF_STATUS_FILTER_KEY : STATUS_FILTER_KEY, JSON.stringify(next));
               }}
             />
             {s}
@@ -581,7 +600,7 @@ export function NotifOps({ guild, scope, toast, onOpenGrouping, onOpenSettings, 
           <br />
           {filter && notifs.find((x) => x.uuid === filter && !x.rrule)
             ? 'このテンプレートは日時を指定して使います。「＋ 開催日時を追加」から登録してください。'
-            : '上のステータスやテンプレートの絞り込みを変更してみてください。'}
+            : oneOff ? '上のステータスの絞り込みを変更するか、「＋ 新しく作る」から作成してください。' : '上のステータスやテンプレートの絞り込みを変更してみてください。'}
         </div>
       ) : (
         shown.map((it) => {
@@ -610,7 +629,7 @@ export function NotifOps({ guild, scope, toast, onOpenGrouping, onOpenSettings, 
                       <>
                         <br />
                         <span style={{ fontSize: 12, color: 'var(--danger, #b3261e)' }}>
-                          回答締切（{fmtDT(dlAt!)}）を過ぎたため募集は投稿されません。中止して登録し直してください。
+                          回答締切（{fmtDT(dlAt!)}）を過ぎたため募集は投稿されません。{oneOff ? '中止して「⧉ 複製」で作り直してください。' : '中止して登録し直してください。'}
                         </span>
                       </>
                     )}
@@ -624,8 +643,8 @@ export function NotifOps({ guild, scope, toast, onOpenGrouping, onOpenSettings, 
                     ▶ 再開
                   </button>
                 )}
-                {/* 再投稿は締切まで（締切後の投稿はサーバーが拒否する＝cron 共通ルール 2） */}
-                {!o.planning_id && (st === '予定' || (st === '投稿済み' && !dlPassed)) && (
+                {/* 募集・再投稿は締切まで（締切後の投稿はサーバーが拒否する＝cron 共通ルール 2。押してもエラーになるだけなので出さない） */}
+                {!o.planning_id && ((st === '予定' && !dlMissed) || (st === '投稿済み' && !dlPassed)) && (
                   <button className="btn sm secondary" onClick={() => recruitOne(it)}>
                     {st === '投稿済み' ? '📣 再投稿' : `📣 今すぐ${n.requires_response === 0 ? '告知' : '募集'}`}
                   </button>
@@ -865,9 +884,12 @@ export function NotifOps({ guild, scope, toast, onOpenGrouping, onOpenSettings, 
                 if (!it) return;
                 const hours = dlHours.trim() === '' ? null : Number(dlHours);
                 setDlAsk(null);
-                // 締切は投稿できたときだけ画面に反映する（失敗後の再操作で締切入力を飛ばして締切なしで投稿しない・レビュー #8）
-                const sent = await postRecruit(it, it.o, '募集', { response_deadline_hours: hours });
-                if (sent && hours != null) setItems((cur) => cur.map((x) => (x === it ? { ...x, o: { ...x.o, response_deadline_hours: hours } } : x)));
+                // 📣 と同じ送信中ガード（投稿中に 📣 を押し直して重ねて送らない）
+                await once(`recruit:${it.n.uuid}:${it.o.occurrence_date}:${it.o.start_time}`, async () => {
+                  // 締切は投稿できたときだけ画面に反映する（失敗後の再操作で締切入力を飛ばして締切なしで投稿しない・レビュー #8）
+                  const sent = await postRecruit(it, it.o, '募集', { response_deadline_hours: hours });
+                  if (sent && hours != null) setItems((cur) => cur.map((x) => (x === it ? { ...x, o: { ...x.o, response_deadline_hours: hours } } : x)));
+                });
               }}
             >
               投稿する
@@ -877,7 +899,7 @@ export function NotifOps({ guild, scope, toast, onOpenGrouping, onOpenSettings, 
       >
         <p className="muted" style={{ marginTop: 0 }}>
           {dlAsk ? `${occLabel(dlAsk.o, durOf(dlAsk.o, dlAsk.n))}（${dlAsk.n.name}）` : ''}の募集メッセージを今すぐチャンネルへ投稿します。
-          回答締切を付ける場合は時間を入れてください。投稿後は締切も日時も変更できません（中止→再登録）。
+          回答締切を付ける場合は時間を入れてください。投稿後は締切も日時も変更できません（{oneOff ? '中止して「⧉ 複製」で作り直す' : '中止→再登録'}）。
         </p>
         <label>
           回答締切（開始の何時間前・空欄＝締切なし）

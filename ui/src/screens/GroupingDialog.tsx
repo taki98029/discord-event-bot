@@ -8,6 +8,7 @@ import { showPreview } from '../lib/preview';
 import { occurrenceLabel } from '../lib/rrule';
 import { mountBoard, type BoardHandle, type Constraint, type GroupingView } from './GroupingBoard';
 import type { ToastFn } from '../App';
+import { cutText } from '../../../src/lib/text';
 
 export function GroupingDialog({
   guild,
@@ -114,7 +115,7 @@ export function GroupingDialog({
       const target = ev.target as HTMLElement;
       if (!target.matches?.('.grouping-col-head .name[data-group-uuid]')) return;
       target.contentEditable = 'false';
-      const newName = (target.textContent || '').trim().slice(0, 50);
+      const newName = cutText((target.textContent || '').trim(), 50);
       if (!newName) {
         target.textContent = '（名無し）';
         return;
@@ -272,13 +273,13 @@ export function GroupingDialog({
       };
       const dest = n ? chName(n.grouping_channel_id || n.channel_id) : 'テンプレートの設定チャンネル';
       const msg =
-        (gone.length ? `⚠️ 不参加に変更されたメンバーが配置に残っています（${gone.map((x: any) => x.name).join('、')}）。このまま` : '') +
+        (gone.length ? `⚠️ 参加ではなくなったメンバー（不参加・休止中など）が配置に残っています（${gone.map((x: any) => x.name).join('、')}）。このまま` : '') +
         `現在のメンバー配置を ${dest} へ投稿します。（投稿先は「メンバー配置設定」で変更できます）`;
       const ok = await confirmDialog(msg, { okLabel: '投稿する', danger: gone.length > 0 });
       if (!ok) return;
       try {
         const r = await api(`/occurrences/${ouuid}/grouping/announce`, { method: 'POST' });
-        toast(r && r.ok ? '投稿しました' : '投稿に失敗しました', !(r && r.ok));
+        toast(r && r.ok ? '投稿しました' : `投稿に失敗しました${r?.progress ? `。${r.progress}` : ''}`, !(r && r.ok));
       } catch (e) {
         toast(e instanceof Error ? e.message : String(e), true);
       }

@@ -59,7 +59,7 @@ export interface Slot {
 export interface PlanData {
   /** New plans are independent of notifications/occurrences. Legacy plans omit this flag. */
   standalone?: boolean;
-  /** 単発日程調整（2026-10-02）: テンプレートなしで作り、確定まで全設定を直せる。standalone も true */
+  /** 単発日程調整（2026-10-02）: テンプレートなしで作り、下書きのうちは全設定を直せる（投稿後は名前・補足だけ）。standalone も true */
   oneOff?: boolean;
   profileId?: string;
   profileName?: string;

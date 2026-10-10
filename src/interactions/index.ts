@@ -235,7 +235,7 @@ async function handleButton(
       const occ = await getOccurrence(db, occurrenceId);
       if (!occ) return ephemeral('❌ 対象の出欠確認が見つかりません。');
       const n = await getNotification(db, occ.notification_id);
-      if (!n) return ephemeral('❌ 対象のテンプレートが見つかりません。');
+      if (!n || (interaction.guild_id && n.guild_id && interaction.guild_id !== n.guild_id)) return ephemeral('❌ 対象のテンプレートが見つかりません。');
       const title = formatOccurrenceLabel(occ.occurrence_date, occ.start_time || n.start_time, durationFor(n, occ));
       const mine = await getResponseStatus(db, occ.id, userId);
       // 非公開（share_answers=0）は押した本人の回答だけ。押した時点で判定するので投稿済みのボタンにも効く
@@ -262,6 +262,8 @@ async function handleButton(
     if (!n) return ephemeral('❌ 対象のテンプレートが見つかりません。');
     // 募集の投稿後にテンプレートを出欠確認なし（告知）に変えたら、古い投稿のボタンからの回答は受け付けない（A1-01）
     if (isAnnounceOnly(n)) return ephemeral('⛔ この出欠確認は現在、回答を受け付けていません（出欠確認なしに変更されました）。');
+    // 別サーバーで押されたボタンは受け付けない（custom_id は開催回 ID だけなので多層防御）
+    if (interaction.guild_id && n.guild_id && interaction.guild_id !== n.guild_id) return ephemeral('❌ 対象の出欠確認が見つかりません。');
 
     // ロール管理区分はロールゲートで判定（@everyone は全員可・ADR 0009）。
     // ギルド内ボタンは member.roles が同梱される（追加API不要）。DM のリマインド回答は member 不在の

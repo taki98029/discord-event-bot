@@ -577,6 +577,10 @@ async function drainOccurrence(ctx: TickCtx, n: Notification, occ: Occurrence): 
     ]);
   }
 
+  // 開始後は募集・ノルマ・リマインドを出さない（開始後に当日の回を作った・締切なし、のとき開催中に募集が出ていた）
+  const start = responseDeadline(occ.occurrence_date, slotTime(occ, n), 0);
+  if (start && ctx.now.getTime() >= start.getTime()) return;
+
   // 以降（募集・ノルマ・リマインド）は送信時刻ゲート。時刻未到達なら今ティックは送らない。
   if (hour < n.send_hour) return;
 

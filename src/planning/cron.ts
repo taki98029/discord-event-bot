@@ -20,7 +20,11 @@ export function answerReminderDue(data: PlanData, stamp = Date.now()): boolean {
   const r = data.answerReminder;
   if (!r?.enabled || data.state !== 'open' || stamp >= Date.parse(data.deadline)) return false;
   const now = new Date(stamp + 9 * 3600000).toISOString();
-  const deadline = new Date(Date.parse(data.deadline) + 9 * 3600000).toISOString().slice(0, 10);
+  // 「締切当日のみ」（0 日前）で締切の時刻が送信時刻以前（典型: 00:00 締切）だと一度も送れないので、送れる最後の日（前日）にする。
+  // 1 日前以上は従来どおり暦日で数える（公開中の日程調整の送る日を変えない）
+  const [h, m] = r.time.split(':').map(Number);
+  const shift = r.beforeDays === 0 ? (h * 60 + m) * 60000 + 1 : 0;
+  const deadline = new Date(Date.parse(data.deadline) + 9 * 3600000 - shift).toISOString().slice(0, 10);
   const days = (Date.parse(deadline) - Date.parse(now.slice(0, 10))) / 86400000;
   return days >= 0 && days <= r.beforeDays && (r.beforeDays - days) % r.intervalDays === 0 && now.slice(11, 16) >= r.time;
 }

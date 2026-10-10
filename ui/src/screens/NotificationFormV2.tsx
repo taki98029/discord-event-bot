@@ -140,6 +140,7 @@ export function NotificationFormV2({
   // 締切だけは response_deadline_hours の有無（NULL=締切なし）がそのままスイッチ。
   // 募集スイッチ（自動/手動）は不定期専用（定期は常時 ON・flow-settings-spec §3）。
   const [recruitOn, setRecruitOn] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [remindUnansweredOn, setRemindUnansweredOn] = useState(true);
   const [remindUndecidedOn, setRemindUndecidedOn] = useState(true);
   // 未回答／未定リマインドの送り先（C02 2026-09-20・2026-09-23 に個別化。カードの中で選ぶ）
@@ -262,7 +263,8 @@ export function NotificationFormV2({
     setQuotaText(n.quota_message || DEFAULT_QUOTA_MESSAGE);
     setMention((n.mention_mode as any) || 'role');
     setRequireResponse(n.requires_response == null ? true : !!n.requires_response);
-    setActive(!!n.active);
+    // 単発の複製は有効で作る（作成画面に有効／無効の項目が無く、無効のまま何も送らない回ができていた）
+    setActive(copyFrom && n.type === 'oneoff' ? true : !!n.active);
     setSendHour(String(n.send_hour == null ? 21 : n.send_hour));
     setDeadlineHours(n.response_deadline_hours == null ? '' : String(n.response_deadline_hours));
     if (n.change_alert_channel_id && !c.some((x) => x.id === n.change_alert_channel_id)) {
@@ -363,7 +365,8 @@ export function NotificationFormV2({
     nextDate,
     startTime: shownStart,
     duration: shownDuration,
-    deadlineHours: deadlineNum,
+    // 手動募集の締切は 📣 の投稿時に選ぶ（ここでは付かない）
+    deadlineHours: effRecruitOn ? deadlineNum : null,
     mention,
     requireResponse,
   });
@@ -502,7 +505,7 @@ export function NotificationFormV2({
                 <div className="nf2-tl-inline">
                   <span>開催の</span>
                   {num(remindStartDays, setRemindStartDays)}
-                  <span>日前から{deadlineOn ? '締切まで' : ''}毎日、未回答のメンバーへ</span>
+                  <span>日前から{deadlineOn && effRecruitOn ? '締切まで' : ''}毎日、未回答のメンバーへ</span>
                   {targetSelect('未回答リマインドの送り先', remindTarget, setRemindTarget)}
                   {rsDaysN === 0 && <span className="muted">＝ 当日のみ</span>}
                 </div>
@@ -523,7 +526,7 @@ export function NotificationFormV2({
                 <div className="nf2-tl-inline">
                   <span>開催の</span>
                   {num(remindUndecidedDays, setRemindUndecidedDays)}
-                  <span>日前から{deadlineOn ? '締切まで' : ''}毎日、「未定」回答のメンバーへ</span>
+                  <span>日前から{deadlineOn && effRecruitOn ? '締切まで' : ''}毎日、「未定」回答のメンバーへ</span>
                   {targetSelect('未定リマインドの送り先', remindUndecidedTarget, setRemindUndecidedTarget)}
                   {ruDaysN === 0 && <span className="muted">＝ 当日</span>}
                 </div>
@@ -606,7 +609,7 @@ export function NotificationFormV2({
     message: !title.trim() ? ['見出し'] : [],
     flow: [
       ...(!tmpl && !(irregular && !effRecruitOn) && deadlineOn && deadlineNum == null ? ['回答締切の時間'] : []),
-      ...(quotaError ? ['ノルマのメッセージ'] : []),
+      ...(quotaError && !oneOff ? ['ノルマのメッセージ'] : []),
       ...flowIssues.map((w) => w.head),
     ],
     confirm: [],
@@ -619,6 +622,8 @@ export function NotificationFormV2({
   }, [allOk, formErr]);
 
   const goto = (next: StepKey) => {
+    // 保存中はステップを移らない（レール・確認の「編集」・前へ のどこから直しても、送信成功後に黙って捨てられていた）
+    if (saving) return;
     setVisited((v) => new Set(v).add(step).add(next));
     setStep(next);
   };
@@ -663,7 +668,7 @@ export function NotificationFormV2({
       remind_undecided_target: remindUndecidedTarget,
       share_answers: shareAnswers ? 1 : 0,
       remind_undecided_enabled: remindUndecidedOn ? 1 : 0,
-      quota_enabled: quotaEnabled ? 1 : 0,
+      quota_enabled: quotaEnabled && !oneOff ? 1 : 0,
       quota_interval_days: numOrNull(quotaInterval),
       quota_message: quotaText.trim() === DEFAULT_QUOTA_MESSAGE ? null : quotaText.trim() || null,
       assignment_enabled: 1,
@@ -675,6 +680,8 @@ export function NotificationFormV2({
       change_alert_channel_id: alertChannelId.trim() || null,
       active: active ? 1 : 0,
     };
+    // 送信中は「← 前へ」を止める（戻って直した入力が、送信成功後に黙って捨てられていた）
+    setSaving(true);
     await withBusy(btn, async () => {
       try {
         // 不定期は保存しただけでは何も起きない（開催回が無い）ため、次の操作へ誘導する
@@ -728,6 +735,7 @@ export function NotificationFormV2({
         setFormErr(e instanceof Error ? e.message : String(e));
       }
     });
+    setSaving(false);
   };
 
   if (notFound) return null;
@@ -766,7 +774,7 @@ export function NotificationFormV2({
   // 先頭ステップでは前が無い（STEPS[-1]）ので評価しない
   const prevStep = STEPS[stepIdx - 1];
   const prevBtn = prevStep ? (
-    <button type="button" className="btn ghost" onClick={() => goto(prevStep.key)}>
+    <button type="button" className="btn ghost" disabled={saving} onClick={() => goto(prevStep.key)}>
       ← {prevStep.label}
     </button>
   ) : (
@@ -872,7 +880,7 @@ export function NotificationFormV2({
           <span>
             {meta.icon} {meta.label}
           </span>
-          <button type="button" className="btn xs ghost" onClick={() => goto(key)}>
+          <button type="button" className="btn xs ghost" disabled={saving} onClick={() => goto(key)}>
             編集
           </button>
         </header>
@@ -920,6 +928,7 @@ export function NotificationFormV2({
                   key={s.key}
                   className={'nf2-step-item' + (step === s.key ? ' active' : '') + (showBad(s.key) ? ' bad' : '')}
                   aria-current={step === s.key ? 'step' : undefined}
+                  disabled={saving}
                   onClick={() => goto(s.key)}
                 >
                   <span className={'nf2-step-no' + (done ? ' done' : '')}>{done ? '✓' : i + 1}</span>
@@ -1246,6 +1255,8 @@ export function NotificationFormV2({
                             </p>
                           </>
                         )}
+                        {/* 単発は開催回が 1 件だけで前回の参加が無く、ノルマは働かないので出さない（2026-10-11） */}
+                        {!oneOff && (<>
                         <div className="subhead">機能</div>
                         <div className="setting-row">
                           <div className="setting-row-main">
@@ -1292,6 +1303,7 @@ export function NotificationFormV2({
                           </>
                         )}
                         {quotaError && <p className="nf2-field-err" id="quota-message-error" role="alert">{quotaError}</p>}
+                        </>)}
                       </div>
                     )}
                 </div>
@@ -1336,7 +1348,7 @@ export function NotificationFormV2({
                   <>
                     {tmpl ? summaryRow('投稿の流れ', '開催日時ごとに「＋ 開催日時を追加」で設定') : summaryRow('投稿', timelineText)}
                     {!announceOnly && !tmpl && summaryRow('リマインドの送り先', `未回答: ${TARGET_LABEL[remindTarget]}／未定: ${TARGET_LABEL[remindUndecidedTarget]}`)}
-                    {!announceOnly && summaryRow('ノルマ', quotaEnabled ? `あり（${quotaInterval || '—'}日間隔）` : 'なし')}
+                    {!announceOnly && !oneOff && summaryRow('ノルマ', quotaEnabled ? `あり（${quotaInterval || '—'}日間隔）` : 'なし')}
                   </>,
                 )}
                 {[

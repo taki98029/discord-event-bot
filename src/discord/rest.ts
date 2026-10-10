@@ -2,6 +2,7 @@ import type { Env } from '../env';
 import type { Member, EventStatusBuckets, MentionMode, Segment } from '../db/types';
 import { setDmChannelId } from '../db/members';
 import pkg from '../../package.json';
+import { cutText } from '../lib/text';
 
 export const API = 'https://discord.com/api/v10';
 /** Discord API への User-Agent（バージョンは package.json から取得）。コマンド登録でも共用。 */
@@ -101,11 +102,21 @@ export function composePost(
   body: string | null,
   tail: string,
 ): string {
-  let msg = `${prefix}**${title}**\n\n`;
-  if (body && body.trim()) msg += `${body.trim()}\n\n`;
-  msg += tail;
-  return msg;
+  // 上限を超えるときは本文（足りなければ見出し）を削り、メンションと日時・締切の行（tail）は必ず残す。
+  // 末尾を切ると日時の行が消えていた（postMessage の切り詰めは末尾から削る）
+  let t = title;
+  let b = body?.trim() ?? '';
+  const build = () => `${prefix}**${t}**\n\n${b ? `${b}\n\n` : ''}${tail}`;
+  let over = build().length - DISCORD_CONTENT_LIMIT;
+  if (over > 0 && b) {
+    b = b.length > over + 1 ? cutText(b, b.length - over - 1) + '…' : '';
+    over = build().length - DISCORD_CONTENT_LIMIT;
+  }
+  if (over > 0) t = cutText(t, Math.max(1, t.length - over - 1)) + '…';
+  return build();
 }
+
+export { cutText };
 
 /** 保存値（参加/不参加/未定・null=未回答）を「絵文字＋表示ラベル」に変換する。 */
 function answerEmojiLabel(status: string | null, L: AnswerLabels): string {
@@ -122,16 +133,26 @@ function answerEmojiLabel(status: string | null, L: AnswerLabels): string {
  */
 export function buildStatusMessage(title: string, s: EventStatusBuckets, myAnswer?: string | null): string {
   const L = answerLabels();
-  const fmt = (users: string[]) => `-# ${users.length > 0 ? users.join('、') : '(なし)'}`;
   const mine = myAnswer === undefined ? '' : `👤 あなたの回答: **${answerEmojiLabel(myAnswer, L)}**\n\n`;
-  return (
-    `📅 **${title} の参加状況**\n\n` +
-    mine +
-    `⭕ **${L.participate} (${s.参加.length}名)**\n${fmt(s.参加)}\n\n` +
-    `❌ **${L.absent} (${s.不参加.length}名)**\n${fmt(s.不参加)}\n\n` +
-    `❓ **${L.undecided} (${s.未定.length}名)**\n${fmt(s.未定)}\n\n` +
-    `⚠️ **未回答 (${s.未回答.length}名)**\n${fmt(s.未回答)}`
-  );
+  // Discord の返答は 2000 字まで。超えるときは各欄の名前を先頭から減らして「ほか N 名」にする（人数の見出しは常に全数）
+  // ponytail: 上限を段階的に下げて組み直すだけ（最大 6 回）
+  const build = (cap: number) => {
+    const fmt = (users: string[]) =>
+      `-# ${users.length === 0 ? '(なし)' : users.slice(0, cap).join('、') + (users.length > cap ? ` ほか${users.length - cap}名` : '')}`;
+    return (
+      `📅 **${title} の参加状況**\n\n` +
+      mine +
+      `⭕ **${L.participate} (${s.参加.length}名)**\n${fmt(s.参加)}\n\n` +
+      `❌ **${L.absent} (${s.不参加.length}名)**\n${fmt(s.不参加)}\n\n` +
+      `❓ **${L.undecided} (${s.未定.length}名)**\n${fmt(s.未定)}\n\n` +
+      `⚠️ **未回答 (${s.未回答.length}名)**\n${fmt(s.未回答)}`
+    );
+  };
+  for (const cap of [Infinity, 60, 30, 15, 5]) {
+    const text = build(cap);
+    if (text.length <= 2000) return text;
+  }
+  return build(0).slice(0, 2000);
 }
 
 /** 回答非公開のスケジュール（share_answers=0）の状況確認: 本人の回答だけを返す。 */
@@ -168,7 +189,7 @@ async function postMessage(
     console.warn(
       `[postMessage] content length ${body.length} > ${DISCORD_CONTENT_LIMIT}; truncating (channel=${channelId})`,
     );
-    body = body.slice(0, DISCORD_CONTENT_LIMIT - 1) + '…';
+    body = cutText(body, DISCORD_CONTENT_LIMIT - 1) + '…';
   }
   const payload: MessagePayload = { content: body };
   if (components) payload.components = components;

@@ -69,7 +69,8 @@ import type { ConstraintDirection, ConstraintStrength, GroupingView } from '../d
 import { hasSentKind, listSendLog } from '../db/sendLog';
 import { getAttendanceReport } from '../db/reports';
 import { getAllConfig, setConfig, getSendBudget, OCC_ROLLFORWARD_KEY } from '../db/config';
-import { sendChannelMessage } from '../discord/rest';
+import { DISCORD_CONTENT_LIMIT, sendChannelMessage } from '../discord/rest';
+import { cutText } from '../lib/text';
 import { recruitOccurrenceNow } from '../cron/tick';
 import { formatDate, formatOccurrenceLabel, getJSTNow, nextRecruitAt, occurrenceDeadlineError, responseDeadline } from '../lib/date';
 import { getSetupStatus, registerCommandsForEnv } from './setup';
@@ -140,7 +141,7 @@ export function normalizeBoardMembers(
   return (Array.isArray(members) ? members : [])
     .filter((m) => m && typeof m.user_id === 'string' && m.user_id)
     .map((m) => {
-      const raw = typeof m.label === 'string' ? stripLabelSeparator(m.label.trim()).slice(0, 20) : '';
+      const raw = typeof m.label === 'string' ? cutText(stripLabelSeparator(m.label.trim()), 20) : '';
       return { user_id: m.user_id as string, label: raw || null };
     });
 }
@@ -313,6 +314,23 @@ function validateFlow(input: NotificationInput): string | null {
     deadlineHours: input.response_deadline_hours,
   });
   return issues.length ? `投稿の流れに保存できない設定があります: ${issues[0].head}。${issues[0].detail}` : null;
+}
+
+/**
+ * 自動募集の時刻の登録ガード（登録と中止からの再開で共通）。締切が募集より前、または募集が開始以後になる
+ * （当日に作って追いつきの募集が開始後になる＝何も送られない）なら理由文を返す。
+ */
+function recruitTimingError(eff: Notification, dateStr: string, timeStr: string, deadlineHours: number | null, now: Date): string | null {
+  const recruitAt = eff.recruit_enabled ? nextRecruitAt(eff, dateStr, now) : now;
+  const err = occurrenceDeadlineError({ dateStr, timeStr, deadlineHours, recruitAt });
+  if (err) return err;
+  // 開始済みの回の登録（記録だけ・cron は何も送らない）は通す。定期は募集を手動にできず、当日朝の臨時回や
+  // 📣 前の実体化を止めてしまうので不定期・単発だけ（定期は従来どおり 📣 で手動投稿できる）
+  const start = responseDeadline(dateStr, timeStr, 0);
+  if (eff.rrule === null && eff.recruit_enabled && start && now.getTime() < start.getTime() && recruitAt.getTime() >= start.getTime()) {
+    return `募集の投稿予定（${formatDate(recruitAt)} ${String(recruitAt.getHours()).padStart(2, '0')}:${String(recruitAt.getMinutes()).padStart(2, '0')}）が開始時刻より後になるため、募集もリマインドも送られません。送信時刻を早めるか、募集を手動にして「📣 今すぐ募集」で投稿してください。`;
+  }
+  return null;
 }
 
 /**
@@ -745,6 +763,10 @@ export async function handleAdmin(request: Request, env: Env): Promise<Response>
         return json({ error: 'invalid status' }, 400);
       }
       const time = typeof b.start_time === 'string' ? b.start_time : n.start_time;
+      // 不定期・単発の開催回は開始時刻が必須（テンプレートに開始時刻の欄が無い）
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time) && (n.rrule === null || time !== '')) {
+        return json({ error: '開始時刻（HH:MM）を確認してください。' }, 400);
+      }
       // 単発出欠確認の開催回は 1 件だけ（中止した回を含む）。同じ日時の登録し直しは既存行を使うので通す
       if (n.type === 'oneoff' && await db.prepare('SELECT 1 FROM occurrences WHERE notification_id=? AND NOT (occurrence_date=? AND start_time=?) LIMIT 1').bind(n.id, b.date, time).first()) {
         return json({ error: '単発出欠確認の開催日時は 1 件だけです。別の日時にするときは新しく作ってください。' }, 409);
@@ -752,7 +774,8 @@ export async function handleAdmin(request: Request, env: Env): Promise<Response>
       // 送信時刻と投稿の流れ（単発だけ・migration 0036）。送られてきた項目で雛形の値を上書きし、その全体を開催回に保存する。
       // 定期の臨時回は雛形に従う（項目は無視）。
       let flow: OccurrenceFlow | null = null;
-      if (n.rrule === null && OCCURRENCE_FLOW_KEYS.some((k) => b[k] !== undefined)) {
+      // 単発はテンプレートの値に従う（開催回には持たない・A5-02）
+      if (n.rrule === null && n.type !== 'oneoff' && OCCURRENCE_FLOW_KEYS.some((k) => b[k] !== undefined)) {
         const days = (v: unknown, d: number) => (v == null || v === '' || !Number.isFinite(Number(v)) ? d : Math.max(0, Math.floor(Number(v))));
         flow = {
           send_hour: Math.min(23, Math.max(0, days(b.send_hour, n.send_hour))),
@@ -780,44 +803,48 @@ export async function handleAdmin(request: Request, env: Env): Promise<Response>
         if (isAnnounceOnly(n)) return json({ error: '出欠確認なし（告知）の予定に回答締切は付けられません。' }, 400);
         if (!eff.recruit_enabled) return json({ error: '募集が手動投稿のテンプレートでは、回答締切は「📣 今すぐ募集」で投稿するときに選びます。' }, 400);
       }
-      // 登録ガード（不定期の開催回締切・定期の臨時回は雛形の締切）: 締切が「次に募集が投稿される時刻」より前なら保存不可。
-      // 定期の臨時回にも同じガード（Q4・2026-09-05 裁定）。
-      if (status === 'scheduled') {
-        const err = occurrenceDeadlineError({
-          dateStr: b.date,
-          timeStr: time,
-          deadlineHours: n.rrule === null ? occDeadline : n.response_deadline_hours,
-          recruitAt: eff.recruit_enabled ? nextRecruitAt(eff, b.date, getJSTNow()) : getJSTNow(),
-        });
-        if (err) return json({ error: err }, 400);
-      }
       // 開催回の投稿の流れの順序ルール（E1〜E6）。雛形の validateFlow と同じ基準で、こちらは開始時刻も開催回の値で判定する。
       // 単発は流れの項目を送らない（テンプレートに従う）ので、項目が無くてもテンプレートの流れで判定する（A5-02）
       if (flow || n.type === 'oneoff') {
         const issue = occurrenceFlowIssue(eff, time, occDeadline);
         if (issue) return json({ error: `投稿の流れに登録できない設定があります: ${issue}` }, 400);
       }
+      // 順序ルールの後に判定する（具体的な理由を先に出す）。登録ガード（不定期の開催回締切・定期の臨時回は雛形の締切）: 締切が「次に募集が投稿される時刻」より前なら保存不可。
+      // 定期の臨時回にも同じガード（Q4・2026-09-05 裁定）。
+      if (status === 'scheduled') {
+        const err = recruitTimingError(eff, b.date, time, n.rrule === null ? occDeadline : n.response_deadline_hours, getJSTNow());
+        if (err) return json({ error: err }, 400);
+      }
       // 補足メッセージ（任意）。空白のみは「なし」に正規化し、message_body と同様に上限を切る。
       const note = typeof b.note === 'string' && b.note.trim() ? b.note.trim().slice(0, 500) : null;
       // origin: 'rule'=配信予定（RRULE 導出の仮想行）の実体化 / 'manual'（既定）=臨時回・不定期の開催回。
       // ルール変更時に自動削除されるのは rule の未投稿行だけ（§5.3）。
-      const origin: OccurrenceOrigin = b.origin === 'rule' ? 'rule' : 'manual';
+      // 不定期・単発に rule 行は無い（ルール変更で消されないように）
+      const origin: OccurrenceOrigin = b.origin === 'rule' && n.rrule !== null ? 'rule' : 'manual';
+      const before = await db.prepare('SELECT 1 FROM occurrences WHERE notification_id=? AND occurrence_date=? AND start_time=?').bind(n.id, b.date, time).first();
       let occ = await getOrCreateOccurrence(db, n.id, b.date, time, origin);
+      let fresh = !before;
       // 中止した回の登録し直しは、新しく作った回と同じまっさらな状態から始める（回答・締切・投稿の記録を引き継がない・ADR 0032）
       if (occ.status === 'cancelled' && status === 'scheduled') {
         await resetCancelledOccurrence(db, occ.id);
         occ = (await getOccurrence(db, occ.id))!;
+        fresh = true;
       }
       // 既存行（同日同時刻の再登録）の締切は変えない（締切を付けた開催回は変更不可・中止→再登録が正規の手順）。
       // 状態・補足を書く前に判定する（400 を返すのに中止回が scheduled に戻る事故防止・2026-09-24 レビュー #2）
       if (occDeadline != null && occ.response_deadline_hours != null && occ.response_deadline_hours !== occDeadline) {
         return json({ error: 'この出欠確認には既に回答締切が設定されています。変更するには中止して登録し直してください。' }, 400);
       }
+      // 締切の無い既存の回へ後から締切を付けない（投稿済みの募集に締切が載らない・ADR 0032 決定 4）。単発は作成後は変えない
+      if (occDeadline != null && occ.response_deadline_hours == null && !fresh &&
+        (n.type === 'oneoff' || (await hasSentKind(db, n.id, occ.id, 'recruit')))) {
+        return json({ error: '回答締切は後から付けられません。付けるときは中止して登録し直してください。' }, 400);
+      }
       if (occ.status !== status) await setOccurrenceStatus(db, occ.id, status);
       if (note !== null) await setOccurrenceNote(db, occ.id, note);
       // 開催時間（分・任意）。空欄・0 以下は「指定なし」＝既存行の値を変えない（新規は NULL＝雛形に従う）。
       const duration = b.duration_minutes == null || b.duration_minutes === '' || !(Number(b.duration_minutes) > 0) ? null : Math.floor(Number(b.duration_minutes));
-      if (duration !== null && occ.duration_minutes !== duration) await setOccurrenceDuration(db, occ.id, duration);
+      if (duration !== null && n.type !== 'oneoff' && occ.duration_minutes !== duration) await setOccurrenceDuration(db, occ.id, duration);
       if (flow) await setOccurrenceFlow(db, occ.id, flow);
       if (occDeadline != null && occ.response_deadline_hours == null) await setOccurrenceDeadline(db, occ.id, occDeadline);
       return json({ ...occ, ...(flow ?? {}), status, note: note ?? occ.note, response_deadline_hours: occ.response_deadline_hours ?? occDeadline, duration_minutes: duration ?? occ.duration_minutes }, 201);
@@ -982,6 +1009,20 @@ export async function handleAdmin(request: Request, env: Env): Promise<Response>
         if (b.status !== 'scheduled' && b.status !== 'cancelled') {
           return json({ error: 'invalid status' }, 400);
         }
+        // 中止からの再開: 中止中は流れの変更ガードが飛ばすので、登録と同じ判定をし直す（募集を投稿済みなら不要）
+        if (b.status === 'scheduled' && occ.status === 'cancelled') {
+          const n = await getNotification(db, occ.notification_id);
+          const time = occ.start_time || (n?.start_time ?? '');
+          const until = n && (responseDeadline(occ.occurrence_date, time, deadlineHoursFor(n, occ)) ?? responseDeadline(occ.occurrence_date, time, 0));
+          // 締切（無ければ開始）を過ぎた回の再開は記録のためだけなので判定しない（cron も 📣 も投稿しない）
+          // 定期は対象外（募集を手動にできず、再開して 📣 で投稿する従来の手順を止めないため）。告知も登録と同じく判定する
+          if (n && n.rrule === null && until && getJSTNow().getTime() < until.getTime() && !(await hasSentKind(db, n.id, occ.id, 'recruit'))) {
+            const eff = flowFor(n, occ);
+            const err = recruitTimingError(eff, occ.occurrence_date, time, deadlineHoursFor(n, occ), getJSTNow())
+              ?? (n.type === 'oneoff' ? occurrenceFlowIssue(eff, time, deadlineHoursFor(n, occ)) : null);
+            if (err) return json({ error: `再開できません: ${err}` }, 400);
+          }
+        }
         const ok = await setOccurrenceStatus(db, occ.id, b.status);
         return json({ ok }, ok ? 200 : 404);
       }
@@ -1078,7 +1119,7 @@ export async function handleAdmin(request: Request, env: Env): Promise<Response>
       const occ = await getOccurrenceByUuid(db, occGroupingRename[1]);
       if (!occ) return json({ error: 'Not found' }, 404);
       const b = (await request.json()) as { group_uuid?: string; name?: string; start_no?: unknown };
-      const name = typeof b.name === 'string' ? b.name.trim().slice(0, 50) : '';
+      const name = typeof b.name === 'string' ? cutText(b.name.trim(), 50) : '';
       // 自動連番の開始番号（任意・0以上の整数・ADR 0015 追補2拡張）
       const startNo =
         b.start_no === undefined || !Number.isFinite(Number(b.start_no))
@@ -1170,11 +1211,26 @@ export async function handleAdmin(request: Request, env: Env): Promise<Response>
       if (dryRun) {
         return json({ ok: true, content, dry_run: true });
       }
+      // 中止した日時の配置は発表しない（📣 と同じ）
+      if (occ.status === 'cancelled') return json({ error: '中止した日時の配置は発表できません。' }, 400);
       // 投稿先はマスター設定（grouping_channel_id・NULL なら募集チャンネル）に従う。
       // グループ名・表示名はユーザー由来文字列のため allowed_mentions={parse:[]} で一斉ピングを防ぐ（D8）。
-      const announced = await sendChannelMessage(env, n.grouping_channel_id ?? n.channel_id, content, null, { parse: [] });
-      if (!announced) await notifyDeliveryFailure(env, n.guild_id, `配置発表: ${n.name}\n投稿先: <#${n.grouping_channel_id ?? n.channel_id}>`);
-      return json({ ok: announced, content });
+      // 2000 字を超える配置は行の区切りで分けて順に投稿する（切り詰めると後ろのグループが載らなかった）
+      const parts: string[] = [];
+      for (const line of content.split('\n')) {
+        const last = parts.length - 1;
+        if (last >= 0 && parts[last].length + 1 + line.length <= DISCORD_CONTENT_LIMIT) parts[last] += '\n' + line;
+        else parts.push(cutText(line, DISCORD_CONTENT_LIMIT));
+      }
+      // 区切りで余った空行だけの分は送らない（空の本文は Discord が拒む）
+      const toSend = parts.filter((x) => x.trim());
+      let sent = 0;
+      while (sent < toSend.length && (await sendChannelMessage(env, n.grouping_channel_id ?? n.channel_id, toSend[sent], null, { parse: [] }))) sent++;
+      const announced = sent === toSend.length;
+      // 途中で失敗したら何通目まで載ったかを知らせる（再実行すると前半がもう一度投稿されるため、先に消してもらう）
+      const progress = !announced && sent > 0 ? `${toSend.length}通中${sent}通まで投稿済みです。投稿し直す前に、投稿済みの分を Discord で削除してください。` : '';
+      if (!announced) await notifyDeliveryFailure(env, n.guild_id, `配置発表: ${n.name}\n投稿先: <#${n.grouping_channel_id ?? n.channel_id}>${progress ? `\n${progress}` : ''}`);
+      return json({ ok: announced, content, ...(progress ? { progress } : {}) });
     }
 
     // /notifications/:nuuid/grouping-channel  PUT  body: { channel_id: string|null }

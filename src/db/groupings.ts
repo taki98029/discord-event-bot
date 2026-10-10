@@ -259,7 +259,13 @@ export async function getGroupingView(
               COALESCE(gp.display_name, m.display_name) AS display_name,
               m.dm_channel_id AS dm_channel_id,
               m.created_at AS created_at
-         FROM (SELECT occurrence_id,user_id,status,updated_at FROM responses UNION ALL SELECT occurrence_id,user_id,status,'' AS updated_at FROM planning_roster WHERE status!='除外') r
+         FROM (SELECT occurrence_id,user_id,status,updated_at FROM responses rs
+                -- 集計（getStatusBuckets）と同じく区分のアクティブな所属だけ。休止中・区分から外した人は配置の候補に出さない
+                -- （配置済みの人は残り、diff の「参加ではなくなった」で知らせる）
+                WHERE EXISTS (SELECT 1 FROM occurrences o JOIN notifications n ON n.id = o.notification_id
+                                JOIN segment_members sm ON sm.segment_id = n.segment_id
+                               WHERE o.id = rs.occurrence_id AND sm.user_id = rs.user_id AND sm.status = '')
+               UNION ALL SELECT occurrence_id,user_id,status,'' AS updated_at FROM planning_roster WHERE status!='除外') r
          LEFT JOIN members m ON m.user_id = r.user_id
          LEFT JOIN member_guild_profiles gp ON gp.user_id = r.user_id AND gp.guild_id = ?
         WHERE r.occurrence_id = ? AND r.status = '参加'

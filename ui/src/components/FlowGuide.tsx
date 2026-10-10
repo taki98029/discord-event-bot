@@ -12,11 +12,17 @@ export function useStickyHeight(ref: React.RefObject<HTMLElement | null>, select
   useEffect(() => {
     const root = ref.current?.closest<HTMLElement>('.planning, .flow-page'), target = root?.querySelector<HTMLElement>(selector);
     if (!root || !target) return;
-    const observer = new ResizeObserver(() => root.style.setProperty(variable, `${target.offsetHeight}px`));
+    // html にも出す: Tab で移った先が固定表示の裏に隠れないよう、html の scroll-padding-top がこの高さを使う（app-ui.css）
+    const html = document.documentElement;
+    const observer = new ResizeObserver(() => {
+      root.style.setProperty(variable, `${target.offsetHeight}px`);
+      html.style.setProperty(variable, `${target.offsetHeight}px`);
+    });
     observer.observe(target);
     return () => {
       observer.disconnect();
       root.style.removeProperty(variable);
+      html.style.removeProperty(variable);
     };
   }, deps); // deps: 画面が読み込み後に描画される場合（基本設定の編集画面）に測り直す
 }

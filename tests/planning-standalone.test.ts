@@ -76,7 +76,7 @@ async function plan(profileId: string) {
   });
 }
 describe('independent date planning', () => {
-  it('creates a one-off plan without a template and lets every setting change until confirmation', async () => {
+  it('creates a one-off plan without a template and lets every setting change only while it is a draft', async () => {
     await profile(); // segments and members only; the template itself is not used
     const settings = { guild_id: G, oneOff: true, name: '単発の日程調整', segments: [8002], channel: '111111', forum: '222222', tag: '',
       deadline: '2099-09-01T00:00:00Z', note: '補足', remindDays: 0, announceMention: 'none', shareAnswers: true, eventReminderHours: 0,
@@ -91,6 +91,12 @@ describe('independent date planning', () => {
     expect(p.data.people).toHaveLength(5);
     expect([p.data.shareAnswers, p.data.answerReminder.beforeDays]).toEqual([false, 5]);
     expect((await request('/planning', { ...settings, segments: [] })).status).toBe(400);
+    // After publication only the name and note change, as with a template-based plan; the rest needs cancel + duplicate
+    p = await ok(`/planning/${p.id}/candidates`, { version: p.version, candidates: [{ date: '2099-09-10', time: '19:00' }] });
+    p = await ok(`/planning/${p.id}/publish`, { version: p.version });
+    p = await ok(`/planning/${p.id}/settings`, { ...settings, version: p.version, name: '改名', note: '補足2', segments: [8002], shareAnswers: true, channel: '333333' });
+    expect([p.data.name, p.data.note, p.data.segments, p.data.shareAnswers, p.data.channel]).toEqual(['改名', '補足2', [8001], false, '111111']);
+    expect(p.data.people).toHaveLength(5);
   });
   it('collects all current Discord roles before creation and publication without waiting for segment sync', async () => {
     const saved = await profile();

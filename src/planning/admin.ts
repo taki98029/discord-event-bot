@@ -18,17 +18,17 @@ import { normalizeRule } from '../lib/rruleGrammar';
 import { withEnabled } from '../discord/channelFilter';
 import { anchorMatchesRule, nextOccurrenceDates } from '../lib/recurrence';
 import { validateAnnouncementTemplate, withoutRetiredTokens } from './announcement';
-import { mergePlanningAudience, refreshPlanningAudience } from './audience';
+import { refreshPlanningAudience } from './audience';
 
 const json = (data: unknown, status = 200) => Response.json(data, { status });
 function text(x: unknown, max: number) {
   requireValue(typeof x === 'string' && x.length <= max, '入力内容が長すぎるか不正です');
   return x.trim();
 }
-function ids(x: unknown): number[] {
+function ids(x: unknown, label = 'テンプレート'): number[] {
   requireValue(
     Array.isArray(x) && x.length <= 10 && x.every((v) => Number.isSafeInteger(v) && v > 0),
-    'テンプレートの指定が不正です',
+    `${label}の指定が不正です`,
   );
   return [...new Set(x)];
 }
@@ -296,7 +296,7 @@ export async function handlePlanningAdmin(request: Request, env: Env, path: stri
         );
       const input = b.data as CycleData;
       requireValue(input, '設定を入力してください');
-      const segments = ids(input.segments);
+      const segments = ids(input.segments, '回答対象の区分');
       await collectSegmentPeople(env, b.guild_id, segments);
       const name = text(input.name, 150);
       requireValue(name, '設定名を入力してください');
@@ -437,7 +437,7 @@ export async function handlePlanningAdmin(request: Request, env: Env, path: stri
         await validateOneOffChannels(env, b);
         editSettings(d, b);
         d.oneOff = true;
-        d.segments = ids(b.segments);
+        d.segments = ids(b.segments, '回答対象の区分');
       } else {
         const profile = await db
           .prepare('SELECT * FROM planning_cycles WHERE id=? AND guild_id=?')
@@ -493,18 +493,16 @@ export async function handlePlanningAdmin(request: Request, env: Env, path: stri
     d.answerOrigin = url.origin;
     if (action === 'settings') {
       requireValue(d.state === 'draft' || d.state === 'open', '確定後の共通設定は変更できません');
-      if (d.oneOff) {
-        // 単発は確定まで全設定を直せる（締切は公開後は不可＝下の共通チェック）。区分を変えたら対象者も取り直す
+      if (d.oneOff && d.state === 'draft') {
+        // 単発は下書きのうちだけ全設定を直せる。投稿後は定期と同じく名前・補足だけ（変えたいときは中止して複製で作り直す）
         await validateOneOffChannels(env, { ...b, guild_id: p.guild_id });
         editSettings(d, b);
-        const segments = ids(b.segments);
+        const segments = ids(b.segments, '回答対象の区分');
         if (JSON.stringify(segments) !== JSON.stringify(d.segments)) {
-          const current = await collectSegmentPeople(env, p.guild_id, segments);
-          d.people = d.state === 'draft' ? current : mergePlanningAudience(d.people, current);
+          d.people = await collectSegmentPeople(env, p.guild_id, segments);
           d.segments = segments;
           d.scheduleNames = await segmentNames(db, segments);
         }
-        if (d.state === 'open') d.mentionRoles = d.announceMention === 'role' ? await segmentMentionRoles(db, d.segments!) : undefined;
       } else editSettings(d, d.standalone ? { ...d, name: b.name, deadline: b.deadline, note: b.note } : b);
       if (d.state === 'draft' && !d.standalone) {
         d.schedules = ids(b.schedules);
@@ -557,6 +555,8 @@ export async function handlePlanningAdmin(request: Request, env: Env, path: stri
         : await collectPeople(db, p.guild_id, d.schedules);
       requireValue(d.people.length > 0, '回答対象者がいません。メンバー区分の所属を確認してください');
       d.mentionRoles = d.standalone && d.announceMention === 'role' ? await segmentMentionRoles(db, d.segments!) : undefined;
+      // 対象者と同じく区分名も投稿時の名前にする（下書きの間に区分名を変えても古い名前が投稿に出ない）
+      if (d.standalone) d.scheduleNames = await segmentNames(db, d.segments!);
       d.state = 'open';
       return json(
         await savePlan(db, p, d, 'publish', '', null, (g) => [
@@ -626,7 +626,8 @@ export async function handlePlanningAdmin(request: Request, env: Env, path: stri
               `UPDATE occurrences SET status='cancelled' WHERE id IN(SELECT occurrence_id FROM planning_occurrences WHERE plan_id=?) AND ${g}`,
             )
             .bind(p.id),
-          ...d.slots.map((s) =>
+          // 開催案内を更新するのは確定後だけ（受付中の選定は未投稿。60 人を超える選定でも中止できるように作らない）
+          ...(p.data.state === 'confirmed' ? d.slots : []).map((s) =>
             deliveryStatement(
               db,
               p,
@@ -770,8 +771,10 @@ export async function handlePlanningAdmin(request: Request, env: Env, path: stri
         ),
       );
     } else throw new PlanningError('操作が見つかりません', 404);
+    // 候補が何も変わらない保存では再投稿しない（設定資料 ※5「変更すると再投稿」）
+    const activeIds = (x: PlanData) => x.candidates.filter((c) => c.active).map((c) => c.id).sort().join();
     const extra =
-      action === 'candidates' && d.state === 'open'
+      action === 'candidates' && d.state === 'open' && activeIds(d) !== activeIds(p.data)
         ? (g: string) => [
             deliveryStatement(
               db,
