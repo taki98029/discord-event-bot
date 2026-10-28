@@ -310,11 +310,11 @@ ${deliveryTarget(j)}
             "UPDATE planning_deliveries SET status='sent',message_id=?,thread_id=?,error=NULL,updated_at=? WHERE id=?",
           )
           .bind(message, thread, new Date().toISOString(), j.id),
-        // A posted 回答案内 ends the template's 日程候補作成のリマインド for the current due date.
+        // A posted 回答案内 ends the template's 日程候補作成のリマインド for the current due date; one posted after the previous due date only settles that one ('late', cron.ts).
         ...(j.kind === 'publish' && p.data.profileId
           ? [
               db
-                .prepare("UPDATE planning_cycles SET task_status='complete' WHERE id=? AND task_status='pending'")
+                .prepare("UPDATE planning_cycles SET task_status=CASE task_status WHEN 'late' THEN 'pending' ELSE 'complete' END WHERE id=? AND task_status IN ('pending','late')")
                 .bind(p.data.profileId),
             ]
           : []),

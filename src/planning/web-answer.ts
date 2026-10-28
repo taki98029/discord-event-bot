@@ -4,7 +4,8 @@ import { isAnswer, PlanningError, requireValue, type Availability, type Plan, ty
 import { planningCandidates, planningClosed, planningDate, planningDeadline } from './answer-view';
 
 const LINK_MS = 15 * 60_000;
-const SESSION_MS = 30 * 24 * 60 * 60_000;
+// Renewed on use, so a monthly answerer is not asked to verify again; an unused browser expires (2026-10-28: 30 → 180 days).
+const SESSION_MS = 180 * 24 * 60 * 60_000;
 const KEY = /^[A-Za-z0-9_-]{43}$/;
 const expired = '回答画面の有効期限が切れたか、リンクが使用済みです。Discordの案内から開き直してください。';
 const answerCookie = (guild: string) => `__Host-planning-browser-${guild}`;
@@ -147,7 +148,8 @@ function browserKey(request: Request, guild: string) {
       ?.slice(answerCookie(guild).length + 1) ?? ''
   );
 }
-async function sessionUser(request: Request, db: D1Database, guild: string) {
+const cookieOptions = 'Path=/; Secure; HttpOnly; SameSite=Strict';
+async function sessionUser(request: Request, db: D1Database, guild: string, headers: Headers) {
   const cookie = browserKey(request, guild);
   const message =
     'このブラウザーで回答者の確認が必要です。Discordの案内の「初回利用」を押してください。';
@@ -160,6 +162,13 @@ async function sessionUser(request: Request, db: D1Database, guild: string) {
     .bind(guild, hash, Date.now())
     .first<{ user_id: string }>();
   requireValue(row, message, 401);
+  // Sliding expiry: extend on use, writing at most once a day.
+  const until = Date.now() + SESSION_MS;
+  await db
+    .prepare('UPDATE planning_browser_sessions SET expires_at=? WHERE token_hash=? AND expires_at<?')
+    .bind(until, hash, until - 86_400_000)
+    .run();
+  headers.set('Set-Cookie', `${answerCookie(guild)}=${cookie}; ${cookieOptions}; Max-Age=${SESSION_MS / 1000}`);
   return { user: row.user_id, hash };
 }
 
@@ -223,7 +232,6 @@ export async function handlePlanningAnswer(request: Request, env: Env): Promise<
     );
     const body = request.method === 'POST' ? await readAnswerBody(request) : undefined;
     p = await getPlan(env.DB, id);
-    const cookieOptions = 'Path=/; Secure; HttpOnly; SameSite=Strict';
     if (action === '/forget') {
       await env.DB.prepare('DELETE FROM planning_browser_sessions WHERE guild_id=? AND token_hash=?')
         .bind(p.guild_id, await hashAnswerKey(browserKey(request, p.guild_id)))
@@ -247,7 +255,7 @@ export async function handlePlanningAnswer(request: Request, env: Env): Promise<
         .first<{ user_id: string }>();
       if (!row) {
         // A used or expired personal link opened again from a remembered browser keeps that browser's identity (C07, 2026-09-20).
-        const remembered = await sessionUser(request, env.DB, p.guild_id).catch(() => null);
+        const remembered = await sessionUser(request, env.DB, p.guild_id, headers).catch(() => null);
         requireValue(remembered, expired, 401);
         return new Response(JSON.stringify(await planningAnswerSnapshot(p, remembered.user)), { headers });
       }
@@ -266,7 +274,7 @@ export async function handlePlanningAnswer(request: Request, env: Env): Promise<
         `${answerCookie(p.guild_id)}=${session}; ${cookieOptions}; Max-Age=${SESSION_MS / 1000}`,
       );
     } else {
-      const { user, hash } = await sessionUser(request, env.DB, p.guild_id);
+      const { user, hash } = await sessionUser(request, env.DB, p.guild_id, headers);
       result =
         request.method === 'GET'
           ? await planningAnswerSnapshot(p, user)

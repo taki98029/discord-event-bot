@@ -450,7 +450,7 @@ it('a used personal link opened again from a remembered browser shows the answer
   const again = await handlePlanningAnswer(answerRequest(p.id, session.cookie, { key: session.key }, '/exchange'), E);
   expect(again.status).toBe(200);
   expect(((await again.json()) as any).person.id).toBe('300001');
-  expect(again.headers.get('Set-Cookie')).toBeNull();
+  expect(again.headers.get('Set-Cookie')).toContain(session.cookie + ';'); // Same credential, only renewed.
   const fresh = await handlePlanningAnswer(answerRequest(p.id, '', { key: session.key }, '/exchange'), E);
   expect(fresh.status).toBe(401);
   expect(((await fresh.json()) as any).error).toContain('使用済み');

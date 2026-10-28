@@ -34,6 +34,8 @@ export async function planningTick(env: Env) {
     today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   const clock = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
   // The posting due date has passed: move to the next one after today (no catch-up burst) and arm the reminder again.
+  // Reminded but not posted → 'late': the next 回答案内 from this template is the overdue one and must not complete the new due date (2026-10-28).
+  // 'late' ends when the new due date's reminders start (the overdue one is then given up). A paused template (never reminded) just re-arms.
   // No draft 日程調整 is created any more (2026-09-23); the template row itself carries the reminder state.
   // At most 5 per tick (each evaluates an rrule); moved rows leave the set, so the rest follow on the next ticks.
   const passed = (await db.prepare('SELECT * FROM planning_cycles WHERE enabled=1 AND next_date<? LIMIT 5').bind(today).all<any>()).results;
@@ -41,17 +43,17 @@ export async function planningTick(env: Env) {
     const c: CycleData = JSON.parse(cycle.data);
     const next = nextOccurrenceDates({ rrule: c.rrule, anchor_date: c.anchor.replace(/-/g, '/'), start_time: c.time }, 1, now)[0];
     await db
-      .prepare("UPDATE planning_cycles SET next_date=?,task_status='pending',reminded_on=NULL WHERE id=? AND next_date=?")
+      .prepare("UPDATE planning_cycles SET next_date=?,task_status=CASE WHEN task_status='pending' AND reminded_on IS NOT NULL THEN 'late' ELSE 'pending' END,reminded_on=NULL WHERE id=? AND next_date=?")
       .bind(next?.replace(/\//g, '-') ?? '9999-12-31', cycle.id, cycle.next_date)
       .run();
   }
   // Same shape as the answer reminders: once a day at the send time, from taskReminderDays before the due date until the due date,
-  // while no 回答案内 from this template has been posted (task_status stays 'pending').
+  // while no 回答案内 from this template has been posted for this due date (task_status 'pending' or 'late').
   // At most 5 per tick (ADR 0033); reminded rows drop out via reminded_on, so the rest follow on the next ticks.
   const due = (
     await db
       .prepare(
-        "SELECT * FROM planning_cycles WHERE enabled=1 AND task_status='pending' AND next_date>=? AND date(next_date,'-'||COALESCE(json_extract(data,'$.taskReminderDays'),0)||' days')<=? AND json_extract(data,'$.time')<=? AND (reminded_on IS NULL OR reminded_on<?) LIMIT 5",
+        "SELECT * FROM planning_cycles WHERE enabled=1 AND task_status IN ('pending','late') AND next_date>=? AND date(next_date,'-'||COALESCE(json_extract(data,'$.taskReminderDays'),0)||' days')<=? AND json_extract(data,'$.time')<=? AND (reminded_on IS NULL OR reminded_on<?) LIMIT 5",
       )
       .bind(today, today, clock, today)
       .all<any>()
@@ -60,7 +62,7 @@ export async function planningTick(env: Env) {
     const c: CycleData = JSON.parse(cycle.data);
     // Claim today's reminder first so overlapping ticks post once; a failed post is reported, not retried today.
     const claim = await db
-      .prepare('UPDATE planning_cycles SET reminded_on=? WHERE id=? AND (reminded_on IS NULL OR reminded_on<?)')
+      .prepare("UPDATE planning_cycles SET reminded_on=?,task_status='pending' WHERE id=? AND task_status IN ('pending','late') AND (reminded_on IS NULL OR reminded_on<?)")
       .bind(today, cycle.id, today)
       .run();
     if (!claim.meta.changes) continue;

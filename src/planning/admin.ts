@@ -748,7 +748,7 @@ export async function handlePlanningAdmin(request: Request, env: Env, path: stri
               ? [
                   db
                     .prepare(
-                      `UPDATE planning_cycles SET task_status='complete' WHERE id=? AND task_status='pending' AND ${g}`,
+                      `UPDATE planning_cycles SET task_status=CASE task_status WHEN 'late' THEN 'pending' ELSE 'complete' END WHERE id=? AND task_status IN ('pending','late') AND ${g}`,
                     )
                     .bind(p.data.profileId),
                 ]

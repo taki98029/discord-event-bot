@@ -49,7 +49,7 @@ describe('本人用リンクからWebで一括回答', () => {
     expect(JSON.stringify(s.snapshot)).not.toMatch(/user2|他人の秘密|他の人/);
     expect(s.snapshot.candidates[1].label).toContain('時刻指定なし');
     const header = s.response.headers.get('Set-Cookie')!;
-    for (const flag of ['Secure', 'HttpOnly', 'SameSite=Strict', 'Path=/', 'Max-Age=2592000'])
+    for (const flag of ['Secure', 'HttpOnly', 'SameSite=Strict', 'Path=/', 'Max-Age=15552000'])
       expect(header).toContain(flag);
     const stored = await db
       .prepare('SELECT data FROM planning_sessions WHERE plan_id=?')
@@ -63,6 +63,19 @@ describe('本人用リンクからWebで一括回答', () => {
     expect(browser.expires_at).toBeGreaterThan(Date.now() + 29 * 86400_000);
     expect((await api(answerRequest(p.id, s.cookie))).status).toBe(200);
     expect((await getPlan(db, p.id)).data.answers.user1).toBeUndefined();
+  });
+  it('記憶は使うたびに180日延長し、期限が切れたブラウザーは確認し直す', async () => {
+    const p = await fixture();
+    const s = await openWebAnswer(p, E);
+    // 31 days left: a monthly answerer would otherwise run out.
+    await db.prepare('UPDATE planning_browser_sessions SET expires_at=?').bind(Date.now() + 31 * 86400_000).run();
+    const used = await api(answerRequest(p.id, s.cookie));
+    expect(used.status).toBe(200);
+    expect(used.headers.get('Set-Cookie')).toContain('Max-Age=15552000');
+    const row = await db.prepare('SELECT expires_at FROM planning_browser_sessions').first<any>();
+    expect(row.expires_at).toBeGreaterThan(Date.now() + 179 * 86400_000);
+    await db.prepare('UPDATE planning_browser_sessions SET expires_at=?').bind(Date.now() - 1).run();
+    expect((await api(answerRequest(p.id, s.cookie))).status).toBe(401);
   });
   it('全候補を一つの履歴で保存し、全未定も回答完了・同一内容の再送は無変更', async () => {
     const p = await fixture();

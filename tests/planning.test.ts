@@ -532,6 +532,37 @@ describe('投稿の再試行・周期タスク', () => {
     expect(await row()).toEqual({ next_date: due, task_status: 'pending', reminded_on: today });
     expect(posts()).toHaveLength(3);
   });
+  it('期限後に投稿した回答案内は前回分として扱い、次の期限のリマインドを止めない（2026-10-28）', async () => {
+    const p0 = await fixture();
+    const calls = discordCalls();
+    const due = jstDate(2);
+    const cycle = {
+      name: '月次調整', schedules: [7001], channel: '111111', forum: '222222', tag: '',
+      rrule: `FREQ=MONTHLY;BYMONTHDAY=${Number(due.slice(8))}`, anchor: due, time: '00:00',
+      adminChannel: '333333', mentionMode: 'users', mentions: ['555555'], taskReminderDays: 0, origin: 'https://test.invalid',
+    };
+    // Yesterday was the due date; it was reminded but nothing was posted.
+    await db
+      .prepare("INSERT INTO planning_cycles(id,guild_id,data,next_date,reminded_on) VALUES('late1',?,?,?,?)")
+      .bind(G, JSON.stringify(cycle), jstDate(-1), jstDate(-1))
+      .run();
+    const real = { ...E(), MOCK_DISCORD: undefined };
+    const row = () => db.prepare("SELECT next_date,task_status FROM planning_cycles WHERE id='late1'").first<any>();
+    await planningTick(real);
+    expect(await row()).toEqual({ next_date: due, task_status: 'late' });
+    const publish = async () => {
+      const p = await createPlan(db, G, { ...p0.data, state: 'draft', profileId: 'late1', deadline: '2099-08-01T00:00:00.000Z' });
+      expect((await call(p, 'publish')).status).toBe(200);
+      await deliverPending(real);
+    };
+    await publish(); // The overdue 回答案内.
+    expect((await row()).task_status).toBe('pending');
+    await db.prepare("UPDATE planning_cycles SET next_date=? WHERE id='late1'").bind(jstDate(0)).run(); // The new due date arrives.
+    await planningTick(real);
+    expect(calls.filter((c) => c.path.endsWith('/channels/333333/messages') && c.method === 'POST')).toHaveLength(1);
+    await publish(); // This due date's 回答案内.
+    expect((await row()).task_status).toBe('complete');
+  });
   it('担当者催促は 1 回 5 件まで。残りは次の周期に送り、同じ日に二重送信しない（ADR 0033）', async () => {
     const calls = discordCalls();
     const due = jstDate(1);
